@@ -11,6 +11,20 @@
 /* Paleta DMG: índice 0-3 -> gris 0-3 */
 static const uint8_t gb_dmg_palette[4] = {0xFF, 0xAA, 0x55, 0x00};
 
+/* STAT interrupt: if enabled (bits 3–6) and condition matches, set IF bit 1 */
+static void trigger_stat_if_needed(gb_mem_t *mem)
+{
+    uint8_t s = mem->io[GB_IO_STAT];
+    if ((s & 0x40) && (s & 4))
+        mem->io[GB_IO_IF] |= GB_IF_LCDC;
+    if ((s & 0x08) && ((s & 3) == 0))
+        mem->io[GB_IO_IF] |= GB_IF_LCDC;
+    if ((s & 0x10) && ((s & 3) == 1))
+        mem->io[GB_IO_IF] |= GB_IF_LCDC;
+    if ((s & 0x20) && ((s & 3) == 2))
+        mem->io[GB_IO_IF] |= GB_IF_LCDC;
+}
+
 static uint8_t get_pixel_from_tile(const uint8_t *vram, uint8_t tile_id,
                                    int x, int y, int signed_addr)
 {
@@ -144,6 +158,7 @@ void gb_ppu_step(gb_ppu_t *ppu, struct gb_mem *mem, int cycles)
                     ppu->dot_counter -= GB_PPU_MODE2_DOTS;
                     ppu->mode = GB_PPU_MODE_TRANSFER;
                     *stat = (*stat & 0xFC) | GB_PPU_MODE_TRANSFER;
+                    trigger_stat_if_needed(m);
                 }
                 else
                 {
@@ -159,6 +174,7 @@ void gb_ppu_step(gb_ppu_t *ppu, struct gb_mem *mem, int cycles)
                     render_scanline(ppu, m);
                     ppu->mode = GB_PPU_MODE_HBLANK;
                     *stat = (*stat & 0xFC) | GB_PPU_MODE_HBLANK;
+                    trigger_stat_if_needed(m);
                 }
                 else
                 {
@@ -178,6 +194,7 @@ void gb_ppu_step(gb_ppu_t *ppu, struct gb_mem *mem, int cycles)
                         ppu->mode = GB_PPU_MODE_OAM;
                         *stat = (*stat & 0xFC) | GB_PPU_MODE_OAM;
                     }
+                    trigger_stat_if_needed(m);
                 }
                 else
                 {
@@ -192,6 +209,7 @@ void gb_ppu_step(gb_ppu_t *ppu, struct gb_mem *mem, int cycles)
                 ppu->mode = GB_PPU_MODE_VBLANK;
                 *stat = (*stat & 0xFC) | GB_PPU_MODE_VBLANK;
                 m->io[GB_IO_IF] |= GB_IF_VBLANK;
+                trigger_stat_if_needed(m);
             }
             if (ppu->dot_counter >= GB_DOTS_PER_SCANLINE)
             {
@@ -204,6 +222,7 @@ void gb_ppu_step(gb_ppu_t *ppu, struct gb_mem *mem, int cycles)
                     ppu->mode = GB_PPU_MODE_OAM;
                     *stat = (*stat & 0xFC) | GB_PPU_MODE_OAM;
                 }
+                trigger_stat_if_needed(m);
             }
             else
             {

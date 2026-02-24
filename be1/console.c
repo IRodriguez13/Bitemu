@@ -45,7 +45,7 @@ static void gb_step(console_t *ctx, int cycles)
     }
 }
 
-static bool gb_load_rom(console_t *ctx, const uint8_t *data, size_t size)
+static bool gb_load_rom(console_t *ctx, const char *path, const uint8_t *data, size_t size)
 {
     gb_impl_t *impl = ctx->impl;
     if (impl->mem.rom)
@@ -55,17 +55,31 @@ static bool gb_load_rom(console_t *ctx, const uint8_t *data, size_t size)
         return false;
     memcpy(impl->mem.rom, data, size);
     impl->mem.rom_size = size;
+    impl->mem.cart_type = (size > 0x148) ? data[0x147] : 0x01;
+    impl->rom_path[0] = '\0';
+    if (path) {
+        size_t len = strlen(path);
+        if (len >= GB_ROM_PATH_MAX)
+            len = GB_ROM_PATH_MAX - 1;
+        memcpy(impl->rom_path, path, len);
+        impl->rom_path[len] = '\0';
+    }
     gb_mem_reset(&impl->mem);
     gb_cpu_reset(&impl->cpu);
+    if (path)
+        gb_mem_load_sav(&impl->mem, path);
     return true;
 }
 
 static void gb_unload_rom(console_t *ctx)
 {
     gb_impl_t *impl = ctx->impl;
+    if (impl->rom_path[0])
+        gb_mem_save_sav(&impl->mem, impl->rom_path);
     free(impl->mem.rom);
     impl->mem.rom = NULL;
     impl->mem.rom_size = 0;
+    impl->rom_path[0] = '\0';
 }
 
 static int gb_cycles_per_frame(console_t *ctx)

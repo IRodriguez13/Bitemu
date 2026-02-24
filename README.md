@@ -81,4 +81,6 @@ make cli      # → bitemu-cli (C headless)
 ./bitemu-cli -rom juego.gb
 ```
 
-Controles: WASD (D-pad), IJKL (A,B,Select,Start), U/I (Start, Select), Escape.
+Controles: WASD (D-pad), J/K (A/B), U/I (Select/Start), Escape.
+
+Los juegos con batería (p. ej. Pokémon Red/Blue) guardan la partida en un archivo `.sav` junto a la ROM; se carga al abrir la ROM y se guarda al cerrar el emulador.

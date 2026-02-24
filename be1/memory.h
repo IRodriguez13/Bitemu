@@ -64,11 +64,17 @@
 #define GB_MBC_ROM_BANK_HI     0x60
 #define GB_MBC_RAM_BANK_MASK   0x03
 
+/* Cartridge type (ROM header 0x147): 0=ROM only, 1-3=MBC1, 0x0F-0x13=MBC3 */
+#define GB_CART_ROM_ONLY  0x00
+#define GB_CART_MBC1      0x01
+#define GB_CART_MBC3      0x13
+
 typedef struct gb_mem {
     /* ROM: apuntado desde fuera (cargado por load_rom) */
     uint8_t *rom;
     size_t rom_size;
     uint8_t rom_bank;
+    uint8_t cart_type;
 
     /* External RAM (cartucho) */
     uint8_t ext_ram[GB_EXT_RAM_SIZE];
@@ -92,6 +98,10 @@ typedef struct gb_mem {
 
 void gb_mem_init(gb_mem_t *mem);
 void gb_mem_reset(gb_mem_t *mem);
+
+/* Battery save: path = ROM path; .sav derived by replacing extension. No-op if no battery cart. */
+void gb_mem_load_sav(gb_mem_t *mem, const char *rom_path);
+void gb_mem_save_sav(const gb_mem_t *mem, const char *rom_path);
 
 uint8_t gb_mem_read(gb_mem_t *mem, uint16_t addr);
 void gb_mem_write(gb_mem_t *mem, uint16_t addr, uint8_t val);

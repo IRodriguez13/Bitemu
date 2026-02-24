@@ -65,7 +65,7 @@ bool bitemu_load_rom(bitemu_t *emu, const char *path) {
         return false;
     }
 
-    bool ok = console_load_rom(&emu->engine.console, data, (size_t)size);
+    bool ok = console_load_rom(&emu->engine.console, path, data, (size_t)size);
     free(data);
     if (ok)
         log_info("ROM cargada: %s (%ld bytes)", path, (long)size);

@@ -14,7 +14,7 @@ typedef struct {
     void (*reset)(console_t *ctx);
     void (*step)(console_t *ctx, int cycles);
 
-    bool (*load_rom)(console_t *ctx, const uint8_t *data, size_t size);
+    bool (*load_rom)(console_t *ctx, const char *path, const uint8_t *data, size_t size);
     void (*unload_rom)(console_t *ctx);
 
     int (*cycles_per_frame)(console_t *ctx);  /* NULL = 70224 */
@@ -37,7 +37,7 @@ struct console {
 | `init` | Once, at engine init | Initialize all subsystems (CPU, PPU, APU, memory, etc.) |
 | `reset` | After load_rom or explicit reset | Reset state to power-on / post-boot |
 | `step(cycles)` | Every frame (or sub-frame) | Consume `cycles` T-cycles: run CPU, timer, PPU, APU |
-| `load_rom(data, size)` | When user loads a ROM | Copy ROM, reset, return true on success |
+| `load_rom(path, data, size)` | When user loads a ROM | Copy ROM, reset, load .sav if path given and battery cart; return true on success |
 | `unload_rom` | When destroying emulator | Free ROM buffer, clear references |
 | `cycles_per_frame` | Optional; used by engine_run | Return cycles per frame (e.g. 70224 for GB) |
 
@@ -68,7 +68,7 @@ typedef struct {
     void (*reset)(console_t *ctx);
     void (*step)(console_t *ctx, int cycles);
 
-    bool (*load_rom)(console_t *ctx, const uint8_t *data, size_t size);
+    bool (*load_rom)(console_t *ctx, const char *path, const uint8_t *data, size_t size);
     void (*unload_rom)(console_t *ctx);
 
     int (*cycles_per_frame)(console_t *ctx);  /* NULL = 70224 */
@@ -91,7 +91,7 @@ struct console {
 | `init` | Una vez, al iniciar el engine | Inicializar todos los subsistemas |
 | `reset` | Tras load_rom o reset explícito | Restaurar estado de encendido |
 | `step(cycles)` | Cada frame (o sub-frame) | Consumir `cycles` T-ciclos: CPU, timer, PPU, APU |
-| `load_rom(data, size)` | Al cargar una ROM | Copiar ROM, reset, devolver true si OK |
+| `load_rom(path, data, size)` | Al cargar una ROM | Copiar ROM, reset, cargar .sav si path y cart con batería; devolver true si OK |
 | `unload_rom` | Al destruir el emulador | Liberar buffer ROM |
 | `cycles_per_frame` | Opcional; usado por engine_run | Devolver ciclos por frame (ej. 70224 para GB) |
 

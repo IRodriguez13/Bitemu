@@ -27,7 +27,8 @@ typedef struct
     void (*reset)(console_t *ctx);
     void (*step)(console_t *ctx, int cycles);
 
-    bool (*load_rom)(console_t *ctx, const uint8_t *data, size_t size);
+    /* path may be NULL; used for battery save (.sav) path derivation */
+    bool (*load_rom)(console_t *ctx, const char *path, const uint8_t *data, size_t size);
     void (*unload_rom)(console_t *ctx);
 
     /* Ciclos por frame (NULL = 70224). Usado por engine_run. */
@@ -59,9 +60,9 @@ static inline void console_step(console_t *c, int cycles)
         c->ops->step(c, cycles);
 }
 
-static inline bool console_load_rom(console_t *c, const uint8_t *data, size_t size) {
+static inline bool console_load_rom(console_t *c, const char *path, const uint8_t *data, size_t size) {
     if (c && c->ops && c->ops->load_rom)
-        return c->ops->load_rom(c, data, size);
+        return c->ops->load_rom(c, path, data, size);
     return false;
 }
 

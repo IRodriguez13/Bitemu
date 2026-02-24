@@ -1,5 +1,9 @@
 # CPU (LR35902 / SM83)
 
+**Guía del código C:** para un recorrido detallado de cómo está implementada la CPU en `be1/cpu.c` (flujo, macros, ALU, switch de opcodes, CB, interrupciones), ver **[01-cpu-implementation.md](01-cpu-implementation.md)**.
+
+---
+
 ## English
 
 ### 5.1 Overview
@@ -65,6 +69,8 @@ The Game Boy uses the Sharp LR35902 (also known as SM83), a custom CPU derived f
 ---
 
 ## Español
+
+**Guía del código C:** para entender al detalle la implementación en `be1/cpu.c`, ver **[01-cpu-implementation.md](01-cpu-implementation.md)**.
 
 ### 5.1 Resumen
 
