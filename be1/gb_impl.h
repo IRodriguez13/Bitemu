@@ -6,7 +6,7 @@
 #ifndef BITEMU_GB_IMPL_H
 #define BITEMU_GB_IMPL_H
 
-#include "cpu.h"
+#include "cpu/cpu.h"
 #include "ppu.h"
 #include "apu.h"
 #include "memory.h"

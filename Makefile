@@ -13,7 +13,7 @@ SRC_DIR = src
 
 CORE_SRCS = $(CORE_DIR)/engine.c $(CORE_DIR)/timing.c $(CORE_DIR)/input.c
 UTILS_SRCS = $(UTILS_DIR)/log.c $(UTILS_DIR)/helpers.c
-BE1_SRCS = $(BE1_DIR)/console.c $(BE1_DIR)/cpu.c $(BE1_DIR)/ppu.c $(BE1_DIR)/apu.c $(BE1_DIR)/timer.c $(BE1_DIR)/memory.c $(BE1_DIR)/input.c
+BE1_SRCS = $(BE1_DIR)/console.c $(BE1_DIR)/cpu/cpu.c $(BE1_DIR)/ppu.c $(BE1_DIR)/apu.c $(BE1_DIR)/timer.c $(BE1_DIR)/memory.c $(BE1_DIR)/input.c
 API_SRCS = $(SRC_DIR)/bitemu.c
 
 CLI_SRCS = main_cli.c $(API_SRCS) $(CORE_SRCS) $(UTILS_SRCS) $(BE1_SRCS)

@@ -4,8 +4,8 @@
  */
 
 #include "cpu.h"
-#include "memory.h"
-#include "gb_constants.h"
+#include "../memory.h"
+#include "../gb_constants.h"
 #include <stddef.h>
 
 #define HL ((uint16_t)((cpu->h << 8) | cpu->l))

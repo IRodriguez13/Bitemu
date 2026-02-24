@@ -4,7 +4,7 @@
 
 #include "core/console.h"
 #include "gb_impl.h"
-#include "cpu.h"
+#include "cpu/cpu.h"
 #include "ppu.h"
 #include "apu.h"
 #include "timer.h"
