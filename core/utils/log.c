@@ -7,7 +7,8 @@
 #include <stdio.h>
 #include <stdarg.h>
 
-void log_info(const char *fmt, ...) {
+void log_info(const char *fmt, ...) 
+{
     va_list args;
     va_start(args, fmt);
     fprintf(stderr, "[INFO] ");
@@ -16,7 +17,8 @@ void log_info(const char *fmt, ...) {
     va_end(args);
 }
 
-void log_warn(const char *fmt, ...) {
+void log_warn(const char *fmt, ...) 
+{
     va_list args;
     va_start(args, fmt);
     fprintf(stderr, "[WARN] ");
@@ -25,7 +27,8 @@ void log_warn(const char *fmt, ...) {
     va_end(args);
 }
 
-void log_error(const char *fmt, ...) {
+void log_error(const char *fmt, ...) 
+{
     va_list args;
     va_start(args, fmt);
     fprintf(stderr, "[ERROR] ");
@@ -34,7 +37,8 @@ void log_error(const char *fmt, ...) {
     va_end(args);
 }
 
-void log_debug(const char *fmt, ...) {
+void log_debug(const char *fmt, ...) 
+{
     va_list args;
     va_start(args, fmt);
     fprintf(stderr, "[DEBUG] ");

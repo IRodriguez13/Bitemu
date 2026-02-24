@@ -7,7 +7,7 @@ LDFLAGS =
 
 CORE_DIR = core
 UTILS_DIR = core/utils
-BE1_DIR = BE1
+BE1_DIR = be1
 
 CORE_SRCS = $(CORE_DIR)/engine.c $(CORE_DIR)/timing.c $(CORE_DIR)/input.c
 UTILS_SRCS = $(UTILS_DIR)/log.c $(UTILS_DIR)/helpers.c
@@ -19,7 +19,7 @@ TARGET = bitemu
 
 .PHONY: all clean
 
-all: $(TARGET)
+bitemu: $(TARGET)
 
 $(TARGET): $(OBJS)
 	$(CC) $(OBJS) -o $@ $(LDFLAGS)

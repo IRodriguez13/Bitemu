@@ -5,10 +5,12 @@
 
 #include "cpu.h"
 
-void gb_cpu_init(gb_cpu_t *cpu) {
+void gb_cpu_init(gb_cpu_t *cpu) 
+{
     (void)cpu;
 }
 
-void gb_cpu_step(gb_cpu_t *cpu) {
+void gb_cpu_step(gb_cpu_t *cpu) 
+{
     (void)cpu;
 }

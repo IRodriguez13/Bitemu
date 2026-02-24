@@ -6,7 +6,8 @@
 #include "engine.h"
 #include "utils/log.h"
 
-void engine_init(engine_t *engine, const console_ops_t *ops, void *impl) {
+void engine_init(engine_t *engine, const console_ops_t *ops, void *impl) 
+{
     engine->console.ops = ops;
     engine->console.impl = impl;
     engine->running = 0;
@@ -21,6 +22,7 @@ void engine_run(engine_t *engine) {
     }
 }
 
-void engine_stop(engine_t *engine) {
+void engine_stop(engine_t *engine) 
+{
     engine->running = 0;
 }
