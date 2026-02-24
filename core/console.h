@@ -29,6 +29,9 @@ typedef struct
 
     bool (*load_rom)(console_t *ctx, const uint8_t *data, size_t size);
     void (*unload_rom)(console_t *ctx);
+
+    /* Ciclos por frame (NULL = 70224). Usado por engine_run. */
+    int (*cycles_per_frame)(console_t *ctx);
 } console_ops_t;
 
 struct console 

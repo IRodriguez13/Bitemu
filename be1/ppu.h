@@ -8,11 +8,17 @@
 
 #include <stdint.h>
 
+#define GB_FRAMEBUFFER_SIZE (160 * 144)
+
+struct gb_mem;
+
 typedef struct gb_ppu {
-    uint8_t lcdc, stat, scy, scx, ly, lyc;
+    int mode;
+    int dot_counter;
+    uint8_t framebuffer[GB_FRAMEBUFFER_SIZE];
 } gb_ppu_t;
 
 void gb_ppu_init(gb_ppu_t *ppu);
-void gb_ppu_step(gb_ppu_t *ppu, int cycles);
+void gb_ppu_step(gb_ppu_t *ppu, struct gb_mem *mem, int cycles);
 
 #endif /* BITEMU_GB_PPU_H */

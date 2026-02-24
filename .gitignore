@@ -1,3 +1,37 @@
+# Build artifacts (C)
 *.o
-bitemu
 *.a
+*.so
+*.dylib
+bitemu
+bitemu-cli
+
+# Rust
+rust/target/
+rust/rust/
+
+# ROMs (user-provided; keep out of repo unless public-domain test ROMs)
+roms/
+
+# Editor / IDE
+.idea/
+.vscode/
+*.swp
+*~
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Debug / core dumps
+core
+*.core
+
+# Backup
+*.bak
+*.orig
+
+# Dependencies / generated
+.deps/
+*.d
