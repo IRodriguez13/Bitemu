@@ -1,6 +1,9 @@
 /**
  * Bitemu BE1 - Game Boy Input
- * Joypad: D-pad + A, B, Select, Start
+ *
+ * gb_input_poll: lee teclado (WASD, J/K, U/I, Enter) y actualiza joypad_state.
+ * gb_input_set_state: permite inyectar estado desde fuera (p. ej. GUI).
+ * Convención: bit 1 = tecla pulsada; 0-3 = D-pad (R,L,U,D), 4-7 = A,B,Select,Start.
  */
 
 #ifndef BITEMU_GB_INPUT_H

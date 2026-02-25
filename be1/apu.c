@@ -1,6 +1,9 @@
 /**
  * Bitemu - Game Boy APU
- * Square1, Square2, Wave, Noise. Lee registros de memoria.
+ *
+ * Canales: Square1, Square2, Wave, Noise. Lee registros NRxx de memoria.
+ * Paso por ciclos: actualiza contadores de duty/onda/LFSR según frecuencias.
+ * NR52 bit 7 = APU on; si está apagado no se avanza ningún canal.
  */
 
 #include "apu.h"

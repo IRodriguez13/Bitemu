@@ -1,5 +1,8 @@
 /**
  * BE1 - Game Boy: implementación de la interfaz core
+ *
+ * Conecta console_t con gb_impl_t: init/reset, step (poll input + CPU hasta
+ * completar un frame de ciclos), load_rom/unload_rom (incluye .sav si hay batería).
  */
 
 #include "core/console.h"
@@ -33,15 +36,15 @@ static void gb_reset(console_t *ctx)
 static void gb_step(console_t *ctx, int cycles)
 {
     gb_impl_t *impl = ctx->impl;
-    gb_input_poll(&impl->mem);
+    /* Input lo inyecta el frontend (GUI: bitemu_set_input; CLI: bitemu_poll_input). */
     int consumed = 0;
     while (consumed < cycles)
     {
-        int c = gb_cpu_step(&impl->cpu, &impl->mem);
-        consumed += c;
-        gb_timer_step(&impl->mem, c);
-        gb_ppu_step(&impl->ppu, &impl->mem, c);
-        gb_apu_step(&impl->apu, &impl->mem, c);
+        int step_cycles = gb_cpu_step(&impl->cpu, &impl->mem);
+        consumed += step_cycles;
+        gb_timer_step(&impl->mem, step_cycles);
+        gb_ppu_step(&impl->ppu, &impl->mem, step_cycles);
+        gb_apu_step(&impl->apu, &impl->mem, step_cycles);
     }
 }
 

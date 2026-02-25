@@ -1,12 +1,14 @@
 /**
  * Bitemu BE1 - Game Boy constantes
- * Sin magic numbers.
+ *
+ * Centraliza todos los valores literales de la implementación para evitar
+ * "magic numbers" y documentar el significado de cada uno.
  */
 
 #ifndef BITEMU_GB_CONSTANTS_H
 #define BITEMU_GB_CONSTANTS_H
 
-/* Timing (dots = T-cycles @ 4.194304 MHz) */
+/* ----- Timing (dots = T-cycles @ 4.194304 MHz) ----- */
 #define GB_CPU_HZ            4194304
 #define GB_DOTS_PER_SCANLINE 456
 #define GB_SCANLINES_VISIBLE 144
@@ -15,26 +17,56 @@
 #define GB_DOTS_PER_FRAME   (GB_DOTS_PER_SCANLINE * GB_SCANLINES_TOTAL)  /* 70224 */
 #define GB_FPS               59.7275
 
-/* PPU modes */
+/* ----- PPU: modos y duraciones ----- */
 #define GB_PPU_MODE_HBLANK  0
 #define GB_PPU_MODE_VBLANK  1
 #define GB_PPU_MODE_OAM     2
 #define GB_PPU_MODE_TRANSFER 3
 
-/* PPU mode durations (dots) */
 #define GB_PPU_MODE2_DOTS   80
 #define GB_PPU_MODE3_MIN    172
 #define GB_PPU_MODE3_MAX    289
-#define GB_PPU_VBLANK_DOTS  (GB_DOTS_PER_SCANLINE * GB_SCANLINES_VBLANK)  /* 4560 */
+#define GB_PPU_VBLANK_DOTS  (GB_DOTS_PER_SCANLINE * GB_SCANLINES_VBLANK)
 
-/* Display */
+/* LCDC (0xFF40): bits de control del LCD */
+#define GB_LCDC_ON           0x80
+#define GB_LCDC_WIN_TILEMAP  0x40
+#define GB_LCDC_WIN_ON       0x20
+#define GB_LCDC_BG_TILES     0x10   /* 0 = signed 0x9000, 1 = unsigned 0x8000 */
+#define GB_LCDC_BG_TILEMAP   0x08   /* 0 = 0x9800, 1 = 0x9C00 */
+#define GB_LCDC_OBJ_H        0x04   /* 0 = 8px, 1 = 16px */
+#define GB_LCDC_OBJ_ON       0x02
+#define GB_LCDC_BG_ON        0x01
+
+/* STAT (0xFF41): bits de estado e interrupciones */
+#define GB_STAT_LYC_INT  0x40
+#define GB_STAT_OAM_INT  0x20
+#define GB_STAT_VBL_INT  0x10
+#define GB_STAT_HBL_INT  0x08
+#define GB_STAT_LYC_EQ   0x04   /* LYC=LY comparison */
+#define GB_STAT_MODE_MASK 0x03
+
+/* ----- Display ----- */
 #define GB_LCD_WIDTH        160
 #define GB_LCD_HEIGHT       144
 #define GB_TILE_SIZE        8
 #define GB_TILES_PER_ROW    20
 #define GB_TILES_PER_COL    18
 
-/* IO offsets (from 0xFF00) */
+/* VRAM: direcciones base de tiles */
+#define GB_TILE_DATA_UNSIGNED 0x8000
+#define GB_TILE_DATA_SIGNED   0x9000
+#define GB_BG_MAP_LO         0x9800
+#define GB_BG_MAP_HI         0x9C00
+
+/** Máximo de sprites por scanline (hardware solo muestra los primeros 10 que coinciden). */
+#define GB_OAM_SPRITES_PER_LINE 10
+
+/* ----- Timer: TAC (0xFF07) ----- */
+#define GB_TAC_ENABLE  0x04
+#define GB_TAC_RATE    0x03
+
+/* ----- IO offsets (desplazamiento desde 0xFF00) ----- */
 #define GB_IO_JOYP          0x00
 #define GB_IO_SB            0x01
 #define GB_IO_SC            0x02
@@ -77,12 +109,21 @@
 #define GB_IO_WX            0x4B
 #define GB_IO_IF            0x0F
 
-/* Interrupt bits (IF/IE) */
+/* JOYP (0xFF00): bits de selección de grupo de teclas */
+#define GB_JOYP_SEL_DIR  0x10
+#define GB_JOYP_SEL_BTN  0x20
+#define GB_JOYP_READ_MASK 0x0F
+
+/* ----- Interrupt bits (IF/IE) ----- */
 #define GB_IF_VBLANK  0x01
 #define GB_IF_LCDC    0x02
 #define GB_IF_TIMER   0x04
 #define GB_IF_SERIAL  0x08
 #define GB_IF_JOYPAD  0x10
+/** Máscara de los 5 bits de interrupción en IF/IE (no usar bits reservados). */
+#define GB_IF_IE_MASK  0x1F
+/** Bits reservados de IF: leen 1 y no se modifican con escritura. */
+#define GB_IF_RESERVED 0xE0
 
 /* Interrupt vectors */
 #define GB_IV_VBLANK  0x40
@@ -91,7 +132,32 @@
 #define GB_IV_SERIAL  0x58
 #define GB_IV_JOYPAD  0x60
 
+/* ----- CPU / ALU ----- */
+/** Punto de entrada tras reset (sin boot ROM). */
+#define GB_CPU_ENTRY   0x0100
+/** Estado típico del registro F tras boot (Z=1, N=1, H=1, C=0). */
+#define GB_CPU_F_POSTBOOT 0xB0
+/** Máscara del byte bajo (8 bits). */
+#define GB_BYTE_LO      0xFF
+/** Máscara de la palabra baja (16 bits). */
+#define GB_WORD_LO      0xFFFF
+/** Máscara de 12 bits para medio acarreo en ADD HL,rr (nibble alto de cada byte). */
+#define GB_HALFCARRY_12 0xFFF
+/** Base de la zona I/O (0xFF00); LDH n,A usa 0xFF00|n. */
+#define GB_IO_BASE      0xFF00
+/** Registro F: solo se usan los 4 bits altos (Z,N,H,C). */
+#define GB_F_UPPER      0xF0
+/** DAA: umbral BCD para ajuste (decimal 99). */
+#define GB_BCD_HI       0x99
+/** DAA: corrección para carry/medio acarreo (restar 0x60 / sumar 6). */
+#define GB_DAA_CARRY    0x60
+#define GB_DAA_NIBBLE   6
+/** SP tras reset (apunta al tope de la pila, debajo de la zona I/O). */
+#define GB_SP_INIT      0xFFFE
+
 /* Joypad */
+/** Estado "ninguna tecla": todas las líneas en 1 (released). */
+#define GB_JOYP_RELEASED 0xFF
 #define GB_JOYP_DIR_BIT     4
 #define GB_JOYP_BTN_BIT     5
 #define GB_JOYP_BIT_RIGHT   0

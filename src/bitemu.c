@@ -8,6 +8,7 @@
 #include "core/console.h"
 #include "core/utils/log.h"
 #include "be1/gb_impl.h"
+#include "be1/input.h"
 #include "be1/ppu.h"
 #include "be1/gb_constants.h"
 
@@ -90,6 +91,15 @@ const uint8_t *bitemu_get_framebuffer(const bitemu_t *emu) {
 
 void bitemu_set_input(bitemu_t *emu, uint8_t state) {
     if (emu) emu->impl.mem.joypad_state = state;
+}
+
+void bitemu_poll_input(bitemu_t *emu) {
+    if (emu) gb_input_poll(&emu->impl.mem);
+}
+
+void bitemu_reset(bitemu_t *emu) {
+    if (emu)
+        console_reset(&emu->engine.console);
 }
 
 void bitemu_stop(bitemu_t *emu) {

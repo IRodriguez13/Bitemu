@@ -36,6 +36,12 @@ const uint8_t *bitemu_get_framebuffer(const bitemu_t *emu);
 /* Joypad: bits 0-3=D-pad(R,L,U,D), 4-7=botones(A,B,Select,Start); 1=presionado */
 void bitemu_set_input(bitemu_t *emu, uint8_t state);
 
+/* Solo para CLI: lee teclado (stdin) y actualiza el joypad. La GUI usa bitemu_set_input. */
+void bitemu_poll_input(bitemu_t *emu);
+
+/* Reset de la consola (estado post-carga, sin recargar la ROM) */
+void bitemu_reset(bitemu_t *emu);
+
 /* Señal de parada (para el loop) */
 void bitemu_stop(bitemu_t *emu);
 bool bitemu_is_running(const bitemu_t *emu);

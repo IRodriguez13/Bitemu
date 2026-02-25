@@ -1,15 +1,16 @@
 /**
  * Bitemu - Game Boy Timer
- * DIV: 16-bit internal, upper byte at 0xFF04, 16384 Hz
- * TIMA: incrementa cuando TAC habilitado, overflow -> IF bit 2, reload TMA
- * Escribir en DIV resetea el contador interno
+ *
+ * DIV: contador interno de 16 bits; el byte alto se expone en 0xFF04 (16384 Hz).
+ * TIMA: se incrementa cuando TAC bit 2 está activo; overflow -> IF bit 2 y recarga desde TMA.
+ * Escribir en DIV resetea el contador interno (y por tanto DIV visible).
  */
 
 #include "timer.h"
 #include "memory.h"
 #include "gb_constants.h"
 
-/* Divisores TAC para TIMA (ciclos entre incrementos) */
+/* Divisores para TIMA según TAC bits 0-1: 1024, 16, 64, 256 ciclos entre pasos */
 static const int gb_tima_div[] = {1024, 16, 64, 256};
 
 void gb_timer_step(struct gb_mem *mem, int cycles)
@@ -17,14 +18,12 @@ void gb_timer_step(struct gb_mem *mem, int cycles)
     uint16_t div_old = mem->timer_div;
     mem->timer_div += cycles;
 
-    /* DIV = bits 15-8 del contador interno */
     mem->io[GB_IO_DIV] = (uint8_t)(mem->timer_div >> 8);
 
-    /* TIMA: solo si TAC bit 2 está activo */
-    if (!(mem->io[GB_IO_TAC] & 0x04))
+    if (!(mem->io[GB_IO_TAC] & GB_TAC_ENABLE))
         return;
 
-    int div = gb_tima_div[mem->io[GB_IO_TAC] & 3];
+    int div = gb_tima_div[mem->io[GB_IO_TAC] & GB_TAC_RATE];
     int old_phase = div_old / div;
     int new_phase = mem->timer_div / div;
 

@@ -50,8 +50,9 @@ int main(int argc, char *argv[]) {
 
     log_info("ROM cargada. Ejecutando (Ctrl+C para salir)...");
 
-    while (bitemu_run_frame(emu)) {
-        /* CLI: sin ventana, solo corre */
+    while (1) {
+        bitemu_poll_input(emu);  /* CLI: leer teclado antes de cada frame */
+        if (!bitemu_run_frame(emu)) break;
     }
 
     bitemu_destroy(emu);

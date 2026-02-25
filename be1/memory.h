@@ -64,10 +64,19 @@
 #define GB_MBC_ROM_BANK_HI     0x60
 #define GB_MBC_RAM_BANK_MASK   0x03
 
-/* Cartridge type (ROM header 0x147): 0=ROM only, 1-3=MBC1, 0x0F-0x13=MBC3 */
+/* Cartridge type (ROM header 0x147): 0=ROM only, 1-3=MBC1, 0x0F-0x13=MBC3, 0x19-0x1E=MBC5 */
 #define GB_CART_ROM_ONLY  0x00
 #define GB_CART_MBC1      0x01
 #define GB_CART_MBC3      0x13
+#define GB_CART_MBC5      0x19
+#define GB_CART_MBC5_MAX  0x1E
+
+/* MBC3 RTC: registros 4-0xC (4=seconds, 5=min, 6=hours, 7=days low, 8=days high; 9-0xC no usados) */
+#define GB_MBC3_RTC_S   4
+#define GB_MBC3_RTC_M   5
+#define GB_MBC3_RTC_H   6
+#define GB_MBC3_RTC_DL  7
+#define GB_MBC3_RTC_DH  8
 
 typedef struct gb_mem {
     /* ROM: apuntado desde fuera (cargado por load_rom) */
@@ -75,6 +84,7 @@ typedef struct gb_mem {
     size_t rom_size;
     uint8_t rom_bank;
     uint8_t cart_type;
+    uint8_t mbc5_rom_bank_high;  /* MBC5: bit 9 del banco ROM (0x3000-0x3FFF) */
 
     /* External RAM (cartucho) */
     uint8_t ext_ram[GB_EXT_RAM_SIZE];
@@ -91,6 +101,11 @@ typedef struct gb_mem {
 
     /* Timer: contador interno 16-bit para DIV (DIV = bits 15-8) */
     uint16_t timer_div;
+
+    /* MBC3 RTC: valores actuales y copia al hacer latch (0x01 then 0x00 en 0x6000-0x7FFF) */
+    uint8_t rtc_s, rtc_m, rtc_h, rtc_dl, rtc_dh;
+    uint8_t rtc_latched[5];
+    uint8_t rtc_latch_prev;  /* 1 = se escribió 0x01, siguiente 0x00 hace latch */
 
     /* Joypad: bits 0-3 = D-pad (R,L,U,D), 4-7 = buttons (A,B,Select,Start); 1 = pressed */
     uint8_t joypad_state;

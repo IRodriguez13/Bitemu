@@ -41,7 +41,7 @@ void gb_input_poll(gb_mem_t *mem)
         return;
     set_raw_mode(1);
 
-    uint8_t state = 0xFF;
+    uint8_t state = GB_JOYP_RELEASED;
     char c;
     while (read(STDIN_FILENO, &c, 1) == 1)
     {

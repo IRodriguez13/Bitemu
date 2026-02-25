@@ -1,6 +1,11 @@
 /**
  * Bitemu - Game Boy PPU
- * Modos, LY, STAT, renderizado a framebuffer
+ *
+ * Responsabilidades:
+ * - Máquina de estados por scanline: OAM (80 dots) -> Transfer (172+ dots) -> HBLANK -> siguiente LY.
+ * - VBLANK: LY 144-153, disparo de interrupción VBLANK y STAT según modo.
+ * - Renderizado: fondo (tile map + tile data), sprites (OAM), paletas BGP/OBP0/OBP1.
+ * - STAT: comparación LYC=LY, interrupciones por modo (HBL, VBL, OAM, LYC).
  */
 
 #include "ppu.h"
@@ -8,37 +13,32 @@
 #include "gb_constants.h"
 #include <string.h>
 
-/* Paleta DMG: índice 0-3 -> gris 0-3 */
+/* Paleta DMG: índice de color 0-3 -> nivel de gris (255, 170, 85, 0) */
 static const uint8_t gb_dmg_palette[4] = {0xFF, 0xAA, 0x55, 0x00};
 
-/* STAT interrupt: if enabled (bits 3–6) and condition matches, set IF bit 1 */
+/* Si STAT tiene habilitada la int correspondiente y se cumple la condición, activar IF bit LCDC */
 static void trigger_stat_if_needed(gb_mem_t *mem)
 {
-    uint8_t s = mem->io[GB_IO_STAT];
-    if ((s & 0x40) && (s & 4))
+    uint8_t stat = mem->io[GB_IO_STAT];
+    if ((stat & GB_STAT_LYC_INT) && (stat & GB_STAT_LYC_EQ))
         mem->io[GB_IO_IF] |= GB_IF_LCDC;
-    if ((s & 0x08) && ((s & 3) == 0))
+    if ((stat & GB_STAT_HBL_INT) && ((stat & GB_STAT_MODE_MASK) == GB_PPU_MODE_HBLANK))
         mem->io[GB_IO_IF] |= GB_IF_LCDC;
-    if ((s & 0x10) && ((s & 3) == 1))
+    if ((stat & GB_STAT_VBL_INT) && ((stat & GB_STAT_MODE_MASK) == GB_PPU_MODE_VBLANK))
         mem->io[GB_IO_IF] |= GB_IF_LCDC;
-    if ((s & 0x20) && ((s & 3) == 2))
+    if ((stat & GB_STAT_OAM_INT) && ((stat & GB_STAT_MODE_MASK) == GB_PPU_MODE_OAM))
         mem->io[GB_IO_IF] |= GB_IF_LCDC;
 }
 
 static uint8_t get_pixel_from_tile(const uint8_t *vram, uint8_t tile_id,
                                    int x, int y, int signed_addr)
 {
-    uint16_t base = 0x8000;
+    uint16_t base = signed_addr ? GB_TILE_DATA_SIGNED : GB_TILE_DATA_UNSIGNED;
     int16_t offset;
     if (signed_addr)
-    {
-        base = 0x9000; /* signed: tiles -128..127 at 0x9000 */
         offset = (int16_t)(int8_t)tile_id;
-    }
     else
-    {
-        offset = tile_id & 0xFF;
-    }
+        offset = tile_id & GB_BYTE_LO;
     uint16_t addr = base + offset * 16 + y * 2;
     if (addr < GB_VRAM_START || addr + 1 > GB_VRAM_END)
         return 0;
@@ -48,10 +48,13 @@ static uint8_t get_pixel_from_tile(const uint8_t *vram, uint8_t tile_id,
     return ((hi >> bit) << 1 | (lo >> bit)) & 3;
 }
 
+/* ---------------------------------------------------------------------------
+ * Dibujar una scanline: fondo (BG) y sprites (OBJ) según LCDC
+ * --------------------------------------------------------------------------- */
 static void render_scanline(gb_ppu_t *ppu, gb_mem_t *mem)
 {
     uint8_t lcdc = mem->io[GB_IO_LCDC];
-    if (!(lcdc & 0x80))
+    if (!(lcdc & GB_LCDC_ON))
         return;
 
     uint8_t ly = mem->io[GB_IO_LY];
@@ -61,22 +64,22 @@ static void render_scanline(gb_ppu_t *ppu, gb_mem_t *mem)
     uint8_t scy = mem->io[GB_IO_SCY];
     uint8_t scx = mem->io[GB_IO_SCX];
     uint8_t bgp = mem->io[GB_IO_BGP];
-    uint16_t bg_map = (lcdc & 0x08) ? 0x9C00 : 0x9800;
-    int signed_tiles = !(lcdc & 0x10);
+    uint16_t bg_map = (lcdc & GB_LCDC_BG_TILEMAP) ? GB_BG_MAP_HI : GB_BG_MAP_LO;
+    int signed_tiles = !(lcdc & GB_LCDC_BG_TILES);
 
     uint8_t *fb = ppu->framebuffer + ly * GB_LCD_WIDTH;
     memset(fb, gb_dmg_palette[bgp & 3], GB_LCD_WIDTH);
 
-    if (!(lcdc & 0x01))
+    if (!(lcdc & GB_LCDC_BG_ON))
         return;
 
-    int tile_y = (ly + scy) & 0xFF;
+    int tile_y = (ly + scy) & GB_BYTE_LO;
     int tile_row = tile_y / GB_TILE_SIZE;
     int py = tile_y % GB_TILE_SIZE;
 
     for (int px = 0; px < GB_LCD_WIDTH; px++)
     {
-        int tile_x = (px + scx) & 0xFF;
+        int tile_x = (px + scx) & GB_BYTE_LO;
         int tile_col = tile_x / GB_TILE_SIZE;
         int tx = tile_x % GB_TILE_SIZE;
 
@@ -86,21 +89,61 @@ static void render_scanline(gb_ppu_t *ppu, gb_mem_t *mem)
         fb[px] = gb_dmg_palette[(bgp >> (color_idx * 2)) & 3];
     }
 
-    if (!(lcdc & 0x02))
+    /* Capa Window: se dibuja encima del BG cuando LY >= WY y WX <= 166 */
+    if ((lcdc & GB_LCDC_WIN_ON) && (lcdc & GB_LCDC_ON))
+    {
+        uint8_t wy = mem->io[GB_IO_WY];
+        uint8_t wx = mem->io[GB_IO_WX];
+        if (ly >= wy && wx <= 166)
+        {
+            int win_y = ly - wy;
+            int window_left = (int)wx - 7;
+            if (window_left < GB_LCD_WIDTH)
+            {
+                uint16_t win_map = (lcdc & GB_LCDC_WIN_TILEMAP) ? GB_BG_MAP_HI : GB_BG_MAP_LO;
+                int win_tile_row = win_y / GB_TILE_SIZE;
+                int win_py = win_y % GB_TILE_SIZE;
+                for (int px = (window_left > 0) ? window_left : 0; px < GB_LCD_WIDTH; px++)
+                {
+                    int win_x = px - window_left;
+                    int win_tile_col = win_x / GB_TILE_SIZE;
+                    int win_tx = win_x % GB_TILE_SIZE;
+                    uint16_t map_addr = win_map + win_tile_row * 32 + win_tile_col;
+                    uint8_t tile_id = mem->vram[map_addr - GB_VRAM_START];
+                    uint8_t color_idx = get_pixel_from_tile(mem->vram, tile_id, win_tx, win_py, signed_tiles);
+                    fb[px] = gb_dmg_palette[(bgp >> (color_idx * 2)) & 3];
+                }
+            }
+        }
+    }
+
+    if (!(lcdc & GB_LCDC_OBJ_ON))
         return;
 
-    int obj_h = (lcdc & 0x04) ? 16 : 8;
-    for (int i = GB_OAM_SIZE - 4; i >= 0; i -= 4)
+    /* Solo los primeros 10 sprites que coinciden con esta línea se muestran (límite hardware) */
+    int obj_h = (lcdc & GB_LCDC_OBJ_H) ? 16 : 8;
+    int sprite_count = 0;
+    int sprite_oam_indices[GB_OAM_SPRITES_PER_LINE];
+    for (int i = 0; i < GB_OAM_SIZE && sprite_count < GB_OAM_SPRITES_PER_LINE; i += 4)
     {
         uint8_t y = mem->oam[i];
-        uint8_t x = mem->oam[i + 1];
-        uint8_t tile = mem->oam[i + 2];
-        uint8_t flags = mem->oam[i + 3];
-        if (y == 0 || y >= 160)
+        if (y == 0 || y >= 160)  /* 160 = 144+16: sprite totalmente debajo de la pantalla */
             continue;
         int obj_y = y - 16;
         if (ly < obj_y || ly >= obj_y + obj_h)
             continue;
+        sprite_oam_indices[sprite_count++] = i;
+    }
+
+    /* Dibujar en orden inverso (mayor índice OAM encima) */
+    for (int s = sprite_count - 1; s >= 0; s--)
+    {
+        int i = sprite_oam_indices[s];
+        uint8_t y = mem->oam[i];
+        uint8_t x = mem->oam[i + 1];
+        uint8_t tile = mem->oam[i + 2];
+        uint8_t flags = mem->oam[i + 3];
+        int obj_y = y - 16;
         int obj_x = x - 8;
         if (obj_x <= -8 || obj_x >= GB_LCD_WIDTH)
             continue;
@@ -129,15 +172,18 @@ void gb_ppu_init(gb_ppu_t *ppu)
     ppu->mode = GB_PPU_MODE_OAM;
 }
 
+/* ---------------------------------------------------------------------------
+ * Avance de la PPU por ciclos: actualiza modo, LY, STAT e interrupciones
+ * --------------------------------------------------------------------------- */
 void gb_ppu_step(gb_ppu_t *ppu, struct gb_mem *mem, int cycles)
 {
     gb_mem_t *m = (gb_mem_t *)mem;
     uint8_t lcdc = m->io[GB_IO_LCDC];
 
-    if (!(lcdc & 0x80))
+    if (!(lcdc & GB_LCDC_ON))
     {
         m->io[GB_IO_LY] = 0;
-        m->io[GB_IO_STAT] = (m->io[GB_IO_STAT] & 0xFC) | GB_PPU_MODE_HBLANK;
+        m->io[GB_IO_STAT] = (m->io[GB_IO_STAT] & ~GB_STAT_MODE_MASK) | GB_PPU_MODE_HBLANK;
         return;
     }
 
@@ -157,7 +203,7 @@ void gb_ppu_step(gb_ppu_t *ppu, struct gb_mem *mem, int cycles)
                 {
                     ppu->dot_counter -= GB_PPU_MODE2_DOTS;
                     ppu->mode = GB_PPU_MODE_TRANSFER;
-                    *stat = (*stat & 0xFC) | GB_PPU_MODE_TRANSFER;
+                    *stat = (*stat & ~GB_STAT_MODE_MASK) | GB_PPU_MODE_TRANSFER;
                     trigger_stat_if_needed(m);
                 }
                 else
@@ -173,7 +219,7 @@ void gb_ppu_step(gb_ppu_t *ppu, struct gb_mem *mem, int cycles)
                     ppu->dot_counter -= mode3;
                     render_scanline(ppu, m);
                     ppu->mode = GB_PPU_MODE_HBLANK;
-                    *stat = (*stat & 0xFC) | GB_PPU_MODE_HBLANK;
+                    *stat = (*stat & ~GB_STAT_MODE_MASK) | GB_PPU_MODE_HBLANK;
                     trigger_stat_if_needed(m);
                 }
                 else
@@ -188,11 +234,11 @@ void gb_ppu_step(gb_ppu_t *ppu, struct gb_mem *mem, int cycles)
                     ppu->dot_counter -= (GB_DOTS_PER_SCANLINE - GB_PPU_MODE2_DOTS - GB_PPU_MODE3_MIN);
                     ly++;
                     m->io[GB_IO_LY] = ly;
-                    *stat = (*stat & 0xFB) | ((ly == lyc) ? 4 : 0);
+                    *stat = (*stat & ~GB_STAT_LYC_EQ) | ((ly == lyc) ? GB_STAT_LYC_EQ : 0);
                     if (ly < GB_SCANLINES_VISIBLE)
                     {
                         ppu->mode = GB_PPU_MODE_OAM;
-                        *stat = (*stat & 0xFC) | GB_PPU_MODE_OAM;
+                        *stat = (*stat & ~GB_STAT_MODE_MASK) | GB_PPU_MODE_OAM;
                     }
                     trigger_stat_if_needed(m);
                 }
@@ -207,7 +253,7 @@ void gb_ppu_step(gb_ppu_t *ppu, struct gb_mem *mem, int cycles)
             if (ly == GB_SCANLINES_VISIBLE && ppu->mode != GB_PPU_MODE_VBLANK)
             {
                 ppu->mode = GB_PPU_MODE_VBLANK;
-                *stat = (*stat & 0xFC) | GB_PPU_MODE_VBLANK;
+                *stat = (*stat & ~GB_STAT_MODE_MASK) | GB_PPU_MODE_VBLANK;
                 m->io[GB_IO_IF] |= GB_IF_VBLANK;
                 trigger_stat_if_needed(m);
             }
@@ -216,11 +262,11 @@ void gb_ppu_step(gb_ppu_t *ppu, struct gb_mem *mem, int cycles)
                 ppu->dot_counter -= GB_DOTS_PER_SCANLINE;
                 ly = (ly + 1) % GB_SCANLINES_TOTAL;
                 m->io[GB_IO_LY] = ly;
-                *stat = (*stat & 0xFB) | ((ly == lyc) ? 4 : 0);
+                *stat = (*stat & ~GB_STAT_LYC_EQ) | ((ly == lyc) ? GB_STAT_LYC_EQ : 0);
                 if (ly == 0)
                 {
                     ppu->mode = GB_PPU_MODE_OAM;
-                    *stat = (*stat & 0xFC) | GB_PPU_MODE_OAM;
+                    *stat = (*stat & ~GB_STAT_MODE_MASK) | GB_PPU_MODE_OAM;
                 }
                 trigger_stat_if_needed(m);
             }
