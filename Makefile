@@ -1,6 +1,7 @@
 # Bitemu BE1 - Game Boy Emulator
-# make        → bitemu (Rust GUI)
-# make cli    → bitemu-cli (C headless)
+# Backend: C (core + libbitemu.so). Frontend: Python (PySide6). CLI: C (bitemu-cli).
+# make all   → compila lib + cli y ejecuta frontend Python
+# make help  → ver objetivos
 
 CC = gcc
 CFLAGS = -Wall -Wextra -std=c11 -I. -Iinclude
@@ -20,22 +21,44 @@ CLI_SRCS = main_cli.c $(API_SRCS) $(CORE_SRCS) $(UTILS_SRCS) $(BE1_SRCS)
 CLI_OBJS = $(CLI_SRCS:.c=.o)
 CLI_TARGET = bitemu-cli
 
-.PHONY: all clean cli gui
+.PHONY: all clean cli lib run help
 
-all: gui
+all: lib cli run
 
-gui:
-	cd rust && CARGO_TARGET_DIR="$$(pwd)/target" cargo build --release
-	cp rust/target/release/bitemu bitemu
+help:
+	@echo "Bitemu - Game Boy Emulator (C backend, Python frontend)"
+	@echo "Objetivos: all, lib, cli, run, clean, help"
+	@echo "  all   (def) Compila lib+cli y ejecuta frontend Python"
+	@echo "  lib   libbitemu.so (para el frontend)"
+	@echo "  cli   bitemu-cli (emulador en terminal)"
+	@echo "  run   Ejecuta frontend Python (ventana)"
+	@echo "  clean Borra binarios y objetos"
+	@echo "  help  Esta ayuda"
+
+run: lib frontend/venv/.done
+	cd frontend && ./venv/bin/python main.py
+
+frontend/venv/.done: frontend/requirements.txt
+	cd frontend && python3 -m venv venv && ./venv/bin/pip install -r requirements.txt && touch venv/.done
 
 cli: $(CLI_TARGET)
 
+lib: libbitemu.so
+
 $(CLI_TARGET): $(CLI_OBJS)
 	$(CC) $(CLI_OBJS) -o $@ $(LDFLAGS)
+
+LIB_SRCS = $(API_SRCS) $(CORE_SRCS) $(UTILS_SRCS) $(BE1_SRCS)
+LIB_OBJS = $(patsubst %.c,build/lib/%.o,$(LIB_SRCS))
+libbitemu.so: $(LIB_OBJS)
+	$(CC) -shared -o $@ $(LIB_OBJS) $(LDFLAGS)
+build/lib/%.o: %.c
+	@mkdir -p $(dir $@)
+	$(CC) $(CFLAGS) -fPIC -c $< -o $@
 
 %.o: %.c
 	$(CC) $(CFLAGS) -c $< -o $@
 
 clean:
-	rm -f $(CLI_OBJS) $(CLI_TARGET) bitemu
-	cd rust && cargo clean
+	rm -f $(CLI_OBJS) $(CLI_TARGET) libbitemu.so
+	rm -rf build

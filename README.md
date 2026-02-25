@@ -2,6 +2,8 @@
 
 Emulador de Game Boy. Motor genérico con interfaz reutilizable para futuras ediciones (Genesis, PS1, etc.).
 
+**Stack:** solo **C** (backend + CLI) y **Python** (frontend gráfico). Sin Rust.
+
 ## Arquitectura
 
 El **core** es una interfaz que controla todo y no sabe nada del hardware concreto. Cada consola implementa el contrato vía un adaptador.
@@ -43,7 +45,7 @@ El **core** es una interfaz que controla todo y no sabe nada del hardware concre
 - **be1/console.c** — Adaptador: implementa la interfaz y traduce las llamadas genéricas a CPU, PPU, APU concretos.
 - **be1/** — Emulación del hardware: LR35902, PPU, APU, memoria.
 
-El engine recibe `ops` + `impl` (void*) y nunca conoce el hardware. La inyección se hace en el frontend (Rust GUI o CLI).
+El engine recibe `ops` + `impl` (void*) y nunca conoce el hardware. La inyección se hace en el frontend (Python GUI o CLI en C).
 
 ## Estructura del proyecto
 
@@ -53,9 +55,9 @@ bitemu/
 ├── be1/            # Game Boy (cpu, ppu, apu, memory, timer, console)
 ├── include/        # API pública (bitemu.h)
 ├── src/            # Wrapper API (bitemu.c)
-├── main_cli.c      # Frontend CLI (headless)
+├── main_cli.c      # Frontend CLI (C, headless)
 ├── Makefile
-├── rust/           # Frontend GUI (ventana minifb)
+├── frontend/       # Frontend GUI (Python + PySide6)
 └── Documentation/  # Documentación técnica (EN/ES)
 ```
 
@@ -63,50 +65,50 @@ Ver [Documentation/README.md](Documentation/README.md) para la documentación de
 
 ## Build
 
+Solo **C** (backend y CLI) y **Python** (ventana). Sin Rust.
+
 ```bash
-make          # o make gui → bitemu (Rust GUI)
-make cli      # → bitemu-cli (C headless)
+make          # compila lib + cli y ejecuta frontend Python
+make lib      # libbitemu.so (para el frontend)
+make cli      # bitemu-cli (terminal)
+make run      # solo ejecuta la ventana Python
+make help     # ver todos los objetivos
 ```
 
-**Multiplataforma:** Linux (make), macOS y Windows: `cd rust && cargo build --release`. Config/recientes: Linux `~/.config/bitemu/`, macOS `~/Library/Application Support/bitemu/`, Windows `%APPDATA%\bitemu\`. Se necesita Rust y un C compiler (Xcode CLI en macOS, VS Build Tools o MinGW en Windows).
+Requisitos: compilador C (gcc), Python 3.10+, PySide6. Ver `frontend/README.md`.
 
 ## Cómo lanzar la GUI
 
-Tras compilar con `make`:
-
 ```bash
-./bitemu -rom /ruta/a/tu/juego.gb
+make run
 ```
 
-- **Sin `--cli`** → se abre la ventana (GUI con minifb).
-- **Con `--cli`** → modo headless (sin ventana, corre en terminal).
-- **Controles:** D-pad: WASD o flechas. A=J o Z, B=K o X. Select=U, Start=I o Enter. Escape = cerrar. F3=Pausa, F4=Reset, Ctrl+O=Abrir ROM.
-
-El ejecutable `bitemu` está en la raíz del proyecto. Si lo quieres en el PATH, puedes hacer `sudo cp bitemu /usr/local/bin/` o añadir el directorio al PATH.
+O tras `make lib`: `cd frontend && python3 main.py`. Controles: WASD/flechas (D-pad), J/Z (A), K/X (B), U (Select), I/Enter (Start), F3=Pausa, F4=Reiniciar, Archivo → Abrir ROM.
 
 ## Uso
 
 ```bash
-# GUI (ventana) — por defecto
-./bitemu -rom juego.gb
+# Ventana (frontend Python)
+make run
 
-# Headless (sin ventana)
-./bitemu -rom juego.gb --cli
-
-# Alternativa C (solo headless)
+# Terminal (CLI en C)
 ./bitemu-cli -rom juego.gb
 ```
 
-Controles: WASD o flechas (D-pad), J/Z (A), K/X (B), U (Select), I/Enter (Start), Escape (salir). Ventana 4x (640×576).
+Controles en la GUI: WASD o flechas (D-pad), J/Z (A), K/X (B), U (Select), I/Enter (Start).
 
 Los juegos con batería (p. ej. Pokémon Red/Blue) guardan la partida en un archivo `.sav` junto a la ROM; se carga al abrir la ROM y se guarda al cerrar el emulador.
+
+## Licencia
+
+Bitemu se distribuye bajo la **GNU Lesser General Public License v3.0** (o posterior). Ver [LICENSE](LICENSE) para el texto completo. Permite usar la biblioteca (core C y `libbitemu`) en programas propietarios siempre que se cumplan los términos de la LGPL (p. ej. enlazado dinámico y entrega del código fuente de la biblioteca si se modifica).
 
 ## Limitaciones y qué falta para juegos complejos
 
 Lo que **ya está** implementado:
 
 - CPU LR35902: juego de instrucciones completo (incl. prefijo CB), interrupciones, HALT, EI con retardo.
-- Memoria: mapa completo, **MBC1, MBC3 y MBC5**, RAM de bater2ía (.sav), **MBC3 RTC** (registros y latch 0x01/0x00), JOYP, DIV, DMA a OAM, IF/IE.
+- Memoria: mapa completo, **MBC1, MBC3 y MBC5**, RAM de batería (.sav), **MBC3 RTC** (registros y latch 0x01/0x00), JOYP, DIV, DMA a OAM, IF/IE.
 - PPU: fondos, sprites (8×8 y 8×16), **capa Window** (WY, WX, tile map), scroll, paletas BGP/OBP, **límite de 10 sprites por línea**, STAT y VBLANK.
 - Timer: DIV, TIMA, TAC, interrupción de timer.
 - Input: joypad vía API (GUI inyecta estado con teclado).
