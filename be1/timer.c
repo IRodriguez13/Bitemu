@@ -30,15 +30,14 @@ void gb_timer_step(struct gb_mem *mem, int cycles)
     while (old_phase < new_phase)
     {
         uint8_t tima = mem->io[GB_IO_TIMA] + 1;
-        if (tima == 0)
-        {
-            mem->io[GB_IO_TIMA] = mem->io[GB_IO_TMA];
-            mem->io[GB_IO_IF] |= GB_IF_TIMER;
-        }
-        else
+        if (tima != 0)
         {
             mem->io[GB_IO_TIMA] = tima;
+            return;
         }
+        
+        mem->io[GB_IO_TIMA] = mem->io[GB_IO_TMA];
+        mem->io[GB_IO_IF] |= GB_IF_TIMER;
         old_phase++;
     }
 }

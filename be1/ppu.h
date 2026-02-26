@@ -12,7 +12,8 @@
 
 struct gb_mem;
 
-typedef struct gb_ppu {
+typedef struct gb_ppu 
+{
     int mode;
     int dot_counter;
     uint8_t framebuffer[GB_FRAMEBUFFER_SIZE];

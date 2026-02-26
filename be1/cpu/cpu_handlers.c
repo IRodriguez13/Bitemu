@@ -857,6 +857,7 @@ static int op_inc_a(gb_cpu_t *cpu, gb_mem_t *m, uint8_t op)
     cpu->a = a;
     return 4;
 }
+
 static int op_dec_a(gb_cpu_t *cpu, gb_mem_t *m, uint8_t op)
 {
     (void)m;
@@ -868,12 +869,14 @@ static int op_dec_a(gb_cpu_t *cpu, gb_mem_t *m, uint8_t op)
     cpu->a = a;
     return 4;
 }
+
 static int op_ld_a_n(gb_cpu_t *cpu, gb_mem_t *m, uint8_t op)
 {
     (void)op;
     cpu->a = gb_mem_read(m, cpu->pc++);
     return 8;
 }
+
 static int op_ccf(gb_cpu_t *cpu, gb_mem_t *m, uint8_t op)
 {
     (void)m;
@@ -922,6 +925,7 @@ static int op_jp_nn(gb_cpu_t *cpu, gb_mem_t *m, uint8_t op)
     cpu->pc = a;
     return 16;
 }
+
 static int op_call_nz(gb_cpu_t *cpu, gb_mem_t *m, uint8_t op)
 {
     (void)op;
@@ -936,6 +940,7 @@ static int op_call_nz(gb_cpu_t *cpu, gb_mem_t *m, uint8_t op)
     }
     return 12;
 }
+
 static int op_push_bc(gb_cpu_t *cpu, gb_mem_t *m, uint8_t op)
 {
     (void)op;
@@ -943,12 +948,14 @@ static int op_push_bc(gb_cpu_t *cpu, gb_mem_t *m, uint8_t op)
     gb_mem_write16(m, cpu->sp, BC);
     return 16;
 }
+
 static int op_add_a_n(gb_cpu_t *cpu, gb_mem_t *m, uint8_t op)
 {
     (void)op;
     alu_add(cpu, cpu->a, gb_mem_read(m, cpu->pc++), 0);
     return 8;
 }
+
 static int op_rst_0(gb_cpu_t *cpu, gb_mem_t *m, uint8_t op)
 {
     (void)op;
@@ -957,6 +964,7 @@ static int op_rst_0(gb_cpu_t *cpu, gb_mem_t *m, uint8_t op)
     cpu->pc = 0x00;
     return 16;
 }
+
 static int op_ret_z(gb_cpu_t *cpu, gb_mem_t *m, uint8_t op)
 {
     (void)op;
@@ -968,6 +976,7 @@ static int op_ret_z(gb_cpu_t *cpu, gb_mem_t *m, uint8_t op)
     }
     return 8;
 }
+
 static int op_ret(gb_cpu_t *cpu, gb_mem_t *m, uint8_t op)
 {
     (void)op;
@@ -975,6 +984,7 @@ static int op_ret(gb_cpu_t *cpu, gb_mem_t *m, uint8_t op)
     cpu->sp += 2;
     return 16;
 }
+
 static int op_jp_z(gb_cpu_t *cpu, gb_mem_t *m, uint8_t op)
 {
     (void)op;
@@ -987,6 +997,7 @@ static int op_jp_z(gb_cpu_t *cpu, gb_mem_t *m, uint8_t op)
     }
     return 12;
 }
+
 static int op_call_z(gb_cpu_t *cpu, gb_mem_t *m, uint8_t op)
 {
     (void)op;
