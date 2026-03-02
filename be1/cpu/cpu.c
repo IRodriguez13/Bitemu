@@ -180,6 +180,7 @@ int gb_cpu_step(gb_cpu_t *cpu, struct gb_mem *mem)
     if (cpu->ime)
     {
         int cycles = dispatch_interrupt(cpu, m);
+
         if (cycles)
             return cycles;
     }

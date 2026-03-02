@@ -20,6 +20,30 @@ extern "C" {
 
 typedef struct bitemu bitemu_t;
 
+typedef enum
+{
+       BITEMU_AUDIO_BACKEND_SDL2,
+       BITEMU_AUDIO_BACKEND_MINIAUDIO,
+       BITEMU_AUDIO_BACKEND_NULL,     // Sin audio
+       BITEMU_AUDIO_BACKEND_CALLBACK  // Para frontend custom
+} bitemu_audio_backend_t;
+
+typedef struct
+{
+    int sample_rate; // 44100 o 48000
+    int channels;  // 1 (mono) o 2 (stereo)
+    int buffer_samples; //512-2048
+
+} bitemu_audio_config_t;
+
+int bitemu_audio_init(bitemu_t *emu, bitemu_audio_backend_t back, const bitemu_audio_config_t *config);
+void bitemu_audio_set_enabled(bitemu_t *emu, bool enabled);
+
+/*Front de python */
+typedef void (*bitemu_audio_callback_t)(void *userdata, int16_t *buffer, int samples);
+void bitemu_audio_set_callback(bitemu_t *emu, bitemu_audio_callback_t cb, void *userdata);
+void bitemu_audio_shutdown(bitemu_t *emu);
+
 /* Crear/destruir instancia */
 bitemu_t *bitemu_create(void);
 void bitemu_destroy(bitemu_t *emu);
