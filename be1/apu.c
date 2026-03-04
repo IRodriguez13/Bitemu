@@ -9,6 +9,7 @@
 #include "apu.h"
 #include "memory.h"
 #include "gb_constants.h"
+#include "audio/audio.h"
 
 static const uint8_t gb_duty[4][8] = {
     {0, 0, 0, 0, 0, 0, 0, 1}, {1, 0, 0, 0, 0, 0, 0, 1}, {1, 0, 0, 0, 0, 1, 1, 1}, {0, 1, 1, 1, 1, 1, 1, 0}};
@@ -21,6 +22,7 @@ void gb_apu_init(gb_apu_t *apu)
     apu->wave_pos = 0;
     apu->lfsr = 0x7FFF;
 }
+
 
 void gb_apu_step(gb_apu_t *apu, struct gb_mem *mem, int cycles)
 {
@@ -86,4 +88,31 @@ void gb_apu_step(gb_apu_t *apu, struct gb_mem *mem, int cycles)
             }
         }
     }
+}
+
+void apu_mix_sample(gb_apu_t *apu, bitemu_audio_t *audio)
+{
+    if(!audio->enabled) return;
+
+    int16_t ch1 = apu_square1_output(apu);
+    int16_t ch2 = apu_square2_output(apu);
+    int16_t ch3 = apu_wave_output(apu);
+    int16_t ch4 = apu_noise_output(apu);
+
+    int16_t left =  apply_volume_and_pan(ch1, ch2, ch3, ch4, apu->GB_IO_NR50, apu->GB_IO_NR51, 0);
+    int16_t right = apply_volume_and_pan(ch1, ch2, ch3, ch4, apu->GB_IO_NR50, apu->GB_IO_NR51, 1);
+
+    SDL_LockMutex(audio->mutex);
+    if (audio->channels == 2)
+    {
+            audio->buffer[audio->write_pos++] = left;
+            audio->buffer[audio->write_pos++] = right;
+    } else
+    {
+            audio->buffer[audio->write_pos++] = (left + right) / 2;  // mono
+    }
+
+    audio->write_pos %= audio->buffer_size;
+
+    SDL_UnlockMutex(audio->mutex);
 }
