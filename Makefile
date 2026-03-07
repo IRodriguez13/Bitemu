@@ -21,19 +21,27 @@ CLI_SRCS = main_cli.c $(API_SRCS) $(CORE_SRCS) $(UTILS_SRCS) $(BE1_SRCS)
 CLI_OBJS = $(CLI_SRCS:.c=.o)
 CLI_TARGET = bitemu-cli
 
-.PHONY: all clean cli lib run help
+TEST_DIR   = tests/core
+TEST_SRCS  = $(TEST_DIR)/test_runner.c $(TEST_DIR)/test_memory.c $(TEST_DIR)/test_apu.c $(TEST_DIR)/test_timer.c $(TEST_DIR)/test_api.c
+TEST_BIN   = build/test_runner
+VENV       = frontend/venv/bin
+
+.PHONY: all clean cli lib run help test test-core test-frontend
 
 all: lib cli run
 
 help:
 	@echo "Bitemu - Game Boy Emulator (C backend, Python frontend)"
-	@echo "Objetivos: all, lib, cli, run, clean, help"
-	@echo "  all   (def) Compila lib+cli y ejecuta frontend Python"
-	@echo "  lib   libbitemu.so (para el frontend)"
-	@echo "  cli   bitemu-cli (emulador en terminal)"
-	@echo "  run   Ejecuta frontend Python (ventana)"
-	@echo "  clean Borra binarios y objetos"
-	@echo "  help  Esta ayuda"
+	@echo "Objetivos: all, lib, cli, run, clean, test, help"
+	@echo "  all          (def) Compila lib+cli y ejecuta frontend Python"
+	@echo "  lib          libbitemu.so (para el frontend)"
+	@echo "  cli          bitemu-cli (emulador en terminal)"
+	@echo "  run          Ejecuta frontend Python (ventana)"
+	@echo "  test         Corre tests de core (C) y frontend (Python)"
+	@echo "  test-core    Solo tests del core C"
+	@echo "  test-frontend Solo tests del frontend Python"
+	@echo "  clean        Borra binarios y objetos"
+	@echo "  help         Esta ayuda"
 
 run: lib frontend/venv/.done
 	cd frontend && ./venv/bin/python main.py
@@ -58,6 +66,16 @@ build/lib/%.o: %.c
 
 %.o: %.c
 	$(CC) $(CFLAGS) -c $< -o $@
+
+test: test-core test-frontend
+
+test-core: lib
+	@mkdir -p build
+	$(CC) $(CFLAGS) -Itests/core $(TEST_SRCS) -L. -lbitemu -o $(TEST_BIN)
+	LD_LIBRARY_PATH=. ./$(TEST_BIN)
+
+test-frontend: lib frontend/venv/.done
+	$(VENV)/python -m pytest tests/frontend/ -v
 
 clean:
 	rm -f $(CLI_OBJS) $(CLI_TARGET) libbitemu.so

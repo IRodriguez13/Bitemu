@@ -6,6 +6,7 @@ Requisito: haber compilado la librería con 'make lib' en la raíz del proyecto.
 from PySide6.QtWidgets import QApplication
 from bitemu_gui.main_window import MainWindow
 from bitemu_gui.profile import DEFAULT_PROFILE
+from bitemu_gui import get_version
 import sys
 from pathlib import Path
 
@@ -15,20 +16,19 @@ if str(frontend_dir) not in sys.path:
     sys.path.insert(0, str(frontend_dir))
 
 
-
-
 BANNER = r"""
   ____  _ _                       
  | __ )(_) |_ ___ _ __ ___  _   _ 
  |  _ \| | __/ _ \ '_ ` _ \| | | |
  | |_) | | ||  __/ | | | | | |_| |
  |____/|_|\__\___|_| |_| |_|\__,_|
-  Game Boy Emulator
+  Game Boy Emulator  v{version}
 """
 
 
 def main():
-    print(BANNER, file=sys.stderr)
+    version = get_version()
+    print(BANNER.format(version=version), file=sys.stderr)
     app = QApplication(sys.argv)
     app.setApplicationName("Bitemu 1")
     win = MainWindow(profile=DEFAULT_PROFILE)

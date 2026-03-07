@@ -22,6 +22,7 @@ from PySide6.QtWidgets import QWidget, QSizePolicy
 from .core import Emu, FB_WIDTH, FB_HEIGHT
 from .keys import build_joypad_state
 from .profile import ConsoleProfile, DEFAULT_PROFILE
+from . import get_version
 
 _GB_DARKEST  = QColor(0x0F, 0x38, 0x0F)
 _GB_DARK     = QColor(0x30, 0x62, 0x30)
@@ -201,10 +202,11 @@ class GameWidget(QWidget):
         painter.setFont(font)
         painter.setPen(_GB_LIGHT)
         sub_y = line_y + px * 2
+        subtitle = f"-v{get_version()}-"
         painter.drawText(
             0, sub_y, rw, px * 4,
             Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignTop,
-            "Game Boy Emulator",
+            subtitle,
         )
 
     def sizeHint(self):

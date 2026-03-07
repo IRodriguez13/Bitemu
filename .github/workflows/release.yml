@@ -1,4 +1,4 @@
-# Release pipeline: compila y empaqueta en Linux, Windows y macOS.
+# Release pipeline: compila, testea y empaqueta en Linux, Windows y macOS.
 # Se ejecuta solo al hacer push de un tag v* (ej.: git tag v0.1.0 && git push --tags).
 # Convención: crear tags solo desde las ramas main, master o testing (dev es inestable).
 
@@ -10,7 +10,6 @@ on:
       - 'v*'
 
 jobs:
-  # Comprobar que el tag está en una rama permitida (main, master, testing)
   check-branch:
     runs-on: ubuntu-latest
     steps:
@@ -34,21 +33,22 @@ jobs:
         include:
           - os: ubuntu-latest
             artifact_name: bitemu-linux-x64
-            archive: tar.gz
             lib_name: libbitemu.so
           - os: macos-latest
             artifact_name: bitemu-macos-x64
-            archive: zip
             lib_name: libbitemu.dylib
           - os: windows-latest
             artifact_name: bitemu-windows-x64
-            archive: zip
             lib_name: bitemu.dll
 
     runs-on: ${{ matrix.os }}
 
     steps:
       - uses: actions/checkout@v4
+
+      - name: Inject version from tag
+        run: echo "${{ github.ref_name }}" | sed 's/^v//' > VERSION
+        shell: bash
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -61,9 +61,7 @@ jobs:
 
       - name: Install build tools (macOS)
         if: matrix.os == 'macos-latest'
-        run: |
-          xcode-select -p || xcode-select --install
-          # gcc en macOS es clang; -fPIC y -shared funcionan
+        run: xcode-select -p || xcode-select --install
 
       - name: Install MSYS2 / MinGW (Windows)
         if: matrix.os == 'windows-latest'
@@ -72,6 +70,8 @@ jobs:
           msystem: MINGW64
           update: true
           install: mingw-w64-x86_64-gcc make
+
+      # --- Build ---
 
       - name: Build lib and CLI (Linux/macOS)
         if: matrix.os != 'windows-latest'
@@ -82,63 +82,158 @@ jobs:
         run: make lib cli
         shell: msys2 {0}
 
-      - name: Rename library for Windows (Python espera bitemu.dll)
+      - name: Rename library for Windows
         if: matrix.os == 'windows-latest'
         run: |
           if [ -f libbitemu.so ]; then mv libbitemu.so bitemu.dll; fi
         shell: msys2 {0}
 
-      - name: Create frontend venv
+      # --- Test (core only; frontend tests need display) ---
+
+      - name: Run core tests (Linux/macOS)
+        if: matrix.os != 'windows-latest'
+        run: make test-core
+
+      - name: Run core tests (Windows)
+        if: matrix.os == 'windows-latest'
+        run: make test-core
+        shell: msys2 {0}
+
+      # --- Frontend venv ---
+
+      - name: Create frontend venv (Linux/macOS)
+        if: matrix.os != 'windows-latest'
         run: |
           cd frontend
           python -m venv venv
-          if [ "$RUNNER_OS" = "Windows" ]; then
-            venv/Scripts/pip install -r requirements.txt
-          else
-            ./venv/bin/pip install -r requirements.txt
-          fi
+          ./venv/bin/pip install -r requirements.txt
+          ./venv/bin/pip install pyinstaller
           touch venv/.done
 
-      - name: Package (Linux)
-        if: matrix.os == 'ubuntu-latest'
-        run: |
-          mkdir -p dist
-          cp libbitemu.so bitemu-cli dist/ 2>/dev/null || true
-          cp -r frontend dist/
-          echo '#!/bin/sh' > dist/run.sh
-          echo 'cd "$(dirname "$0")/frontend" && ./venv/bin/python main.py' >> dist/run.sh
-          chmod +x dist/run.sh
-          tar czf ${{ matrix.artifact_name }}-${{ github.ref_name }}.tar.gz -C dist .
-        env:
-          RUNNER_OS: Linux
-
-      - name: Package (macOS)
-        if: matrix.os == 'macos-latest'
-        run: |
-          mkdir -p dist
-          cp libbitemu.so dist/libbitemu.dylib
-          cp bitemu-cli dist/ 2>/dev/null || true
-          cp -r frontend dist/
-          echo '#!/bin/sh' > dist/run.sh
-          echo 'cd "$(dirname "$0")/frontend" && ./venv/bin/python main.py' >> dist/run.sh
-          chmod +x dist/run.sh
-          cd dist && zip -r ../${{ matrix.artifact_name }}-${{ github.ref_name }}.zip .
-
-      - name: Package (Windows)
+      - name: Create frontend venv (Windows)
         if: matrix.os == 'windows-latest'
         run: |
-          mkdir -p dist
-          cp bitemu.dll bitemu-cli.exe dist/ 2>/dev/null || true
-          cp -r frontend dist/
-          echo '@cd frontend && venv\Scripts\python main.py' > dist/run.bat
-          cd dist && zip -r ../${{ matrix.artifact_name }}-${{ github.ref_name }}.zip .
-        shell: msys2 {0}
+          cd frontend
+          python -m venv venv
+          venv/Scripts/pip install -r requirements.txt
+          venv/Scripts/pip install pyinstaller
+          touch venv/.done
+
+      # --- Package with PyInstaller (standalone, no Python needed by user) ---
+
+      - name: PyInstaller bundle (Linux)
+        if: matrix.os == 'ubuntu-latest'
+        run: |
+          cd frontend
+          ./venv/bin/pyinstaller --onedir --name bitemu \
+            --add-data "../VERSION:." \
+            --add-binary "../libbitemu.so:." \
+            --hidden-import bitemu_gui \
+            --hidden-import bitemu_gui.core \
+            --hidden-import bitemu_gui.game_widget \
+            --hidden-import bitemu_gui.main_window \
+            --hidden-import bitemu_gui.keys \
+            --hidden-import bitemu_gui.profile \
+            main.py
+          cp ../VERSION dist/bitemu/
+
+      - name: PyInstaller bundle (macOS)
+        if: matrix.os == 'macos-latest'
+        run: |
+          cd frontend
+          ./venv/bin/pyinstaller --onedir --name bitemu \
+            --add-data "../VERSION:." \
+            --add-binary "../libbitemu.dylib:." \
+            --hidden-import bitemu_gui \
+            --hidden-import bitemu_gui.core \
+            --hidden-import bitemu_gui.game_widget \
+            --hidden-import bitemu_gui.main_window \
+            --hidden-import bitemu_gui.keys \
+            --hidden-import bitemu_gui.profile \
+            main.py
+          cp ../VERSION dist/bitemu/
+
+      - name: PyInstaller bundle (Windows)
+        if: matrix.os == 'windows-latest'
+        run: |
+          cd frontend
+          venv/Scripts/pyinstaller --onedir --name bitemu ^
+            --add-data "../VERSION;." ^
+            --add-binary "../bitemu.dll;." ^
+            --hidden-import bitemu_gui ^
+            --hidden-import bitemu_gui.core ^
+            --hidden-import bitemu_gui.game_widget ^
+            --hidden-import bitemu_gui.main_window ^
+            --hidden-import bitemu_gui.keys ^
+            --hidden-import bitemu_gui.profile ^
+            main.py
+          copy ..\VERSION dist\bitemu\
+
+      # --- Native packaging ---
+
+      - name: Package AppImage (Linux)
+        if: matrix.os == 'ubuntu-latest'
+        run: |
+          VERSION_STR=$(cat VERSION)
+          mkdir -p AppDir/usr/bin AppDir/usr/share/applications AppDir/usr/share/icons/hicolor/256x256/apps
+          cp -r frontend/dist/bitemu/* AppDir/usr/bin/
+          cat > AppDir/usr/share/applications/bitemu.desktop <<DESKTOP
+          [Desktop Entry]
+          Name=Bitemu
+          Exec=bitemu
+          Icon=bitemu
+          Type=Application
+          Categories=Game;Emulator;
+          Comment=Game Boy Emulator v${VERSION_STR}
+          DESKTOP
+          cp AppDir/usr/share/applications/bitemu.desktop AppDir/
+          # Use a placeholder icon (1x1 pixel PNG)
+          printf '\x89PNG\r\n\x1a\n' > AppDir/usr/share/icons/hicolor/256x256/apps/bitemu.png || true
+          cp AppDir/usr/share/icons/hicolor/256x256/apps/bitemu.png AppDir/bitemu.png || true
+          cat > AppDir/AppRun <<'APPRUN'
+          #!/bin/sh
+          HERE="$(dirname "$(readlink -f "${0}")")"
+          exec "${HERE}/usr/bin/bitemu" "$@"
+          APPRUN
+          chmod +x AppDir/AppRun
+          # Download appimagetool
+          wget -q https://github.com/AppImage/AppImageKit/releases/download/continuous/appimagetool-x86_64.AppImage -O appimagetool
+          chmod +x appimagetool
+          ARCH=x86_64 ./appimagetool AppDir ${{ matrix.artifact_name }}-${VERSION_STR}.AppImage || true
+          # Fallback: tar.gz if AppImage fails
+          if [ ! -f ${{ matrix.artifact_name }}-${VERSION_STR}.AppImage ]; then
+            tar czf ${{ matrix.artifact_name }}-${VERSION_STR}.tar.gz -C frontend/dist bitemu
+          fi
+
+      - name: Package DMG (macOS)
+        if: matrix.os == 'macos-latest'
+        run: |
+          VERSION_STR=$(cat VERSION)
+          mkdir -p dmg_contents
+          cp -r frontend/dist/bitemu dmg_contents/Bitemu
+          # Create DMG
+          hdiutil create -volname "Bitemu ${VERSION_STR}" \
+            -srcfolder dmg_contents \
+            -ov -format UDZO \
+            ${{ matrix.artifact_name }}-${VERSION_STR}.dmg || true
+          # Fallback: zip if DMG fails
+          if [ ! -f ${{ matrix.artifact_name }}-${VERSION_STR}.dmg ]; then
+            cd frontend/dist && zip -r ../../${{ matrix.artifact_name }}-${VERSION_STR}.zip bitemu
+          fi
+
+      - name: Package ZIP (Windows)
+        if: matrix.os == 'windows-latest'
+        run: |
+          $version = (Get-Content VERSION).Trim()
+          Compress-Archive -Path frontend/dist/bitemu/* -DestinationPath "${{ matrix.artifact_name }}-${version}.zip"
+        shell: pwsh
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.artifact_name }}
-          path: ${{ matrix.artifact_name }}-${{ github.ref_name }}.*
+          path: |
+            ${{ matrix.artifact_name }}-*
 
   release:
     needs: build
@@ -164,7 +259,9 @@ jobs:
           name: Bitemu ${{ github.ref_name }}
           generate_release_notes: true
           files: |
+            artifacts/**/*.AppImage
             artifacts/**/*.tar.gz
+            artifacts/**/*.dmg
             artifacts/**/*.zip
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
