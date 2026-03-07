@@ -23,5 +23,23 @@ PROFILE_GB: ConsoleProfile = ConsoleProfile(
     window_title="Bitemu - Game Boy",
 )
 
+# --- Future editions (reference only; uncomment when backend is ready) ---
+#
+# PROFILE_GBA: ConsoleProfile = ConsoleProfile(
+#     name="Game Boy Advance",
+#     fb_width=240,
+#     fb_height=160,
+#     rom_extensions=["gba"],
+#     window_title="Bitemu+ — Game Boy Advance",
+# )
+#
+# PROFILE_GENESIS: ConsoleProfile = ConsoleProfile(
+#     name="Sega Genesis / Mega Drive",
+#     fb_width=320,
+#     fb_height=224,
+#     rom_extensions=["md", "bin", "gen", "smd"],
+#     window_title="Bitemu 2 — Sega Genesis",
+# )
+
 # Perfil por defecto para esta edición (BE1)
 DEFAULT_PROFILE = PROFILE_GB

@@ -55,6 +55,9 @@ void bitemu_destroy(bitemu_t *emu);
 /* Cargar ROM desde archivo. Retorna true si OK */
 bool bitemu_load_rom(bitemu_t *emu, const char *path);
 
+/* Descargar ROM: guarda .sav, libera memoria, vuelve al estado sin cartucho */
+void bitemu_unload_rom(bitemu_t *emu);
+
 /* Ejecutar un frame (70224 ciclos). Retorna false si debe parar */
 bool bitemu_run_frame(bitemu_t *emu);
 

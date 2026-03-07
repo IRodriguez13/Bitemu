@@ -97,6 +97,17 @@ bool bitemu_load_rom(bitemu_t *emu, const char *path)
     return ok;
 }
 
+void bitemu_unload_rom(bitemu_t *emu)
+{
+    if (emu)
+    {
+        console_unload_rom(&emu->engine.console);
+        console_reset(&emu->engine.console);
+        emu->frame_count = 0;
+        log_info("ROM descargada");
+    }
+}
+
 bool bitemu_run_frame(bitemu_t *emu)
 {
     if (!emu || !emu->running)

@@ -109,6 +109,9 @@ typedef struct gb_mem {
 
     /* Joypad: bits 0-3 = D-pad (R,L,U,D), 4-7 = buttons (A,B,Select,Start); 1 = pressed */
     uint8_t joypad_state;
+
+    /* APU: flags de trigger pendientes (bits 0-3 = ch1-ch4); memory los activa, APU los consume */
+    uint8_t apu_trigger_flags;
 } gb_mem_t;
 
 void gb_mem_init(gb_mem_t *mem);

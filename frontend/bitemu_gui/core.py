@@ -20,7 +20,9 @@ from ctypes import (
 
 # Ruta a la librería: repo root (padre de frontend/) o BITEMU_LIB
 _ROOT = os.path.realpath(os.path.join(os.path.dirname(__file__), "..", ".."))
+
 _LIB_NAME = "libbitemu.so"
+
 if sys.platform == "win32":
     _LIB_NAME = "bitemu.dll"
 elif sys.platform == "darwin":
@@ -54,6 +56,7 @@ def _load_lib():
     lib.bitemu_get_framebuffer.restype = POINTER(c_uint8)
     lib.bitemu_set_input.argtypes = [c_void_p, c_uint8]
     lib.bitemu_reset.argtypes = [c_void_p]
+    lib.bitemu_unload_rom.argtypes = [c_void_p]
     # Audio (buffer circular)
     lib.bitemu_audio_init.argtypes = [c_void_p, c_int, c_void_p]
     lib.bitemu_audio_init.restype = c_int
@@ -119,6 +122,10 @@ class Emu:
     def reset(self):
         if self._handle is not None:
             self._lib.bitemu_reset(self._handle)
+
+    def unload_rom(self):
+        if self._handle is not None:
+            self._lib.bitemu_unload_rom(self._handle)
 
     def init_audio(self) -> bool:
         """Inicializa el buffer de audio (llamar tras create()). Sin dependencias de SDL."""

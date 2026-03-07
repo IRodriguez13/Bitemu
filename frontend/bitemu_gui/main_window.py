@@ -63,10 +63,10 @@ class MainWindow(QMainWindow):
             QApplication.quit()
             return
         if not self._emu.init_audio():
-            pass  # audio opcional; el switch seguirá desactivado si falla
-        # Sincronizar estado del switch con el core
+            pass
         self._emu.set_audio_enabled(QSettings().value(AUDIO_KEY, False, type=bool))
         self._apply_audio_stream()
+        self._audio_chans = 1
 
     def _create_menus(self):
         menubar = self.menuBar()
@@ -94,6 +94,10 @@ class MainWindow(QMainWindow):
         reset_act.setShortcut(QKeySequence("F4"))
         reset_act.triggered.connect(self._reset)
         emu_menu.addAction(reset_act)
+        close_rom_act = QAction("Cerrar juego", self)
+        close_rom_act.setShortcut(QKeySequence("F5"))
+        close_rom_act.triggered.connect(self._close_rom)
+        emu_menu.addAction(close_rom_act)
         # Opciones (para futuras releases: audio, teclas, etc.)
         opts_menu = menubar.addMenu("&Opciones")
         self._audio_act = QAction("Activar audio", self)
@@ -159,6 +163,7 @@ class MainWindow(QMainWindow):
         self._refresh_recent_menu()
         self._paused = False
         self._game.set_paused(False)
+        self._game.hide_splash()
         self._pause_act.setText("Pausar")
         name = os.path.basename(path)
         self.setWindowTitle(f"{self._profile.window_title} — {name}")
@@ -175,6 +180,18 @@ class MainWindow(QMainWindow):
             self._emu.reset()
         self._status.showMessage("Reiniciado")
 
+    def _close_rom(self):
+        if not self._emu.is_valid or self._rom_path is None:
+            return
+        self._emu.unload_rom()
+        self._rom_path = None
+        self._paused = False
+        self._game.set_paused(False)
+        self._game.show_splash()
+        self._pause_act.setText("Pausar")
+        self.setWindowTitle(self._profile.window_title)
+        self._status.showMessage("Juego cerrado")
+
     def _toggle_audio(self, checked: bool):
         QSettings().setValue(AUDIO_KEY, checked)
         self._emu.set_audio_enabled(checked)
@@ -190,7 +207,6 @@ class MainWindow(QMainWindow):
             except Exception:
                 pass
             self._audio_stream = None
-        self._game.set_audio_sink(None)
         if not enabled:
             return
         if not _SOUNDDEVICE_AVAILABLE:
@@ -204,15 +220,17 @@ class MainWindow(QMainWindow):
             self._emu.set_audio_enabled(False)
             return
         rate, chans = self._emu.get_audio_spec()
+        self._audio_chans = chans
         try:
             self._audio_stream = sd.RawOutputStream(
                 samplerate=rate,
                 channels=chans,
                 dtype="int16",
-                blocksize=512,
+                blocksize=1024,
+                latency="high",
+                callback=self._audio_callback,
             )
             self._audio_stream.start()
-            self._game.set_audio_sink(self._push_audio)
         except Exception as e:
             QMessageBox.warning(
                 self,
@@ -223,17 +241,17 @@ class MainWindow(QMainWindow):
             QSettings().setValue(AUDIO_KEY, False)
             self._emu.set_audio_enabled(False)
 
-    def _push_audio(self, emu):
-        """Llamado tras cada frame para enviar muestras al stream."""
-        if self._audio_stream is None:
-            return
-        # Leer todas las muestras disponibles (~739/frame a 44.1 kHz)
-        data = emu.read_audio(2048)
-        if data:
-            try:
-                self._audio_stream.write(data)
-            except Exception:
-                pass
+    def _audio_callback(self, outdata, frames, time_info, status):
+        """sounddevice callback (audio thread): lee del buffer circular del core."""
+        bytes_needed = frames * self._audio_chans * 2
+        data = b""
+        if self._emu and self._emu.is_valid:
+            data = self._emu.read_audio(frames * self._audio_chans)
+        n = len(data)
+        if n > 0:
+            outdata[:n] = data
+        if n < bytes_needed:
+            outdata[n:bytes_needed] = b'\x00' * (bytes_needed - n)
 
     def _show_controls(self):
         QMessageBox.information(
@@ -261,6 +279,5 @@ class MainWindow(QMainWindow):
             except Exception:
                 pass
             self._audio_stream = None
-        self._game.set_audio_sink(None)
         self._emu.destroy()
         event.accept()

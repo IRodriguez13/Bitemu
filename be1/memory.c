@@ -277,6 +277,35 @@ void gb_mem_write(gb_mem_t *mem, uint16_t addr, uint8_t val)
         {
             mem->io[GB_IO_IF] = (mem->io[GB_IO_IF] & GB_IF_RESERVED) | (val & GB_IF_IE_MASK);
         }
+        else if (off == GB_IO_NR52)
+        {
+            if (!(val & APU_NR52_POWER))
+            {
+                for (int r = GB_IO_NR10; r < GB_IO_NR52; r++)
+                    mem->io[r] = 0;
+                mem->io[GB_IO_NR52] = 0;
+            }
+            else
+            {
+                mem->io[GB_IO_NR52] = (val & APU_NR52_POWER)
+                                    | (mem->io[GB_IO_NR52] & APU_NR52_STATUS_MASK);
+            }
+        }
+        else if (off == GB_IO_NR14 || off == GB_IO_NR24
+              || off == GB_IO_NR34 || off == GB_IO_NR44)
+        {
+            mem->io[off] = val;
+            if (val & APU_TRIGGER_BIT)
+            {
+                uint8_t ch_bit = 0;
+                if (off == GB_IO_NR14) ch_bit = APU_NR52_CH1;
+                else if (off == GB_IO_NR24) ch_bit = APU_NR52_CH2;
+                else if (off == GB_IO_NR34) ch_bit = APU_NR52_CH3;
+                else ch_bit = APU_NR52_CH4;
+                mem->io[GB_IO_NR52] |= ch_bit;
+                mem->apu_trigger_flags |= ch_bit;
+            }
+        }
         else
             mem->io[off] = val;
         return;
