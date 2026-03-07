@@ -44,6 +44,10 @@ typedef void (*bitemu_audio_callback_t)(void *userdata, int16_t *buffer, int sam
 void bitemu_audio_set_callback(bitemu_t *emu, bitemu_audio_callback_t cb, void *userdata);
 void bitemu_audio_shutdown(bitemu_t *emu);
 
+/* Leer muestras del buffer circular (para frontend; p. ej. Python + sounddevice). */
+int bitemu_read_audio(bitemu_t *emu, int16_t *buf, int max_samples);
+void bitemu_get_audio_spec(int *sample_rate, int *channels);
+
 /* Crear/destruir instancia */
 bitemu_t *bitemu_create(void);
 void bitemu_destroy(bitemu_t *emu);

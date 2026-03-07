@@ -14,6 +14,7 @@
 #include "memory.h"
 #include "input.h"
 #include "gb_constants.h"
+#include "audio/audio.h"
 #include <stdlib.h>
 #include <string.h>
 
@@ -36,8 +37,9 @@ static void gb_reset(console_t *ctx)
 static void gb_step(console_t *ctx, int cycles)
 {
     gb_impl_t *impl = ctx->impl;
-    /* Input lo inyecta el frontend (GUI: bitemu_set_input; CLI: bitemu_poll_input). */
     int consumed = 0;
+    bitemu_audio_t *audio = (bitemu_audio_t *)impl->audio_output;
+
     while (consumed < cycles)
     {
         int step_cycles = gb_cpu_step(&impl->cpu, &impl->mem);
@@ -45,6 +47,16 @@ static void gb_step(console_t *ctx, int cycles)
         gb_timer_step(&impl->mem, step_cycles);
         gb_ppu_step(&impl->ppu, &impl->mem, step_cycles);
         gb_apu_step(&impl->apu, &impl->mem, step_cycles);
+
+        if (audio)
+        {
+            impl->apu.sample_clock += step_cycles;
+            while (impl->apu.sample_clock >= GB_CYCLES_PER_SAMPLE)
+            {
+                apu_mix_sample(&impl->apu, &impl->mem, audio);
+                impl->apu.sample_clock -= GB_CYCLES_PER_SAMPLE;
+            }
+        }
     }
 }
 
@@ -53,10 +65,14 @@ static bool gb_load_rom(console_t *ctx, const char *path, const uint8_t *data, s
     gb_impl_t *impl = ctx->impl;
     if (impl->mem.rom)
         free(impl->mem.rom);
+
     impl->mem.rom = malloc(size);
+    
     if (!impl->mem.rom)
         return false;
+    
     memcpy(impl->mem.rom, data, size);
+    
     impl->mem.rom_size = size;
     impl->mem.cart_type = (size > 0x148) ? data[0x147] : 0x01;
     impl->rom_path[0] = '\0';

@@ -18,6 +18,7 @@ class GameWidget(QWidget):
         self._emu: Emu | None = None
         self._pressed_keys: set = set()
         self._paused = False
+        self._audio_sink = None  # callable(emu) para enviar audio después de cada frame
         self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
         self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
         self.setMinimumSize(
@@ -34,11 +35,17 @@ class GameWidget(QWidget):
     def set_paused(self, paused: bool):
         self._paused = paused
 
+    def set_audio_sink(self, sink):
+        """Callable(emu) llamado tras cada frame para enviar audio; None para desactivar."""
+        self._audio_sink = sink
+
     def _on_tick(self):
         if not self._emu or not self._emu.is_valid or self._paused:
             return
         self._emu.set_input(build_joypad_state(self._pressed_keys))
         self._emu.run_frame()
+        if self._audio_sink:
+            self._audio_sink(self._emu)
         self.update()
 
     def keyPressEvent(self, event):

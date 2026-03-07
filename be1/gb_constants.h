@@ -16,6 +16,9 @@
 #define GB_SCANLINES_TOTAL   154
 #define GB_DOTS_PER_FRAME   (GB_DOTS_PER_SCANLINE * GB_SCANLINES_TOTAL)  /* 70224 */
 #define GB_FPS               59.7275
+/* Audio: 44.1 kHz → una muestra cada ~95 ciclos de CPU */
+#define GB_AUDIO_SAMPLE_RATE 44100
+#define GB_CYCLES_PER_SAMPLE (GB_CPU_HZ / GB_AUDIO_SAMPLE_RATE)  /* 95 */
 
 /* ----- PPU: modos y duraciones ----- */
 #define GB_PPU_MODE_HBLANK  0

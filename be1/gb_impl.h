@@ -19,6 +19,7 @@ typedef struct {
     gb_ppu_t ppu;
     gb_apu_t apu;
     char rom_path[GB_ROM_PATH_MAX]; /* for battery save .sav path */
+    void *audio_output; /* bitemu_audio_t* cuando audio está inicializado; NULL si no */
 } gb_impl_t;
 
 #endif /* BITEMU_GB_IMPL_H */

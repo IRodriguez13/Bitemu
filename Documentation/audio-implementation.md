@@ -2,6 +2,14 @@
 
 Propuesta para añadir salida de audio al emulador, de forma que el usuario pueda activarla o desactivarla desde Opciones y el core genere muestras que el frontend (o un driver en C) reproduzca.
 
+## Implementado (arquitectura universal sin SDL)
+
+- **Core:** Buffer circular en `be1/audio/audio.h` (sin SDL ni miniaudio). Muestreo cada `GB_CYCLES_PER_SAMPLE` (~95 ciclos) en `gb_step`; `apu_mix_sample(apu, mem, audio)` escribe en el buffer. Salidas por canal y mezcla son stubs hasta implementar las funciones reales.
+- **API:** `bitemu_audio_init`, `bitemu_audio_set_enabled`, `bitemu_read_audio`, `bitemu_get_audio_spec`, `bitemu_audio_shutdown`. El frontend usa `read_audio()` después de cada frame.
+- **Frontend:** Opciones → Activar audio abre `sounddevice.RawOutputStream` a 44100 Hz mono S16; tras cada frame se llama a `read_audio` y se escribe en el stream. Sin dependencias de audio en la librería C; igual en Windows, macOS y Linux. Ver `Documentation/audio-improvements.md` para mejoras pendientes.
+
+---
+
 ## Estado actual
 
 - **APU (be1/apu.c):** actualiza estado interno (duty, wave, LFSR) según los registros NR10–NR52 y los ciclos. **No** genera muestras PCM ni las escribe en ningún buffer.

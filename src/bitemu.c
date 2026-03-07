@@ -11,11 +11,16 @@
 #include "be1/input.h"
 #include "be1/ppu.h"
 #include "be1/gb_constants.h"
+#include "be1/audio/audio.h"
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
 
 extern const console_ops_t gb_console_ops;
+
+#define BITEMU_AUDIO_DEFAULT_RATE   44100
+#define BITEMU_AUDIO_DEFAULT_CHANS  1
+#define BITEMU_AUDIO_DEFAULT_SAMPLES 8192
 
 struct bitemu
 {
@@ -23,6 +28,7 @@ struct bitemu
     engine_t engine;
     int running;
     unsigned frame_count;
+    bitemu_audio_t audio;
 };
 
 bitemu_t *bitemu_create(void)
@@ -40,6 +46,7 @@ void bitemu_destroy(bitemu_t *emu)
 {
     if (emu)
     {
+        bitemu_audio_shutdown(emu);
         console_unload_rom(&emu->engine.console);
         free(emu);
     }
@@ -83,7 +90,7 @@ bool bitemu_load_rom(bitemu_t *emu, const char *path)
     if (!ok)
     {
         log_error("Error al cargar ROM: %s", path);
-        return;
+        return false;
     }
     
     log_info("ROM cargada: %s (%ld bytes)", path, (long)size);
@@ -99,8 +106,7 @@ bool bitemu_run_frame(bitemu_t *emu)
     
     if (getenv("BITEMU_VERBOSE") && emu->frame_count % 60 == 0)
         log_info("Frame %u (~%.1f FPS)", emu->frame_count, 60.0);
-    
-        return emu->running;
+    return emu->running;
 }
 
 const uint8_t *bitemu_get_framebuffer(const bitemu_t *emu)
@@ -138,4 +144,94 @@ void bitemu_stop(bitemu_t *emu)
 bool bitemu_is_running(const bitemu_t *emu)
 {
     return emu && emu->running;
+}
+
+/* ----- Audio (buffer circular; sin SDL/miniaudio) ----- */
+
+int bitemu_audio_init(bitemu_t *emu, bitemu_audio_backend_t back, const bitemu_audio_config_t *config)
+{
+    (void)back;
+    if (!emu)
+        return -1;
+    bitemu_audio_shutdown(emu);
+    int rate = BITEMU_AUDIO_DEFAULT_RATE;
+    int chans = BITEMU_AUDIO_DEFAULT_CHANS;
+    size_t samples = BITEMU_AUDIO_DEFAULT_SAMPLES;
+    if (config)
+    {
+        if (config->sample_rate > 0) rate = config->sample_rate;
+        if (config->channels > 0 && config->channels <= 2) chans = config->channels;
+        if (config->buffer_samples > 0) samples = (size_t)config->buffer_samples;
+    }
+    emu->audio.buffer = calloc(samples, sizeof(int16_t));
+    if (!emu->audio.buffer)
+        return -1;
+    emu->audio.buffer_size = samples;
+    emu->audio.write_pos = 0;
+    emu->audio.read_pos = 0;
+    emu->audio.sample_rate = rate;
+    emu->audio.channels = chans;
+    emu->audio.enabled = false;
+    emu->impl.audio_output = &emu->audio;
+    return 0;
+}
+
+void bitemu_audio_set_enabled(bitemu_t *emu, bool enabled)
+{
+    if (emu)
+        emu->audio.enabled = enabled;
+}
+
+void bitemu_audio_set_callback(bitemu_t *emu, bitemu_audio_callback_t cb, void *userdata)
+{
+    (void)emu;
+    (void)cb;
+    (void)userdata;
+    /* No usado en el modelo buffer; el frontend usa bitemu_read_audio. */
+}
+
+void bitemu_audio_shutdown(bitemu_t *emu)
+{
+    if (!emu)
+        return;
+    free(emu->audio.buffer);
+    emu->audio.buffer = NULL;
+    emu->audio.buffer_size = 0;
+    emu->audio.write_pos = 0;
+    emu->audio.read_pos = 0;
+    emu->impl.audio_output = NULL;
+}
+
+int bitemu_read_audio(bitemu_t *emu, int16_t *buf, int max_samples)
+{
+    if (!emu || !buf || max_samples <= 0 || !emu->audio.buffer)
+        return 0;
+    bitemu_audio_t *a = &emu->audio;
+
+    size_t wr = a->write_pos;
+    size_t rd = a->read_pos;
+    size_t size = a->buffer_size;
+    size_t avail = (wr >= rd) ? (wr - rd) : (size - rd + wr);
+    
+    if (avail > (size_t)max_samples)
+        avail = (size_t)max_samples;
+    
+    if (avail == 0)
+        return 0;
+    
+    for (size_t i = 0; i < avail; i++)
+    {
+        buf[i] = a->buffer[rd];
+        rd = (rd + 1) % size;
+    }
+    a->read_pos = rd;
+    return (int)avail;
+}
+
+void bitemu_get_audio_spec(int *sample_rate, int *channels)
+{
+    if (sample_rate)
+        *sample_rate = BITEMU_AUDIO_DEFAULT_RATE;
+    if (channels)
+        *channels = BITEMU_AUDIO_DEFAULT_CHANS;
 }

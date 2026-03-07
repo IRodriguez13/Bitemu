@@ -5,7 +5,7 @@ Frontend gráfico desacoplado del core. Solo depende de la API C (`bitemu.h`) y 
 ## Requisitos
 
 - **Python 3.10+**
-- **PySide6:** `pip install -r requirements.txt`
+- **PySide6 y sounddevice:** `pip install -r requirements.txt` (sounddevice para Opciones → Activar audio).
 - **Librería del core:** en la raíz del repo ejecuta `make lib` para generar `libbitemu.so` (Linux).
 
 ## Cómo ejecutar

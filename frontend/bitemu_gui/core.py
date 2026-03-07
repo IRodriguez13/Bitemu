@@ -9,9 +9,13 @@ from ctypes import (
     c_void_p,
     c_bool,
     c_uint8,
+    c_int,
+    c_short,
+    c_char,
     c_char_p,
     POINTER,
     cast,
+    byref,
 )
 
 # Ruta a la librería: repo root (padre de frontend/) o BITEMU_LIB
@@ -26,6 +30,9 @@ _LIB_PATH = os.environ.get("BITEMU_LIB_PATH") or os.path.join(_ROOT, _LIB_NAME)
 FB_WIDTH = 160
 FB_HEIGHT = 144
 FB_SIZE = FB_WIDTH * FB_HEIGHT
+
+# Audio: backend NULL = solo buffer circular (reproducción en Python)
+AUDIO_BACKEND_NULL = 2
 
 
 def _load_lib():
@@ -47,6 +54,15 @@ def _load_lib():
     lib.bitemu_get_framebuffer.restype = POINTER(c_uint8)
     lib.bitemu_set_input.argtypes = [c_void_p, c_uint8]
     lib.bitemu_reset.argtypes = [c_void_p]
+    # Audio (buffer circular)
+    lib.bitemu_audio_init.argtypes = [c_void_p, c_int, c_void_p]
+    lib.bitemu_audio_init.restype = c_int
+    lib.bitemu_audio_set_enabled.argtypes = [c_void_p, c_bool]
+    lib.bitemu_audio_shutdown.argtypes = [c_void_p]
+    lib.bitemu_read_audio.argtypes = [c_void_p, POINTER(c_short), c_int]
+    lib.bitemu_read_audio.restype = c_int
+    lib.bitemu_get_audio_spec.argtypes = [POINTER(c_int), POINTER(c_int)]
+    lib.bitemu_get_audio_spec.restype = None
     return lib
 
 
@@ -103,6 +119,35 @@ class Emu:
     def reset(self):
         if self._handle is not None:
             self._lib.bitemu_reset(self._handle)
+
+    def init_audio(self) -> bool:
+        """Inicializa el buffer de audio (llamar tras create()). Sin dependencias de SDL."""
+        if self._handle is None:
+            return False
+        return self._lib.bitemu_audio_init(self._handle, AUDIO_BACKEND_NULL, None) == 0
+
+    def set_audio_enabled(self, enabled: bool):
+        if self._handle is not None:
+            self._lib.bitemu_audio_set_enabled(self._handle, enabled)
+
+    def read_audio(self, max_samples: int = 1024) -> bytes:
+        """Lee hasta max_samples muestras S16 del buffer. Vacío si no hay audio inicializado."""
+        if self._handle is None or max_samples <= 0:
+            return b""
+        buf = (c_short * max_samples)()
+        n = self._lib.bitemu_read_audio(self._handle, buf, max_samples)
+        if n <= 0:
+            return b""
+        # int16 → bytes crudos (little-endian, 2 bytes por muestra); bytes() no acepta int16
+        view = (c_char * (n * 2)).from_buffer(buf)
+        return bytes(view)
+
+    def get_audio_spec(self) -> tuple[int, int]:
+        """(sample_rate, channels)"""
+        rate = c_int()
+        chans = c_int()
+        self._lib.bitemu_get_audio_spec(byref(rate), byref(chans))
+        return rate.value, chans.value
 
     @property
     def is_valid(self):
