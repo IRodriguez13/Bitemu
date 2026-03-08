@@ -9,13 +9,23 @@
 #include <stdlib.h>
 #include <string.h>
 
+#ifdef _WIN32
+#include <windows.h>
+#endif
+
 static const char *_tmp_dir(void)
 {
-    const char *d = getenv("TEMP");
-    if (!d) d = getenv("TMP");
-    if (!d) d = getenv("TMPDIR");
+#ifdef _WIN32
+    static char win_tmp[MAX_PATH];
+    DWORD len = GetTempPathA(MAX_PATH, win_tmp);
+    if (len > 0 && (win_tmp[len - 1] == '\\' || win_tmp[len - 1] == '/'))
+        win_tmp[len - 1] = '\0';
+    return win_tmp;
+#else
+    const char *d = getenv("TMPDIR");
     if (!d) d = "/tmp";
     return d;
+#endif
 }
 
 static char _path_buf[512];
