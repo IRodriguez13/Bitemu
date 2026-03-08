@@ -31,7 +31,7 @@ Game Boy emulator with a generic engine designed for future console editions (Ge
 ### Infrastructure
 - Automatic update notifications — checks GitHub Releases API on startup, prompts download if newer version exists
 - CI/CD pipeline — automated builds on Windows, macOS, and Linux with native packaging (AppImage, DMG, Inno Setup)
-- 139 automated tests (67 C core + 72 Python frontend) including ABI guard for save state binary compatibility
+- 148 automated tests (67 C core + 81 Python frontend) including ABI guard for save state binary compatibility
 - Version injection from git tags
 
 ## Architecture
@@ -120,9 +120,9 @@ make run
 ## Tests
 
 ```bash
-make test          # all tests (139 total)
+make test          # all tests (148 total)
 make test-core     # C core tests (67 tests: memory, APU, timer, API, PPU, MBC2, ABI guard)
-make test-frontend # Python frontend tests (72 tests: bindings, keys, input config, profile, ROM scanner, scraper, update checker)
+make test-frontend # Python frontend tests (81 tests: bindings, keys, input config, profile, ROM scanner, scraper, update checker, bundle deps)
 ```
 
 ## Known limitations

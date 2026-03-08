@@ -130,20 +130,22 @@ jobs:
         run: |
           cd frontend
 
-          # Find system libportaudio to bundle it
-          PA_LIB=$(find /usr/lib -name 'libportaudio.so*' -type f 2>/dev/null | head -1)
+          # Find system libportaudio to bundle it (search common paths)
           PA_FLAG=""
-          if [ -n "$PA_LIB" ]; then
-            PA_FLAG="--add-binary ${PA_LIB}:."
-          fi
+          for p in /usr/lib/x86_64-linux-gnu /usr/lib /usr/lib64; do
+            PA=$(find "$p" -name 'libportaudio.so*' 2>/dev/null | head -1)
+            if [ -n "$PA" ]; then PA_FLAG="--add-binary ${PA}:."; break; fi
+          done
 
           ./venv/bin/pyinstaller --onedir --name bitemu \
             --icon "assets/icon.png" \
+            --runtime-hook "hooks/rthook_portaudio.py" \
             --add-data "../VERSION:." \
             --add-binary "../libbitemu.so:." \
             --add-data "assets:assets" \
             $PA_FLAG \
             --collect-all sounddevice \
+            --collect-all pygame \
             --hidden-import bitemu_gui \
             --hidden-import bitemu_gui.core \
             --hidden-import bitemu_gui.game_widget \
@@ -166,19 +168,21 @@ jobs:
         run: |
           cd frontend
 
-          PA_LIB=$(find /opt/homebrew/lib /usr/local/lib -name 'libportaudio*.dylib' -type f 2>/dev/null | head -1)
           PA_FLAG=""
-          if [ -n "$PA_LIB" ]; then
-            PA_FLAG="--add-binary ${PA_LIB}:."
-          fi
+          for p in /opt/homebrew/lib /usr/local/lib; do
+            PA=$(find "$p" -name 'libportaudio*.dylib' 2>/dev/null | head -1)
+            if [ -n "$PA" ]; then PA_FLAG="--add-binary ${PA}:."; break; fi
+          done
 
           ./venv/bin/pyinstaller --onedir --name bitemu \
             --icon "assets/icon.png" \
+            --runtime-hook "hooks/rthook_portaudio.py" \
             --add-data "../VERSION:." \
             --add-binary "../libbitemu.dylib:." \
             --add-data "assets:assets" \
             $PA_FLAG \
             --collect-all sounddevice \
+            --collect-all pygame \
             --hidden-import bitemu_gui \
             --hidden-import bitemu_gui.core \
             --hidden-import bitemu_gui.game_widget \
@@ -203,10 +207,12 @@ jobs:
           cd frontend
           venv/Scripts/pyinstaller --onedir --name bitemu \
             --icon "assets/icon.png" \
+            --runtime-hook "hooks/rthook_portaudio.py" \
             --add-data "../VERSION;." \
             --add-binary "../bitemu.dll;." \
             --add-data "assets;assets" \
             --collect-all sounddevice \
+            --collect-all pygame \
             --hidden-import bitemu_gui \
             --hidden-import bitemu_gui.core \
             --hidden-import bitemu_gui.game_widget \
@@ -257,10 +263,11 @@ jobs:
             cp frontend/assets/icon.png AppDir/bitemu.png
           fi
 
-          # AppRun entry point
+          # AppRun entry point (set LD_LIBRARY_PATH so bundled .so files are found)
           cat > AppDir/AppRun <<'APPRUN'
           #!/bin/sh
           HERE="$(dirname "$(readlink -f "${0}")")"
+          export LD_LIBRARY_PATH="${HERE}/usr/bin:${LD_LIBRARY_PATH}"
           exec "${HERE}/usr/bin/bitemu" "$@"
           APPRUN
           sed -i 's/^          //' AppDir/AppRun
