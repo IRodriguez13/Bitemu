@@ -33,6 +33,10 @@ typedef struct
 
     /* Ciclos por frame (NULL = 70224). Usado por engine_run. */
     int (*cycles_per_frame)(console_t *ctx);
+
+    /* Save state: serializar/deserializar estado completo a archivo. 0=OK, -1=error. */
+    int (*save_state)(console_t *ctx, const char *path);
+    int (*load_state)(console_t *ctx, const char *path);
 } console_ops_t;
 
 struct console 
@@ -69,6 +73,18 @@ static inline bool console_load_rom(console_t *c, const char *path, const uint8_
 static inline void console_unload_rom(console_t *c) {
     if (c && c->ops && c->ops->unload_rom)
         c->ops->unload_rom(c);
+}
+
+static inline int console_save_state(console_t *c, const char *path) {
+    if (c && c->ops && c->ops->save_state)
+        return c->ops->save_state(c, path);
+    return -1;
+}
+
+static inline int console_load_state(console_t *c, const char *path) {
+    if (c && c->ops && c->ops->load_state)
+        return c->ops->load_state(c, path);
+    return -1;
 }
 
 #endif /* BITEMU_CONSOLE_H */

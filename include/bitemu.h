@@ -73,6 +73,10 @@ void bitemu_poll_input(bitemu_t *emu);
 /* Reset de la consola (estado post-carga, sin recargar la ROM) */
 void bitemu_reset(bitemu_t *emu);
 
+/* Save state: guardar/cargar estado completo a archivo .bst. Retorna 0=OK, -1=error. */
+int bitemu_save_state(bitemu_t *emu, const char *path);
+int bitemu_load_state(bitemu_t *emu, const char *path);
+
 /* Señal de parada (para el loop) */
 void bitemu_stop(bitemu_t *emu);
 bool bitemu_is_running(const bitemu_t *emu);

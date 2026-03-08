@@ -83,3 +83,37 @@ def test_set_input():
     emu.set_input(0xFF)
     emu.set_input(0x00)
     emu.destroy()
+
+
+def test_save_state_no_rom():
+    emu = Emu()
+    emu.create()
+    assert not emu.save_state("/tmp/bitemu_py_test.bst")
+    emu.destroy()
+
+
+def test_load_state_no_rom():
+    emu = Emu()
+    emu.create()
+    assert not emu.load_state("/tmp/bitemu_py_test.bst")
+    emu.destroy()
+
+
+def test_save_load_roundtrip():
+    rom_path = "/tmp/bitemu_py_test_rom.gb"
+    state_path = "/tmp/bitemu_py_test.bst"
+    rom_data = bytearray(512)
+    rom_data[0x147] = 0x00
+    with open(rom_path, "wb") as f:
+        f.write(rom_data)
+
+    emu = Emu()
+    emu.create()
+    assert emu.load_rom(rom_path)
+    assert emu.save_state(state_path)
+    assert emu.load_state(state_path)
+    emu.destroy()
+
+    os.remove(rom_path)
+    if os.path.exists(state_path):
+        os.remove(state_path)

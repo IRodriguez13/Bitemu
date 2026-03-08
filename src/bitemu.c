@@ -146,6 +146,20 @@ void bitemu_reset(bitemu_t *emu)
         console_reset(&emu->engine.console);
 }
 
+int bitemu_save_state(bitemu_t *emu, const char *path)
+{
+    if (!emu || !path)
+        return -1;
+    return console_save_state(&emu->engine.console, path);
+}
+
+int bitemu_load_state(bitemu_t *emu, const char *path)
+{
+    if (!emu || !path)
+        return -1;
+    return console_load_state(&emu->engine.console, path);
+}
+
 void bitemu_stop(bitemu_t *emu)
 {
     if (emu)

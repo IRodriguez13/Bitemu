@@ -57,6 +57,11 @@ def _load_lib():
     lib.bitemu_set_input.argtypes = [c_void_p, c_uint8]
     lib.bitemu_reset.argtypes = [c_void_p]
     lib.bitemu_unload_rom.argtypes = [c_void_p]
+    # Save state
+    lib.bitemu_save_state.argtypes = [c_void_p, c_char_p]
+    lib.bitemu_save_state.restype = c_int
+    lib.bitemu_load_state.argtypes = [c_void_p, c_char_p]
+    lib.bitemu_load_state.restype = c_int
     # Audio (buffer circular)
     lib.bitemu_audio_init.argtypes = [c_void_p, c_int, c_void_p]
     lib.bitemu_audio_init.restype = c_int
@@ -126,6 +131,16 @@ class Emu:
     def unload_rom(self):
         if self._handle is not None:
             self._lib.bitemu_unload_rom(self._handle)
+
+    def save_state(self, path: str) -> bool:
+        if self._handle is None:
+            return False
+        return self._lib.bitemu_save_state(self._handle, path.encode("utf-8")) == 0
+
+    def load_state(self, path: str) -> bool:
+        if self._handle is None:
+            return False
+        return self._lib.bitemu_load_state(self._handle, path.encode("utf-8")) == 0
 
     def init_audio(self) -> bool:
         """Inicializa el buffer de audio (llamar tras create()). Sin dependencias de SDL."""

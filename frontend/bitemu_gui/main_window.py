@@ -98,6 +98,15 @@ class MainWindow(QMainWindow):
         close_rom_act.setShortcut(QKeySequence("F5"))
         close_rom_act.triggered.connect(self._close_rom)
         emu_menu.addAction(close_rom_act)
+        emu_menu.addSeparator()
+        save_state_act = QAction("Guardar estado", self)
+        save_state_act.setShortcut(QKeySequence("F6"))
+        save_state_act.triggered.connect(self._save_state)
+        emu_menu.addAction(save_state_act)
+        load_state_act = QAction("Cargar estado", self)
+        load_state_act.setShortcut(QKeySequence("F7"))
+        load_state_act.triggered.connect(self._load_state)
+        emu_menu.addAction(load_state_act)
         # Opciones (para futuras releases: audio, teclas, etc.)
         opts_menu = menubar.addMenu("&Opciones")
         self._audio_act = QAction("Activar audio", self)
@@ -191,6 +200,40 @@ class MainWindow(QMainWindow):
         self._pause_act.setText("Pausar")
         self.setWindowTitle(self._profile.window_title)
         self._status.showMessage("Juego cerrado")
+
+    def _state_path(self) -> str | None:
+        if not self._rom_path:
+            return None
+        base, _ = os.path.splitext(self._rom_path)
+        return base + ".bst"
+
+    def _save_state(self):
+        path = self._state_path()
+        if not path or not self._emu.is_valid:
+            self._status.showMessage("No se puede guardar: sin ROM cargada")
+            return
+        ok = self._emu.save_state(path)
+        if ok:
+            size = os.path.getsize(path) if os.path.isfile(path) else 0
+            self._status.showMessage(f"Estado guardado: {os.path.basename(path)} ({size} bytes)")
+        else:
+            self._status.showMessage("Error al guardar estado")
+
+    def _load_state(self):
+        path = self._state_path()
+        if not path or not self._emu.is_valid:
+            self._status.showMessage("No se puede cargar: sin ROM cargada")
+            return
+        if not os.path.isfile(path):
+            self._status.showMessage("No hay estado guardado para esta ROM")
+            return
+        size = os.path.getsize(path)
+        ok = self._emu.load_state(path)
+        if ok:
+            self._game.update()
+            self._status.showMessage(f"Estado cargado: {os.path.basename(path)} ({size} bytes)")
+        else:
+            self._status.showMessage(f"Error al cargar estado — archivo existe ({size} bytes) pero falló la carga")
 
     def _toggle_audio(self, checked: bool):
         QSettings().setValue(AUDIO_KEY, checked)
