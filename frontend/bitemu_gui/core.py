@@ -18,8 +18,9 @@ from ctypes import (
     byref,
 )
 
-# Ruta a la librería: repo root (padre de frontend/) o BITEMU_LIB
+# Ruta a la librería: env override > PyInstaller bundle > repo root
 _ROOT = os.path.realpath(os.path.join(os.path.dirname(__file__), "..", ".."))
+_BUNDLE_DIR = getattr(sys, "_MEIPASS", None) or os.path.dirname(sys.executable)
 
 _LIB_NAME = "libbitemu.so"
 
@@ -27,7 +28,18 @@ if sys.platform == "win32":
     _LIB_NAME = "bitemu.dll"
 elif sys.platform == "darwin":
     _LIB_NAME = "libbitemu.dylib"
-_LIB_PATH = os.environ.get("BITEMU_LIB_PATH") or os.path.join(_ROOT, _LIB_NAME)
+
+def _find_lib():
+    env = os.environ.get("BITEMU_LIB_PATH")
+    if env:
+        return env
+    for base in (_BUNDLE_DIR, _ROOT):
+        p = os.path.join(base, _LIB_NAME)
+        if os.path.isfile(p):
+            return p
+    return os.path.join(_ROOT, _LIB_NAME)
+
+_LIB_PATH = _find_lib()
 
 FB_WIDTH = 160
 FB_HEIGHT = 144

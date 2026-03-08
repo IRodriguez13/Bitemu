@@ -2,6 +2,7 @@
 Ventana principal: navega entre Splash (menú), Library (grilla de ROMs) y Game (emulación).
 """
 import os
+import sys
 
 try:
     import sounddevice as sd
@@ -37,6 +38,14 @@ from .input_dialog import InputSettingsDialog
 
 RECENT_KEY = "bitemu/recent_roms"
 RECENT_MAX = 10
+
+
+def _asset_path(filename: str) -> str:
+    """Resolve asset path for both dev and PyInstaller bundle."""
+    bundle = getattr(sys, "_MEIPASS", None)
+    if bundle:
+        return os.path.join(bundle, "assets", filename)
+    return os.path.join(os.path.dirname(__file__), "..", "assets", filename)
 AUDIO_KEY = "bitemu/audio_enabled"
 ROM_FOLDER_KEY = "bitemu/rom_folder"
 
@@ -57,7 +66,7 @@ class MainWindow(QMainWindow):
         self._gamepad = GamepadPoller(self._input_config, parent=self)
         self._input_dialog: InputSettingsDialog | None = None
         self.setWindowTitle(self._profile.window_title)
-        icon_path = os.path.join(os.path.dirname(__file__), "..", "assets", "icon.png")
+        icon_path = _asset_path("icon.png")
         if os.path.isfile(icon_path):
             self.setWindowIcon(QIcon(icon_path))
         self.setMinimumSize(500, 450)
@@ -443,7 +452,7 @@ class MainWindow(QMainWindow):
         layout = QVBoxLayout(dlg)
         layout.setContentsMargins(20, 16, 20, 12)
 
-        logo_path = os.path.join(os.path.dirname(__file__), "..", "assets", "bitemu_sagas.png")
+        logo_path = _asset_path("bitemu_sagas.png")
         if os.path.isfile(logo_path):
             pix = QPixmap(logo_path).scaled(
                 200, 100,

@@ -86,6 +86,7 @@ jobs:
         if: matrix.os == 'windows-latest'
         run: |
           if [ -f libbitemu.so ]; then mv libbitemu.so bitemu.dll; fi
+          if [ -f libbitemu.dll ]; then mv libbitemu.dll bitemu.dll; fi
         shell: msys2 {0}
 
       # --- Test (core only; frontend tests need display) ---
@@ -128,12 +129,20 @@ jobs:
           ./venv/bin/pyinstaller --onedir --name bitemu \
             --add-data "../VERSION:." \
             --add-binary "../libbitemu.so:." \
+            --add-data "assets:assets" \
             --hidden-import bitemu_gui \
             --hidden-import bitemu_gui.core \
             --hidden-import bitemu_gui.game_widget \
             --hidden-import bitemu_gui.main_window \
             --hidden-import bitemu_gui.keys \
             --hidden-import bitemu_gui.profile \
+            --hidden-import bitemu_gui.splash_widget \
+            --hidden-import bitemu_gui.library_widget \
+            --hidden-import bitemu_gui.rom_scanner \
+            --hidden-import bitemu_gui.scraper \
+            --hidden-import bitemu_gui.input_config \
+            --hidden-import bitemu_gui.input_dialog \
+            --hidden-import bitemu_gui.gamepad \
             main.py
           cp ../VERSION dist/bitemu/
 
@@ -144,12 +153,20 @@ jobs:
           ./venv/bin/pyinstaller --onedir --name bitemu \
             --add-data "../VERSION:." \
             --add-binary "../libbitemu.dylib:." \
+            --add-data "assets:assets" \
             --hidden-import bitemu_gui \
             --hidden-import bitemu_gui.core \
             --hidden-import bitemu_gui.game_widget \
             --hidden-import bitemu_gui.main_window \
             --hidden-import bitemu_gui.keys \
             --hidden-import bitemu_gui.profile \
+            --hidden-import bitemu_gui.splash_widget \
+            --hidden-import bitemu_gui.library_widget \
+            --hidden-import bitemu_gui.rom_scanner \
+            --hidden-import bitemu_gui.scraper \
+            --hidden-import bitemu_gui.input_config \
+            --hidden-import bitemu_gui.input_dialog \
+            --hidden-import bitemu_gui.gamepad \
             main.py
           cp ../VERSION dist/bitemu/
 
@@ -160,12 +177,20 @@ jobs:
           venv/Scripts/pyinstaller --onedir --name bitemu ^
             --add-data "../VERSION;." ^
             --add-binary "../bitemu.dll;." ^
+            --add-data "assets;assets" ^
             --hidden-import bitemu_gui ^
             --hidden-import bitemu_gui.core ^
             --hidden-import bitemu_gui.game_widget ^
             --hidden-import bitemu_gui.main_window ^
             --hidden-import bitemu_gui.keys ^
             --hidden-import bitemu_gui.profile ^
+            --hidden-import bitemu_gui.splash_widget ^
+            --hidden-import bitemu_gui.library_widget ^
+            --hidden-import bitemu_gui.rom_scanner ^
+            --hidden-import bitemu_gui.scraper ^
+            --hidden-import bitemu_gui.input_config ^
+            --hidden-import bitemu_gui.input_dialog ^
+            --hidden-import bitemu_gui.gamepad ^
             main.py
           copy ..\VERSION dist\bitemu\
 

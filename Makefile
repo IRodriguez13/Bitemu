@@ -7,6 +7,16 @@ CC = gcc
 CFLAGS = -Wall -Wextra -std=c11 -I. -Iinclude
 LDFLAGS =
 
+UNAME_S := $(shell uname -s)
+ifeq ($(UNAME_S),Darwin)
+  LIB_EXT = dylib
+else ifeq ($(OS),Windows_NT)
+  LIB_EXT = dll
+else
+  LIB_EXT = so
+endif
+LIB_TARGET = libbitemu.$(LIB_EXT)
+
 CORE_DIR = core
 UTILS_DIR = core/utils
 BE1_DIR = be1
@@ -51,14 +61,14 @@ frontend/venv/.done: frontend/requirements.txt
 
 cli: $(CLI_TARGET)
 
-lib: libbitemu.so
+lib: $(LIB_TARGET)
 
 $(CLI_TARGET): $(CLI_OBJS)
 	$(CC) $(CLI_OBJS) -o $@ $(LDFLAGS)
 
 LIB_SRCS = $(API_SRCS) $(CORE_SRCS) $(UTILS_SRCS) $(BE1_SRCS)
 LIB_OBJS = $(patsubst %.c,build/lib/%.o,$(LIB_SRCS))
-libbitemu.so: $(LIB_OBJS)
+$(LIB_TARGET): $(LIB_OBJS)
 	$(CC) -shared -o $@ $(LIB_OBJS) $(LDFLAGS)
 build/lib/%.o: %.c
 	@mkdir -p $(dir $@)
@@ -72,11 +82,15 @@ test: test-core test-frontend
 test-core: lib
 	@mkdir -p build
 	$(CC) $(CFLAGS) -Itests/core $(TEST_SRCS) -L. -lbitemu -o $(TEST_BIN)
+ifeq ($(UNAME_S),Darwin)
+	DYLD_LIBRARY_PATH=. ./$(TEST_BIN)
+else
 	LD_LIBRARY_PATH=. ./$(TEST_BIN)
+endif
 
 test-frontend: lib frontend/venv/.done
 	$(VENV)/python -m pytest tests/frontend/ -v
 
 clean:
-	rm -f $(CLI_OBJS) $(CLI_TARGET) libbitemu.so
+	rm -f $(CLI_OBJS) $(CLI_TARGET) libbitemu.so libbitemu.dylib bitemu.dll
 	rm -rf build
