@@ -10,8 +10,8 @@ except ImportError:
     sd = None
     _SOUNDDEVICE_AVAILABLE = False
 
-from PySide6.QtCore import QSettings
-from PySide6.QtGui import QAction, QKeySequence, QCloseEvent
+from PySide6.QtCore import Qt, QSettings
+from PySide6.QtGui import QAction, QKeySequence, QCloseEvent, QIcon, QPixmap
 from PySide6.QtWidgets import (
     QMainWindow,
     QWidget,
@@ -20,6 +20,9 @@ from PySide6.QtWidgets import (
     QMessageBox,
     QStatusBar,
     QApplication,
+    QDialog,
+    QLabel,
+    QDialogButtonBox,
 )
 
 from .core import Emu
@@ -46,6 +49,9 @@ class MainWindow(QMainWindow):
         self._gamepad = GamepadPoller(self._input_config, parent=self)
         self._input_dialog: InputSettingsDialog | None = None
         self.setWindowTitle(self._profile.window_title)
+        icon_path = os.path.join(os.path.dirname(__file__), "..", "assets", "icon.png")
+        if os.path.isfile(icon_path):
+            self.setWindowIcon(QIcon(icon_path))
         self.setMinimumSize(400, 380)
         self.resize(
             self._profile.fb_width * 4 + 40,
@@ -184,11 +190,11 @@ class MainWindow(QMainWindow):
         self._refresh_recent_menu()
         self._paused = False
         self._game.set_paused(False)
-        self._game.hide_splash()
         self._pause_act.setText("Pausar")
         name = os.path.basename(path)
         self.setWindowTitle(f"{self._profile.window_title} — {name}")
-        self._status.showMessage(path)
+        self._status.showMessage(f"Cargando {name}...")
+        self._game.show_loading(name)
 
     def _toggle_pause(self):
         self._paused = not self._paused
@@ -204,6 +210,20 @@ class MainWindow(QMainWindow):
     def _close_rom(self):
         if not self._emu.is_valid or self._rom_path is None:
             return
+        reply = QMessageBox.question(
+            self,
+            "Cerrar juego",
+            "¿Seguro que querés cerrar el juego?\n\n"
+            "Si no guardaste el estado, se perderá el progreso.",
+            QMessageBox.StandardButton.Save
+            | QMessageBox.StandardButton.Discard
+            | QMessageBox.StandardButton.Cancel,
+            QMessageBox.StandardButton.Save,
+        )
+        if reply == QMessageBox.StandardButton.Cancel:
+            return
+        if reply == QMessageBox.StandardButton.Save:
+            self._save_state()
         self._emu.unload_rom()
         self._rom_path = None
         self._paused = False
@@ -356,9 +376,25 @@ class MainWindow(QMainWindow):
 
     def _show_about(self):
         from . import get_version
-        QMessageBox.about(
-            self,
-            "Acerca de Bitemu",
+        dlg = QDialog(self)
+        dlg.setWindowTitle("Acerca de Bitemu")
+        dlg.setFixedSize(380, 340)
+        layout = QVBoxLayout(dlg)
+        layout.setContentsMargins(20, 16, 20, 12)
+
+        logo_path = os.path.join(os.path.dirname(__file__), "..", "assets", "logo.png")
+        if os.path.isfile(logo_path):
+            pix = QPixmap(logo_path).scaled(
+                200, 100,
+                Qt.AspectRatioMode.KeepAspectRatio,
+                Qt.TransformationMode.SmoothTransformation,
+            )
+            logo_lbl = QLabel()
+            logo_lbl.setPixmap(pix)
+            logo_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            layout.addWidget(logo_lbl)
+
+        info = QLabel(
             f"<h3>Bitemu v{get_version()}</h3>"
             f"<p>{self._profile.name} Emulator</p>"
             "<p>Core en C &middot; Frontend en Python (PySide6)</p>"
@@ -367,10 +403,35 @@ class MainWindow(QMainWindow):
             '<p><b>GitHub:</b> <a href="https://github.com/IRodriguez13">'
             "github.com/IRodriguez13</a></p>"
             "<hr>"
-            "<p><small>Licencia: LGPL v3.0</small></p>",
+            "<p><small>Licencia: LGPL v3.0</small></p>"
         )
+        info.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        info.setOpenExternalLinks(True)
+        info.setWordWrap(True)
+        layout.addWidget(info)
+
+        btn_box = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok)
+        btn_box.accepted.connect(dlg.accept)
+        layout.addWidget(btn_box)
+        dlg.exec()
 
     def closeEvent(self, event: QCloseEvent):
+        if self._rom_path is not None:
+            reply = QMessageBox.question(
+                self,
+                "Salir de Bitemu",
+                "Hay un juego en ejecución.\n\n"
+                "¿Querés guardar el estado antes de salir?",
+                QMessageBox.StandardButton.Save
+                | QMessageBox.StandardButton.Discard
+                | QMessageBox.StandardButton.Cancel,
+                QMessageBox.StandardButton.Save,
+            )
+            if reply == QMessageBox.StandardButton.Cancel:
+                event.ignore()
+                return
+            if reply == QMessageBox.StandardButton.Save:
+                self._save_state()
         if self._audio_stream is not None:
             try:
                 self._audio_stream.stop()

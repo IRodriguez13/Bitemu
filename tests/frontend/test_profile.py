@@ -40,3 +40,46 @@ def test_console_profile_dataclass():
     )
     assert p.fb_width == 320
     assert p.rom_extensions == ["bin"]
+
+
+def test_gb_profile_branding_colors():
+    assert len(PROFILE_GB.splash_bg) == 3
+    assert len(PROFILE_GB.splash_fg) == 3
+    assert len(PROFILE_GB.splash_accent) == 3
+    assert len(PROFILE_GB.splash_sub) == 3
+    assert all(0 <= c <= 255 for c in PROFILE_GB.splash_bg)
+    assert all(0 <= c <= 255 for c in PROFILE_GB.splash_fg)
+
+
+def test_gb_profile_ansi_color():
+    assert PROFILE_GB.ansi_color == "32"
+
+
+def test_profile_defaults_match_gb():
+    p = ConsoleProfile(
+        name="Defaults",
+        fb_width=160,
+        fb_height=144,
+        rom_extensions=["gb"],
+        window_title="Test",
+    )
+    assert p.splash_bg == PROFILE_GB.splash_bg
+    assert p.splash_fg == PROFILE_GB.splash_fg
+    assert p.ansi_color == "32"
+
+
+def test_custom_branding():
+    p = ConsoleProfile(
+        name="Genesis",
+        fb_width=320,
+        fb_height=224,
+        rom_extensions=["md"],
+        window_title="Bitemu 2",
+        splash_bg=(0x0C, 0x1A, 0x3C),
+        splash_fg=(0x21, 0x76, 0xFF),
+        splash_accent=(0xD4, 0xA0, 0x17),
+        splash_sub=(0x7E, 0xB8, 0xFF),
+        ansi_color="34",
+    )
+    assert p.splash_fg == (0x21, 0x76, 0xFF)
+    assert p.ansi_color == "34"
