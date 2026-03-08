@@ -12,6 +12,7 @@ from PySide6.QtNetwork import QNetworkAccessManager, QNetworkRequest, QNetworkRe
 
 GITHUB_REPO = "IRodriguez13/Bitemu"
 API_URL = f"https://api.github.com/repos/{GITHUB_REPO}/releases/latest"
+DOWNLOAD_PAGE = "https://bitemu.netlify.app/"
 
 
 def parse_version(tag: str) -> tuple[int, ...]:
@@ -54,8 +55,7 @@ class UpdateChecker(QObject):
                 return
             data = json.loads(bytes(reply.readAll()).decode("utf-8"))
             tag = data.get("tag_name", "")
-            url = data.get("html_url", "")
-            if tag and url and is_newer(tag, self._current):
-                self.update_available.emit(tag, url)
+            if tag and is_newer(tag, self._current):
+                self.update_available.emit(tag, DOWNLOAD_PAGE)
         finally:
             reply.deleteLater()
