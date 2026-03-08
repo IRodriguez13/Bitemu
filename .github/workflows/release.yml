@@ -164,7 +164,7 @@ jobs:
           cp ../VERSION dist/bitemu/
 
           # Fail if libportaudio not bundled (required for systems without it)
-          if [ -z "$PA_FLAG" ] || ! find frontend/dist/bitemu -name 'libportaudio.so*' -print -quit | grep -q .; then
+          if [ -z "$PA_FLAG" ] || ! find dist/bitemu -name 'libportaudio.so*' -print -quit | grep -q .; then
             echo "::error::libportaudio not found in bundle. Install libportaudio2 on runner."
             exit 1
           fi
