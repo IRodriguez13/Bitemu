@@ -133,14 +133,8 @@ jobs:
         run: |
           cd frontend
 
-          # Find system libs to bundle (portaudio + xcb for Qt platform plugin)
+          # xcb libs for Qt platform plugin (portaudio via linuxdeploy later)
           LIB_DIRS="/usr/lib/x86_64-linux-gnu /usr/lib /usr/lib64"
-          PA_FLAG=""
-          for p in $LIB_DIRS; do
-            PA=$(find "$p" -name 'libportaudio.so*' 2>/dev/null | head -1)
-            if [ -n "$PA" ]; then PA_FLAG="--add-binary ${PA}:."; break; fi
-          done
-
           XCB_FLAGS=""
           for lib in libxcb-cursor libxcb-render-util libxcb-keysyms; do
             for p in $LIB_DIRS; do
@@ -155,19 +149,13 @@ jobs:
             --add-data "../VERSION:." \
             --add-binary "../libbitemu.so:." \
             --add-data "assets:assets" \
-            $PA_FLAG $XCB_FLAGS \
+            $XCB_FLAGS \
             --collect-all sounddevice \
             --collect-all pygame \
             --collect-all PySide6 \
             --collect-submodules bitemu_gui \
             main.py
           cp ../VERSION dist/bitemu/
-
-          # Fail if libportaudio not bundled (required for systems without it)
-          if [ -z "$PA_FLAG" ] || ! find dist/bitemu -name 'libportaudio.so*' -print -quit | grep -q .; then
-            echo "::error::libportaudio not found in bundle. Install libportaudio2 on runner."
-            exit 1
-          fi
 
       - name: PyInstaller bundle (macOS)
         if: matrix.os == 'macos-latest'
@@ -269,14 +257,37 @@ jobs:
             cp frontend/assets/icon.png AppDir/bitemu.png
           fi
 
-          # AppRun entry point (LD_LIBRARY_PATH + QT_QPA_PLATFORM_PLUGIN_PATH for Qt xcb)
-          # PyInstaller 6+ puts binaries in _internal/, so we need both paths
+          # linuxdeploy: bundle libportaudio + deps (libasound, etc.) into AppDir
+          PA_PATH=""
+          for p in /usr/lib/x86_64-linux-gnu /usr/lib /usr/lib64; do
+            PA_PATH=$(find "$p" -name 'libportaudio.so*' 2>/dev/null | head -1)
+            [ -n "$PA_PATH" ] && break
+          done
+          if [ -z "$PA_PATH" ]; then
+            echo "::error::libportaudio not found. Install libportaudio2 on runner."
+            exit 1
+          fi
+          wget -q https://github.com/linuxdeploy/linuxdeploy/releases/download/continuous/linuxdeploy-x86_64.AppImage -O linuxdeploy
+          chmod +x linuxdeploy
+          ./linuxdeploy --appdir AppDir \
+            --executable AppDir/usr/bin/bitemu \
+            --library "$PA_PATH" \
+            --desktop-file AppDir/bitemu.desktop \
+            --icon-file frontend/assets/icon.png
+
+          if ! find AppDir -name 'libportaudio.so*' -print -quit | grep -q .; then
+            echo "::error::linuxdeploy did not bundle libportaudio"
+            exit 1
+          fi
+
+          # Custom AppRun (linuxdeploy may create one; we overwrite for QT_QPA + LD paths)
           cat > AppDir/AppRun <<'APPRUN'
           #!/bin/sh
           HERE="$(dirname "$(readlink -f "${0}")")"
           BIN="${HERE}/usr/bin"
-          export LD_LIBRARY_PATH="${BIN}:${BIN}/_internal:${LD_LIBRARY_PATH}"
-          for p in "${BIN}/_internal/libportaudio.so"* "${BIN}/libportaudio.so"*; do
+          LIB="${HERE}/usr/lib"
+          export LD_LIBRARY_PATH="${LIB}:${BIN}:${BIN}/_internal:${LD_LIBRARY_PATH}"
+          for p in "${LIB}/libportaudio.so"* "${BIN}/_internal/libportaudio.so"* "${BIN}/libportaudio.so"*; do
             [ -e "$p" ] && export LD_PRELOAD="${p}${LD_PRELOAD:+:$LD_PRELOAD}" && break
           done
           for d in "${BIN}/_internal/PySide6/Qt/plugins/platforms" \
@@ -291,6 +302,11 @@ jobs:
           APPRUN
           sed -i 's/^          //' AppDir/AppRun
           chmod +x AppDir/AppRun
+
+          # tar.gz: copy linuxdeploy-bundled libportaudio into dist for FUSE-free package
+          if [ -d AppDir/usr/lib ]; then
+            cp -P AppDir/usr/lib/libportaudio.so* frontend/dist/bitemu/_internal/ 2>/dev/null || true
+          fi
 
           # Build AppImage (APPIMAGE_EXTRACT_AND_RUN bypasses FUSE requirement on runner)
           wget -q https://github.com/AppImage/AppImageKit/releases/download/continuous/appimagetool-x86_64.AppImage -O appimagetool

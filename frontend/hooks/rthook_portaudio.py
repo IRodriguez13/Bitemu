@@ -13,9 +13,11 @@ import ctypes
 
 if getattr(sys, "frozen", False):
     bundle = sys._MEIPASS if hasattr(sys, "_MEIPASS") else os.path.dirname(sys.executable)
-    # In --onedir, binaries from --add-binary land next to the executable, not in _MEIPASS
     parent = os.path.dirname(sys.executable)
-    search_dirs = [parent, bundle] if parent != bundle else [bundle]
+    # linuxdeploy puts libs in usr/lib; PyInstaller 6+ uses _internal
+    usr_lib = os.path.join(os.path.dirname(parent), "lib")  # sibling of usr/bin
+    search_dirs = [usr_lib, parent, bundle]
+    search_dirs = [d for d in search_dirs if os.path.isdir(d)]
 
     if sys.platform.startswith("linux"):
         lib_path = ":".join(search_dirs + [os.environ.get("LD_LIBRARY_PATH", "")])
