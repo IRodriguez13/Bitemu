@@ -64,6 +64,10 @@ pip-log.txt
 pip-delete-this-directory.txt
 .python-version
 
+# PyInstaller
+_internal/
+*.spec
+
 # Packaging outputs
 *.AppImage
 *.dmg

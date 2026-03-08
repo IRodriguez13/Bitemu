@@ -203,10 +203,17 @@ jobs:
       - name: Package AppImage (Linux)
         if: matrix.os == 'ubuntu-latest'
         run: |
+          set -e
           VERSION_STR=$(cat VERSION)
-          mkdir -p AppDir/usr/bin AppDir/usr/share/applications AppDir/usr/share/icons/hicolor/256x256/apps
+
+          mkdir -p AppDir/usr/bin \
+                   AppDir/usr/share/applications \
+                   AppDir/usr/share/icons/hicolor/256x256/apps
+
           cp -r frontend/dist/bitemu/* AppDir/usr/bin/
-          cat > AppDir/usr/share/applications/bitemu.desktop <<DESKTOP
+
+          # .desktop file (no leading whitespace)
+          cat > AppDir/bitemu.desktop <<EOF
           [Desktop Entry]
           Name=Bitemu
           Exec=bitemu
@@ -214,23 +221,34 @@ jobs:
           Type=Application
           Categories=Game;Emulator;
           Comment=Game Boy Emulator v${VERSION_STR}
-          DESKTOP
-          cp AppDir/usr/share/applications/bitemu.desktop AppDir/
-          # Use a placeholder icon (1x1 pixel PNG)
-          printf '\x89PNG\r\n\x1a\n' > AppDir/usr/share/icons/hicolor/256x256/apps/bitemu.png || true
-          cp AppDir/usr/share/icons/hicolor/256x256/apps/bitemu.png AppDir/bitemu.png || true
+          EOF
+          sed -i 's/^          //' AppDir/bitemu.desktop
+          cp AppDir/bitemu.desktop AppDir/usr/share/applications/
+
+          # Icon from project assets
+          if [ -f frontend/assets/icon.png ]; then
+            cp frontend/assets/icon.png AppDir/usr/share/icons/hicolor/256x256/apps/bitemu.png
+            cp frontend/assets/icon.png AppDir/bitemu.png
+          fi
+
+          # AppRun entry point
           cat > AppDir/AppRun <<'APPRUN'
           #!/bin/sh
           HERE="$(dirname "$(readlink -f "${0}")")"
           exec "${HERE}/usr/bin/bitemu" "$@"
           APPRUN
+          sed -i 's/^          //' AppDir/AppRun
           chmod +x AppDir/AppRun
-          # Download appimagetool
+
+          # Build AppImage (APPIMAGE_EXTRACT_AND_RUN bypasses FUSE requirement)
           wget -q https://github.com/AppImage/AppImageKit/releases/download/continuous/appimagetool-x86_64.AppImage -O appimagetool
           chmod +x appimagetool
-          ARCH=x86_64 ./appimagetool AppDir ${{ matrix.artifact_name }}-${VERSION_STR}.AppImage || true
-          # Fallback: tar.gz if AppImage fails
+          ARCH=x86_64 APPIMAGE_EXTRACT_AND_RUN=1 ./appimagetool AppDir ${{ matrix.artifact_name }}-${VERSION_STR}.AppImage || true
+
+          # Fallback: tar.gz with desktop file and icon
           if [ ! -f ${{ matrix.artifact_name }}-${VERSION_STR}.AppImage ]; then
+            cp AppDir/bitemu.desktop frontend/dist/bitemu/
+            [ -f AppDir/bitemu.png ] && cp AppDir/bitemu.png frontend/dist/bitemu/
             tar czf ${{ matrix.artifact_name }}-${VERSION_STR}.tar.gz -C frontend/dist bitemu
           fi
 
