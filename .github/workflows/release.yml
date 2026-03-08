@@ -57,7 +57,10 @@ jobs:
 
       - name: Install build tools (Linux)
         if: matrix.os == 'ubuntu-latest'
-        run: sudo apt-get update && sudo apt-get install -y build-essential libportaudio2 libfuse2
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential libportaudio2 libfuse2 \
+            libxcb-cursor0 libxcb-render-util0 libxcb-keysyms1
 
       - name: Install build tools (macOS)
         if: matrix.os == 'macos-latest'
@@ -130,11 +133,20 @@ jobs:
         run: |
           cd frontend
 
-          # Find system libportaudio to bundle it (search common paths)
+          # Find system libs to bundle (portaudio + xcb for Qt platform plugin)
+          LIB_DIRS="/usr/lib/x86_64-linux-gnu /usr/lib /usr/lib64"
           PA_FLAG=""
-          for p in /usr/lib/x86_64-linux-gnu /usr/lib /usr/lib64; do
+          for p in $LIB_DIRS; do
             PA=$(find "$p" -name 'libportaudio.so*' 2>/dev/null | head -1)
             if [ -n "$PA" ]; then PA_FLAG="--add-binary ${PA}:."; break; fi
+          done
+
+          XCB_FLAGS=""
+          for lib in libxcb-cursor libxcb-render-util libxcb-keysyms; do
+            for p in $LIB_DIRS; do
+              F=$(find "$p" -name "${lib}.so*" 2>/dev/null | head -1)
+              if [ -n "$F" ]; then XCB_FLAGS="$XCB_FLAGS --add-binary ${F}:."; break; fi
+            done
           done
 
           ./venv/bin/pyinstaller --onedir --name bitemu \
@@ -143,23 +155,11 @@ jobs:
             --add-data "../VERSION:." \
             --add-binary "../libbitemu.so:." \
             --add-data "assets:assets" \
-            $PA_FLAG \
+            $PA_FLAG $XCB_FLAGS \
             --collect-all sounddevice \
             --collect-all pygame \
-            --hidden-import bitemu_gui \
-            --hidden-import bitemu_gui.core \
-            --hidden-import bitemu_gui.game_widget \
-            --hidden-import bitemu_gui.main_window \
-            --hidden-import bitemu_gui.keys \
-            --hidden-import bitemu_gui.profile \
-            --hidden-import bitemu_gui.splash_widget \
-            --hidden-import bitemu_gui.library_widget \
-            --hidden-import bitemu_gui.rom_scanner \
-            --hidden-import bitemu_gui.scraper \
-            --hidden-import bitemu_gui.input_config \
-            --hidden-import bitemu_gui.input_dialog \
-            --hidden-import bitemu_gui.gamepad \
-            --hidden-import bitemu_gui.update_checker \
+            --collect-all PySide6 \
+            --collect-submodules bitemu_gui \
             main.py
           cp ../VERSION dist/bitemu/
 
@@ -263,12 +263,21 @@ jobs:
             cp frontend/assets/icon.png AppDir/bitemu.png
           fi
 
-          # AppRun entry point (set LD_LIBRARY_PATH so bundled .so files are found)
+          # AppRun entry point (LD_LIBRARY_PATH + QT_QPA_PLATFORM_PLUGIN_PATH for Qt xcb)
           cat > AppDir/AppRun <<'APPRUN'
           #!/bin/sh
           HERE="$(dirname "$(readlink -f "${0}")")"
-          export LD_LIBRARY_PATH="${HERE}/usr/bin:${LD_LIBRARY_PATH}"
-          exec "${HERE}/usr/bin/bitemu" "$@"
+          BIN="${HERE}/usr/bin"
+          export LD_LIBRARY_PATH="${BIN}:${LD_LIBRARY_PATH}"
+          for d in "${BIN}/_internal/PySide6/Qt/plugins/platforms" \
+                   "${BIN}/PySide6/Qt/plugins/platforms" \
+                   "${BIN}/platforms"; do
+            if [ -d "$d" ]; then
+              export QT_QPA_PLATFORM_PLUGIN_PATH="$d"
+              break
+            fi
+          done
+          exec "${BIN}/bitemu" "$@"
           APPRUN
           sed -i 's/^          //' AppDir/AppRun
           chmod +x AppDir/AppRun
@@ -285,6 +294,14 @@ jobs:
           #!/bin/sh
           HERE="$(cd "$(dirname "$0")" && pwd)"
           export LD_LIBRARY_PATH="${HERE}:${LD_LIBRARY_PATH}"
+          for d in "${HERE}/_internal/PySide6/Qt/plugins/platforms" \
+                   "${HERE}/PySide6/Qt/plugins/platforms" \
+                   "${HERE}/platforms"; do
+            if [ -d "$d" ]; then
+              export QT_QPA_PLATFORM_PLUGIN_PATH="$d"
+              break
+            fi
+          done
           exec "${HERE}/bitemu" "$@"
           LAUNCHER
           sed -i 's/^          //' frontend/dist/bitemu/bitemu.sh

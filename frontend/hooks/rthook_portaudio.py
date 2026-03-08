@@ -2,6 +2,9 @@
 PyInstaller runtime hook: ensure bundled native libraries are discoverable.
 Runs before any application code so sounddevice/pygame find their libs.
 Covers Linux, macOS and Windows.
+
+In --onedir mode, --add-binary puts libs next to the executable (parent of _MEIPASS),
+so we search both locations.
 """
 import os
 import sys
@@ -10,31 +13,41 @@ import ctypes
 
 if getattr(sys, "frozen", False):
     bundle = sys._MEIPASS if hasattr(sys, "_MEIPASS") else os.path.dirname(sys.executable)
+    # In --onedir, binaries from --add-binary land next to the executable, not in _MEIPASS
+    parent = os.path.dirname(sys.executable)
+    search_dirs = [parent, bundle] if parent != bundle else [bundle]
 
     if sys.platform.startswith("linux"):
-        os.environ["LD_LIBRARY_PATH"] = bundle + ":" + os.environ.get("LD_LIBRARY_PATH", "")
-        for pattern in ("libportaudio*", "libSDL2*"):
-            for lib in glob.glob(os.path.join(bundle, pattern)):
-                try:
-                    ctypes.cdll.LoadLibrary(lib)
-                except OSError:
-                    continue
+        lib_path = ":".join(search_dirs + [os.environ.get("LD_LIBRARY_PATH", "")])
+        os.environ["LD_LIBRARY_PATH"] = lib_path
+        for search_dir in search_dirs:
+            for pattern in ("libportaudio*", "libSDL2*"):
+                for lib in glob.glob(os.path.join(search_dir, pattern)):
+                    try:
+                        ctypes.cdll.LoadLibrary(lib)
+                    except OSError:
+                        continue
 
     elif sys.platform == "darwin":
-        os.environ["DYLD_LIBRARY_PATH"] = bundle + ":" + os.environ.get("DYLD_LIBRARY_PATH", "")
-        for pattern in ("libportaudio*", "libSDL2*"):
-            for lib in glob.glob(os.path.join(bundle, pattern)):
-                try:
-                    ctypes.cdll.LoadLibrary(lib)
-                except OSError:
-                    continue
+        dyld_path = ":".join(search_dirs + [os.environ.get("DYLD_LIBRARY_PATH", "")])
+        os.environ["DYLD_LIBRARY_PATH"] = dyld_path
+        for search_dir in search_dirs:
+            for pattern in ("libportaudio*", "libSDL2*"):
+                for lib in glob.glob(os.path.join(search_dir, pattern)):
+                    try:
+                        ctypes.cdll.LoadLibrary(lib)
+                    except OSError:
+                        continue
 
     elif sys.platform == "win32":
-        os.add_dll_directory(bundle)
-        os.environ["PATH"] = bundle + ";" + os.environ.get("PATH", "")
-        for pattern in ("portaudio*", "SDL2*"):
-            for lib in glob.glob(os.path.join(bundle, pattern)):
-                try:
-                    ctypes.cdll.LoadLibrary(lib)
-                except OSError:
-                    continue
+        for d in search_dirs:
+            if os.path.isdir(d):
+                os.add_dll_directory(d)
+        os.environ["PATH"] = ";".join(search_dirs + [os.environ.get("PATH", "")])
+        for search_dir in search_dirs:
+            for pattern in ("portaudio*", "SDL2*"):
+                for lib in glob.glob(os.path.join(search_dir, pattern)):
+                    try:
+                        ctypes.cdll.LoadLibrary(lib)
+                    except OSError:
+                        continue
