@@ -443,7 +443,7 @@ class MainWindow(QMainWindow):
         layout = QVBoxLayout(dlg)
         layout.setContentsMargins(20, 16, 20, 12)
 
-        logo_path = os.path.join(os.path.dirname(__file__), "..", "assets", "logo.png")
+        logo_path = os.path.join(os.path.dirname(__file__), "..", "assets", "bitemu_sagas.png")
         if os.path.isfile(logo_path):
             pix = QPixmap(logo_path).scaled(
                 200, 100,
@@ -458,7 +458,6 @@ class MainWindow(QMainWindow):
         info = QLabel(
             f"<h3>Bitemu v{get_version()}</h3>"
             f"<p>{self._profile.name} Emulator</p>"
-            "<p>Core en C &middot; Frontend en Python (PySide6)</p>"
             "<hr>"
             "<p><b>Autor:</b> Iván Ezequiel Rodriguez</p>"
             '<p><b>GitHub:</b> <a href="https://github.com/IRodriguez13">'
