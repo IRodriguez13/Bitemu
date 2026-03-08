@@ -61,8 +61,7 @@ def _load_lib():
     lib.bitemu_save_state.argtypes = [c_void_p, c_char_p]
     lib.bitemu_save_state.restype = c_int
     lib.bitemu_load_state.argtypes = [c_void_p, c_char_p]
-    lib.bitemu_load_state.restype = c_int
-    # Audio (buffer circular)
+    lib.bitemu_load_state.restype = c_int    # Audio (buffer circular)
     lib.bitemu_audio_init.argtypes = [c_void_p, c_int, c_void_p]
     lib.bitemu_audio_init.restype = c_int
     lib.bitemu_audio_set_enabled.argtypes = [c_void_p, c_bool]

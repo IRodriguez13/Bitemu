@@ -117,7 +117,8 @@ static int gb_cycles_per_frame(console_t *ctx)
 
 /* ----- Save state (.bst) ----- */
 
-typedef struct {
+typedef struct 
+{
     char     magic[4];
     uint32_t version;
     uint32_t console_id;

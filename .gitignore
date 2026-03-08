@@ -25,8 +25,10 @@ roms/
 Thumbs.db
 
 # Debug / core dumps
-core
 *.core
+# Ignore core dump file at root, but NOT the core/ source directory
+/core
+!core/
 
 # Backup
 *.bak
