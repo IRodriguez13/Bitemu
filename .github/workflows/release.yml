@@ -272,8 +272,7 @@ jobs:
           ./linuxdeploy --appdir AppDir \
             --executable AppDir/usr/bin/bitemu \
             --library "$PA_PATH" \
-            --desktop-file AppDir/bitemu.desktop \
-            --icon-file frontend/assets/icon.png
+            --desktop-file AppDir/bitemu.desktop
 
           if ! find AppDir -name 'libportaudio.so*' -print -quit | grep -q .; then
             echo "::error::linuxdeploy did not bundle libportaudio"
