@@ -4,20 +4,34 @@ Game Boy emulator with a generic engine designed for future console editions (Ge
 
 **Author:** [Iván Ezequiel Rodriguez](https://github.com/IRodriguez13)
 
-**Stack:** C (backend + CLI) and Python (GUI frontend). No Rust.
+**License:** GNU Lesser General Public License v3.0 — see [LICENSE](LICENSE).
+
+**Stack:** C (backend + CLI) · Python/PySide6 (GUI frontend).
 
 ## Features
 
-- Full LR35902 CPU (all opcodes including CB prefix, interrupts, HALT)
-- PPU with backgrounds, sprites (8x8 / 8x16), Window layer, scroll, palettes, 10 sprites per scanline limit
-- APU with 4 channels (Square1, Square2, Wave, Noise), frame sequencer, length counters, volume envelopes
-- Memory: MBC1, MBC3 (with RTC registers), MBC5
-- Battery saves (.sav) -- automatic load/save on ROM open/close
-- **Save states** (F6/F7) -- save and restore full emulator state at any point (.bst format with CRC32 validation)
+### Core emulation
+- Full LR35902 CPU — all 256 opcodes + CB prefix, interrupts, HALT bug
+- PPU — backgrounds, window (internal line counter), sprites (8x8/8x16 with X-priority), DMG palettes, STAT edge detection, SCY/SCX latching
+- APU — 4 channels (Square1, Square2, Wave, Noise), frame sequencer, length counters, volume envelopes, sweep
+- Memory — ROM-only, MBC1 (with mode select), MBC2, MBC3 (with RTC), MBC5
+- Timer — DIV, TIMA/TMA/TAC with overflow and interrupt
+
+### Save system
+- Battery saves (.sav) — automatic load/save on ROM open/close
+- Save states (F6/F7) — BST v2 format with section-based forward/backward compatibility and CRC32 ROM validation
+
+### Frontend
+- Game library with cover art grid (fetched from libretro-thumbnails CDN with multi-source fallback)
+- Main menu splash screen with console-adaptive branding
+- Configurable keyboard mappings and gamepad support (WIP)
 - Audio output via sounddevice (toggle in Options menu)
-- Splash screen with boot sound
-- Cross-platform GUI (PySide6) with menu bar, status bar, recent ROMs
-- CI/CD pipeline for automated builds on Windows, macOS, and Linux
+- Cross-platform GUI (PySide6) with menu bar, status bar, ROM folder config
+
+### Infrastructure
+- CI/CD pipeline — automated builds on Windows, macOS, and Linux with native packaging (AppImage, DMG, Inno Setup)
+- 126 automated tests (67 C core + 59 Python frontend) including ABI guard for save state binary compatibility
+- Version injection from git tags
 
 ## Architecture
 
@@ -81,10 +95,11 @@ make help     # list all targets
 make run
 ```
 
-1. **Ctrl+O** to open a ROM file (.gb / .gbc)
-2. Play using keyboard (see Controls below)
-3. **F6** to save state, **F7** to load state
-4. Battery saves (.sav) are automatic
+1. Click **Start** on the splash screen to open the game library
+2. Set your ROM folder when prompted (or via Options > ROM folder)
+3. Click a game to play, or **Ctrl+O** to open a ROM directly
+4. **F6** to save state, **F7** to load state
+5. Battery saves (.sav) are automatic
 
 ### Controls
 
@@ -101,27 +116,24 @@ make run
 | Save state | F6                 |
 | Load state | F7                 |
 
-## Save states
-
-Press **F6** to save the full emulator state to a `.bst` file (saved next to the ROM). Press **F7** to restore it. The state file includes a CRC32 of the ROM to prevent loading a state against the wrong game. The ROM must be loaded first before restoring a state.
-
 ## Tests
 
 ```bash
-make test          # all tests
-make test-core     # C core tests only (50 tests)
-make test-frontend # Python frontend tests only (28 tests)
+make test          # all tests (126 total)
+make test-core     # C core tests (67 tests: memory, APU, timer, API, PPU, MBC2, ABI guard)
+make test-frontend # Python frontend tests (59 tests: bindings, keys, input config, profile, ROM scanner, scraper)
 ```
 
-## Limitations
+## Known limitations
 
 | Area | Status |
 |------|--------|
-| **PPU** | OBJ/BG priority edge cases may have minor issues |
-| **APU** | Functional with some glitches in complex games |
+| **PPU** | Mode-level (not dot-accurate); timing-sensitive games may have minor HUD glitches |
+| **APU** | Functional with occasional glitches in complex games |
+| **Gamepad** | Detection and mapping WIP — keyboard fully functional |
 | **RTC** | Registers read/write and latch work; time does not advance in real-time |
-| **Precision** | Not cycle-accurate; timing-sensitive demos may have issues |
-| **Boot ROM** | Not emulated; starts at 0x0100 (post-boot state) |
+| **Boot ROM** | Not emulated; starts at 0x0100 with post-boot register state |
+| **Serial** | Stub only — no link cable (single-player unaffected) |
 
 ## License
 
