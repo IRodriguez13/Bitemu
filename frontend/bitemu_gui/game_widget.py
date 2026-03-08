@@ -1,8 +1,7 @@
 """
 Widget central: dibuja el framebuffer del core y captura teclas.
 Escala el juego para llenar la ventana (relación de aspecto 160:144).
-Muestra un splash "BITEMU" al estilo del boot de la Game Boy original
-mientras no haya ROM cargada.
+Muestra una pantalla de carga breve al cargar una ROM.
 """
 import array
 import math
@@ -23,72 +22,32 @@ from .core import Emu, FB_WIDTH, FB_HEIGHT
 from .keys import build_joypad_state
 from .profile import ConsoleProfile, DEFAULT_PROFILE
 from .input_config import InputConfig
-from . import get_version
 
-def _qcolor(rgb: tuple[int, int, int]) -> QColor:
-    return QColor(rgb[0], rgb[1], rgb[2])
-
-_SPLASH_CHARS = {
-    'B': [0b11110, 0b10001, 0b10001, 0b11110, 0b10001, 0b10001, 0b11110],
-    'I': [0b11111, 0b00100, 0b00100, 0b00100, 0b00100, 0b00100, 0b11111],
-    'T': [0b11111, 0b00100, 0b00100, 0b00100, 0b00100, 0b00100, 0b00100],
-    'E': [0b11111, 0b10000, 0b10000, 0b11110, 0b10000, 0b10000, 0b11111],
-    'M': [0b10001, 0b11011, 0b10101, 0b10101, 0b10001, 0b10001, 0b10001],
-    'U': [0b10001, 0b10001, 0b10001, 0b10001, 0b10001, 0b10001, 0b01110],
-}
-_CHAR_W, _CHAR_H, _CHAR_GAP = 5, 7, 1
-
-_DING_SAMPLE_RATE = 44100
-_DING_AMPLITUDE = 8000
-
-
-def _generate_ding() -> bytes:
-    """Two-tone 'ding-ding' C5→C6, Nintendo-style boot sound."""
-    tones = [
-        (523.25, 0.12, 10.0),   # C5 — short "ding"
-        (1046.5, 0.22, 8.0),    # C6 — longer "ding"
-    ]
-    gap = int(_DING_SAMPLE_RATE * 0.04)
-    samples = array.array("h")
-    for freq, duration, decay in tones:
-        n = int(_DING_SAMPLE_RATE * duration)
-        for i in range(n):
-            t = i / _DING_SAMPLE_RATE
-            phase = (freq * t) % 1.0
-            wave = 1.0 if phase < 0.5 else -1.0
-            envelope = math.exp(-t * decay)
-            sample = int(wave * envelope * _DING_AMPLITUDE)
-            samples.append(max(-32768, min(32767, sample)))
-        for _ in range(gap):
-            samples.append(0)
-    return samples.tobytes()
+_CHIRP_SR = 44100
+_CHIRP_AMP = 8000
 
 
 def _generate_chirp() -> bytes:
-    """Single short chirp for ROM loading transition."""
     freq, duration, decay = 880.0, 0.08, 14.0
-    n = int(_DING_SAMPLE_RATE * duration)
+    n = int(_CHIRP_SR * duration)
     samples = array.array("h")
     for i in range(n):
-        t = i / _DING_SAMPLE_RATE
+        t = i / _CHIRP_SR
         phase = (freq * t) % 1.0
         wave = 1.0 if phase < 0.5 else -1.0
         envelope = math.exp(-t * decay)
-        sample = int(wave * envelope * _DING_AMPLITUDE)
-        samples.append(max(-32768, min(32767, sample)))
+        samples.append(max(-32768, min(32767, int(wave * envelope * _CHIRP_AMP))))
     return samples.tobytes()
 
 
-def _play_sound_async(generator):
+def _play_chirp():
     if not _SOUNDDEVICE_AVAILABLE:
         return
 
     def _worker():
         try:
-            data = generator()
-            stream = sd.RawOutputStream(
-                samplerate=_DING_SAMPLE_RATE, channels=1, dtype="int16",
-            )
+            data = _generate_chirp()
+            stream = sd.RawOutputStream(samplerate=_CHIRP_SR, channels=1, dtype="int16")
             stream.start()
             stream.write(data)
             sd.sleep(80)
@@ -100,6 +59,10 @@ def _play_sound_async(generator):
     threading.Thread(target=_worker, daemon=True).start()
 
 
+def _qcolor(rgb: tuple[int, int, int]) -> QColor:
+    return QColor(rgb[0], rgb[1], rgb[2])
+
+
 class GameWidget(QWidget):
     def __init__(self, profile: ConsoleProfile | None = None, input_config: InputConfig | None = None, parent=None):
         super().__init__(parent)
@@ -109,7 +72,6 @@ class GameWidget(QWidget):
         self._pressed_keys: set = set()
         self._gamepad_state: int = 0
         self._paused = False
-        self._show_splash = True
         self._loading_rom_name: str | None = None
         self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
         self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
@@ -120,7 +82,6 @@ class GameWidget(QWidget):
         self._timer = QTimer(self)
         self._timer.timeout.connect(self._on_tick)
         self._timer.start(int(1000 / 59.73))
-        QTimer.singleShot(300, lambda: _play_sound_async(_generate_ding))
 
     def set_emu(self, emu: Emu | None):
         self._emu = emu
@@ -129,27 +90,14 @@ class GameWidget(QWidget):
         self._paused = paused
 
     def show_loading(self, rom_name: str, duration_ms: int = 1000):
-        """Show a mini loading splash with the ROM name, then start gameplay."""
         self._loading_rom_name = rom_name
-        self._show_splash = False
         self.update()
-        _play_sound_async(_generate_chirp)
+        _play_chirp()
         QTimer.singleShot(duration_ms, self._finish_loading)
 
     def _finish_loading(self):
         self._loading_rom_name = None
         self.update()
-
-    def hide_splash(self):
-        self._show_splash = False
-        self._loading_rom_name = None
-        self.update()
-
-    def show_splash(self):
-        self._show_splash = True
-        self._loading_rom_name = None
-        self.update()
-        _play_sound_async(_generate_ding)
 
     def set_gamepad_state(self, state: int):
         self._gamepad_state = state & 0xFF
@@ -157,7 +105,7 @@ class GameWidget(QWidget):
     def _on_tick(self):
         if not self._emu or not self._emu.is_valid or self._paused:
             return
-        if self._show_splash or self._loading_rom_name:
+        if self._loading_rom_name:
             return
         km = self._input_config.keyboard_map if self._input_config else None
         kb_state = build_joypad_state(self._pressed_keys, km)
@@ -185,15 +133,15 @@ class GameWidget(QWidget):
             painter.end()
             return
 
-        if self._show_splash or not self._emu or not self._emu.is_valid:
-            self._draw_splash(painter, rw, rh)
+        if not self._emu or not self._emu.is_valid:
+            painter.fillRect(0, 0, rw, rh, QColor(0, 0, 0))
             painter.end()
             return
 
         fb = self._emu.get_framebuffer()
         w, h = self._profile.fb_width, self._profile.fb_height
         if fb is None or len(fb) < w * h:
-            self._draw_splash(painter, rw, rh)
+            painter.fillRect(0, 0, rw, rh, QColor(0, 0, 0))
             painter.end()
             return
 
@@ -212,64 +160,6 @@ class GameWidget(QWidget):
         )
         painter.drawImage(ox, oy, scaled)
         painter.end()
-
-    def _draw_splash(self, painter, rw, rh):
-        p = self._profile
-        col_bg = _qcolor(p.splash_bg)
-        col_fg = _qcolor(p.splash_fg)
-        col_accent = _qcolor(p.splash_accent)
-        col_sub = _qcolor(p.splash_sub)
-
-        painter.fillRect(0, 0, rw, rh, col_bg)
-
-        text = "BITEMU"
-        native_w = len(text) * _CHAR_W + (len(text) - 1) * _CHAR_GAP
-        px = max(1, int(rw * 0.55 / native_w))
-
-        logo_w = native_w * px
-        logo_h = _CHAR_H * px
-        x0 = (rw - logo_w) // 2
-        y0 = rh // 2 - logo_h
-
-        for ci, ch in enumerate(text):
-            rows = _SPLASH_CHARS.get(ch)
-            if not rows:
-                continue
-            cx = x0 + ci * (_CHAR_W + _CHAR_GAP) * px
-            for r in range(_CHAR_H):
-                for c in range(_CHAR_W):
-                    if rows[r] & (1 << (_CHAR_W - 1 - c)):
-                        painter.fillRect(
-                            cx + c * px, y0 + r * px, px, px, col_fg,
-                        )
-
-        line_y = y0 + logo_h + px * 2
-        line_w = int(logo_w * 0.7)
-        line_h = max(1, px // 3)
-        painter.fillRect((rw - line_w) // 2, line_y, line_w, line_h, col_accent)
-
-        font = QFont("monospace")
-        font.setPixelSize(max(10, px * 2))
-        painter.setFont(font)
-        painter.setPen(col_sub)
-        sub_y = line_y + px * 2
-        subtitle = f"-v{get_version()}-"
-        painter.drawText(
-            0, sub_y, rw, px * 4,
-            Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignTop,
-            subtitle,
-        )
-
-        credit_font = QFont("monospace")
-        credit_font.setPixelSize(max(8, px))
-        painter.setFont(credit_font)
-        painter.setPen(col_accent)
-        margin = max(4, px)
-        painter.drawText(
-            margin, rh - credit_font.pixelSize() - margin, rw, credit_font.pixelSize(),
-            Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop,
-            "Created by: Iván Ezequiel Rodriguez",
-        )
 
     def _draw_loading(self, painter, rw, rh, rom_name: str):
         p = self._profile

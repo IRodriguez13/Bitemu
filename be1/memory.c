@@ -44,6 +44,7 @@ void gb_mem_reset(gb_mem_t *mem)
     mem->ext_ram_bank = 0;
     mem->ext_ram_enabled = 0;
     mem->mbc5_rom_bank_high = 0;
+    mem->mbc1_mode = 0;
     mem->rtc_latch_prev = 0;
     mem->ie = 0;
     mem->joypad_state = GB_JOYP_RELEASED;
@@ -68,23 +69,31 @@ uint8_t gb_mem_read(gb_mem_t *mem, uint16_t addr)
 {
     if (addr <= GB_ROM0_END)
     {
-        if (mem->rom && addr < mem->rom_size)
-            return mem->rom[addr];
+        uint32_t phys0 = addr;
+        if (mem->mbc1_mode && mem->cart_type >= GB_CART_MBC1 && mem->cart_type <= 0x03)
+        {
+            uint8_t bank0 = (mem->rom_bank & GB_MBC_ROM_BANK_HI);
+            phys0 = (uint32_t)bank0 * GB_ROM_BANK_SIZE + addr;
+        }
+        if (mem->rom && phys0 < mem->rom_size)
+            return mem->rom[phys0];
         return GB_READ_UNMAPPED;
     }
     if (addr <= GB_ROM1_END)
     {
         uint8_t bank;
         if (mem->cart_type == GB_CART_ROM_ONLY)
-            bank = 0;
+            bank = 1;
         else if (mem->cart_type >= GB_CART_MBC5 && mem->cart_type <= GB_CART_MBC5_MAX)
             bank = (mem->mbc5_rom_bank_high << 8) | mem->rom_bank;  /* MBC5: 9 bits, 0 válido */
         else if (mem->cart_type >= 0x0F && mem->cart_type <= 0x13)
             bank = (mem->rom_bank & 0x7F) ? (mem->rom_bank & 0x7F) : 1;
         else
-            bank = (mem->rom_bank & GB_MBC_ROM_BANK_MASK)
-                       ? (mem->rom_bank & GB_MBC_ROM_BANK_MASK)
-                       : 1;
+        {
+            bank = mem->rom_bank & (GB_MBC_ROM_BANK_MASK | GB_MBC_ROM_BANK_HI);
+            if ((bank & GB_MBC_ROM_BANK_MASK) == 0)
+                bank |= 1;
+        }
         uint32_t phys = (uint32_t)bank * GB_ROM_BANK_SIZE + (addr - GB_ROM1_START);
         if (mem->rom && phys < mem->rom_size)
             return mem->rom[phys];
@@ -108,7 +117,12 @@ uint8_t gb_mem_read(gb_mem_t *mem, uint16_t addr)
             if (mem->ext_ram_bank > 3)
                 return GB_READ_UNMAPPED;
         }
-        return mem->ext_ram[(addr - GB_EXT_RAM_START) + (mem->ext_ram_bank & GB_MBC_RAM_BANK_MASK) * GB_EXT_RAM_BANK];
+        {
+            uint8_t ram_bank = mem->ext_ram_bank & GB_MBC_RAM_BANK_MASK;
+            if (mem->cart_type >= GB_CART_MBC1 && mem->cart_type <= 0x03 && !mem->mbc1_mode)
+                ram_bank = 0;
+            return mem->ext_ram[(addr - GB_EXT_RAM_START) + ram_bank * GB_EXT_RAM_BANK];
+        }
     }
     if (addr <= GB_WRAM_END)
         return mem->wram[addr - GB_WRAM_START];
@@ -125,9 +139,9 @@ uint8_t gb_mem_read(gb_mem_t *mem, uint16_t addr)
         {
             uint8_t sel = mem->io[GB_IO_JOYP] & (GB_JOYP_SEL_DIR | GB_JOYP_SEL_BTN);
             uint8_t bits = GB_JOYP_READ_MASK;
-            if (!(sel & (1 << GB_JOYP_DIR_BIT)))
+            if (!(sel & GB_JOYP_SEL_DIR))
                 bits &= ~(mem->joypad_state & GB_JOYP_READ_MASK);
-            else if (!(sel & (1 << GB_JOYP_BTN_BIT)))
+            if (!(sel & GB_JOYP_SEL_BTN))
                 bits &= ~((mem->joypad_state >> 4) & GB_JOYP_READ_MASK);
             return sel | bits;
         }
@@ -213,13 +227,17 @@ void gb_mem_write(gb_mem_t *mem, uint16_t addr, uint8_t val)
         else if (addr <= GB_MBC_ROM_BANK_END)
         {
             mem->rom_bank = (mem->rom_bank & GB_MBC_ROM_BANK_HI) | (val & GB_MBC_ROM_BANK_MASK);
-            if (mem->rom_bank == 0)
-                mem->rom_bank = 1;
+            if ((mem->rom_bank & GB_MBC_ROM_BANK_MASK) == 0)
+                mem->rom_bank |= 1;
         }
         else if (addr <= GB_MBC_RAM_BANK_END)
         {
             mem->rom_bank = (mem->rom_bank & GB_MBC_ROM_BANK_MASK) | ((val & GB_MBC_RAM_BANK_MASK) << 5);
             mem->ext_ram_bank = (val & GB_MBC_RAM_BANK_MASK);
+        }
+        else
+        {
+            mem->mbc1_mode = val & 1;
         }
         return;
     }
@@ -261,7 +279,12 @@ void gb_mem_write(gb_mem_t *mem, uint16_t addr, uint8_t val)
                 mem->ext_ram[(addr - GB_EXT_RAM_START) + (mem->ext_ram_bank & GB_MBC_RAM_BANK_MASK) * GB_EXT_RAM_BANK] = val;
         }
         else
-            mem->ext_ram[(addr - GB_EXT_RAM_START) + (mem->ext_ram_bank & GB_MBC_RAM_BANK_MASK) * GB_EXT_RAM_BANK] = val;
+        {
+            uint8_t ram_bank = mem->ext_ram_bank & GB_MBC_RAM_BANK_MASK;
+            if (mem->cart_type >= GB_CART_MBC1 && mem->cart_type <= 0x03 && !mem->mbc1_mode)
+                ram_bank = 0;
+            mem->ext_ram[(addr - GB_EXT_RAM_START) + ram_bank * GB_EXT_RAM_BANK] = val;
+        }
         return;
     }
     if (addr <= GB_WRAM_END)

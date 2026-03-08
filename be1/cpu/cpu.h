@@ -17,6 +17,7 @@ typedef struct gb_cpu {
     int halted;
     int ime;         /* Interrupt Master Enable */
     int ime_delay;   /* Tras EI: activar IME después de la siguiente instrucción */
+    int halt_bug;    /* HALT bug: next opcode fetch doesn't increment PC */
 } gb_cpu_t;
 
 /* Flags en el registro F (solo bits altos) */

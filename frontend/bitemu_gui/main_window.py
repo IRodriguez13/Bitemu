@@ -1,5 +1,5 @@
 """
-Ventana principal: barra de menús (Archivo, Emulación, Opciones, Ayuda), widget de juego, barra de estado.
+Ventana principal: navega entre Splash (menú), Library (grilla de ROMs) y Game (emulación).
 """
 import os
 
@@ -16,6 +16,7 @@ from PySide6.QtWidgets import (
     QMainWindow,
     QWidget,
     QVBoxLayout,
+    QStackedWidget,
     QFileDialog,
     QMessageBox,
     QStatusBar,
@@ -27,6 +28,8 @@ from PySide6.QtWidgets import (
 
 from .core import Emu
 from .game_widget import GameWidget
+from .splash_widget import SplashWidget
+from .library_widget import LibraryWidget
 from .profile import DEFAULT_PROFILE, ConsoleProfile
 from .input_config import InputConfig
 from .gamepad import GamepadPoller
@@ -35,6 +38,11 @@ from .input_dialog import InputSettingsDialog
 RECENT_KEY = "bitemu/recent_roms"
 RECENT_MAX = 10
 AUDIO_KEY = "bitemu/audio_enabled"
+ROM_FOLDER_KEY = "bitemu/rom_folder"
+
+_PAGE_SPLASH = 0
+_PAGE_LIBRARY = 1
+_PAGE_GAME = 2
 
 
 class MainWindow(QMainWindow):
@@ -52,27 +60,43 @@ class MainWindow(QMainWindow):
         icon_path = os.path.join(os.path.dirname(__file__), "..", "assets", "icon.png")
         if os.path.isfile(icon_path):
             self.setWindowIcon(QIcon(icon_path))
-        self.setMinimumSize(400, 380)
+        self.setMinimumSize(500, 450)
         self.resize(
-            self._profile.fb_width * 4 + 40,
-            self._profile.fb_height * 4 + 80,
+            self._profile.fb_width * 4 + 60,
+            self._profile.fb_height * 4 + 120,
         )
-        central = QWidget()
-        self.setCentralWidget(central)
-        layout = QVBoxLayout(central)
-        layout.setContentsMargins(4, 4, 4, 4)
+
+        self._stack = QStackedWidget()
+        self.setCentralWidget(self._stack)
+
+        self._splash = SplashWidget(profile=self._profile)
+        self._library = LibraryWidget(profile=self._profile)
         self._game = GameWidget(profile=self._profile, input_config=self._input_config)
-        self._game.set_emu(self._emu)
+
+        self._stack.addWidget(self._splash)   # 0
+        self._stack.addWidget(self._library)  # 1
+        self._stack.addWidget(self._game)     # 2
+
+        self._splash.start_clicked.connect(self._show_library)
+        self._splash.options_clicked.connect(self._open_input_settings)
+        self._splash.quit_clicked.connect(self.close)
+
+        self._library.rom_selected.connect(self._load_rom_path)
+        self._library.back_clicked.connect(self._show_splash)
+        self._library.open_rom_clicked.connect(self._open_rom)
+        self._library.change_folder_clicked.connect(self._pick_rom_folder)
+
         self._gamepad.state_changed.connect(self._game.set_gamepad_state)
         self._gamepad.gamepad_connected.connect(self._on_gamepad_connected)
         self._gamepad.gamepad_disconnected.connect(self._on_gamepad_disconnected)
-        layout.addWidget(self._game)
+
         self._create_menus()
         self._status = QStatusBar()
         self.setStatusBar(self._status)
         self._status.setMinimumHeight(28)
         self._status.setStyleSheet("QStatusBar { padding: 4px 8px; background: palette(mid); }")
-        self._status.showMessage("Sin ROM — Archivo → Abrir ROM para comenzar")
+        self._status.showMessage("Bitemu — Menú principal")
+
         if not self._emu.create():
             QMessageBox.critical(self, "Error", "No se pudo crear el emulador.")
             QApplication.quit()
@@ -80,12 +104,35 @@ class MainWindow(QMainWindow):
         if not self._emu.init_audio():
             pass
         self._emu.set_audio_enabled(QSettings().value(AUDIO_KEY, False, type=bool))
+        self._game.set_emu(self._emu)
         self._apply_audio_stream()
         self._audio_chans = 1
 
+    # ── Navigation ─────────────────────────────────────────
+
+    def _show_splash(self):
+        self._stack.setCurrentIndex(_PAGE_SPLASH)
+        self.setWindowTitle(self._profile.window_title)
+        self._status.showMessage("Bitemu — Menú principal")
+
+    def _show_library(self):
+        folder = QSettings().value(ROM_FOLDER_KEY, "", type=str)
+        if not folder or not os.path.isdir(folder):
+            self._pick_rom_folder()
+            folder = QSettings().value(ROM_FOLDER_KEY, "", type=str)
+        self._library.load_roms(folder if folder else None)
+        self._stack.setCurrentIndex(_PAGE_LIBRARY)
+        self._status.showMessage(f"Biblioteca — {folder}" if folder else "Biblioteca — sin carpeta configurada")
+
+    def _show_game(self):
+        self._stack.setCurrentIndex(_PAGE_GAME)
+        self._game.setFocus()
+
+    # ── Menus ──────────────────────────────────────────────
+
     def _create_menus(self):
         menubar = self.menuBar()
-        # Archivo
+
         file_menu = menubar.addMenu("&Archivo")
         open_act = QAction("Abrir ROM...", self)
         open_act.setShortcut(QKeySequence.StandardKey.Open)
@@ -99,7 +146,7 @@ class MainWindow(QMainWindow):
         quit_act.setShortcut(QKeySequence.StandardKey.Quit)
         quit_act.triggered.connect(self.close)
         file_menu.addAction(quit_act)
-        # Emulación
+
         emu_menu = menubar.addMenu("&Emulación")
         self._pause_act = QAction("Pausar", self)
         self._pause_act.setShortcut(QKeySequence("F3"))
@@ -122,6 +169,7 @@ class MainWindow(QMainWindow):
         load_state_act.setShortcut(QKeySequence("F7"))
         load_state_act.triggered.connect(self._load_state)
         emu_menu.addAction(load_state_act)
+
         opts_menu = menubar.addMenu("&Opciones")
         self._audio_act = QAction("Activar audio", self)
         self._audio_act.setCheckable(True)
@@ -132,7 +180,11 @@ class MainWindow(QMainWindow):
         input_act = QAction("Configurar controles...", self)
         input_act.triggered.connect(self._open_input_settings)
         opts_menu.addAction(input_act)
-        # Ayuda
+        opts_menu.addSeparator()
+        folder_act = QAction("Carpeta de ROMs...", self)
+        folder_act.triggered.connect(self._pick_rom_folder)
+        opts_menu.addAction(folder_act)
+
         help_menu = menubar.addMenu("A&yuda")
         controls_act = QAction("Controles...", self)
         controls_act.triggered.connect(self._show_controls)
@@ -140,6 +192,8 @@ class MainWindow(QMainWindow):
         about_act = QAction("Acerca de", self)
         about_act.triggered.connect(self._show_about)
         help_menu.addAction(about_act)
+
+    # ── ROM loading ────────────────────────────────────────
 
     def _refresh_recent_menu(self):
         self._recent_menu.clear()
@@ -171,9 +225,7 @@ class MainWindow(QMainWindow):
     def _open_rom(self):
         exts = " ".join(f"*.{e}" for e in self._profile.rom_extensions)
         path, _ = QFileDialog.getOpenFileName(
-            self,
-            "Abrir ROM",
-            "",
+            self, "Abrir ROM", "",
             f"ROMs ({exts});;Todos los archivos (*)",
         )
         if path:
@@ -194,7 +246,23 @@ class MainWindow(QMainWindow):
         name = os.path.basename(path)
         self.setWindowTitle(f"{self._profile.window_title} — {name}")
         self._status.showMessage(f"Cargando {name}...")
+        self._show_game()
         self._game.show_loading(name)
+
+    # ── ROM folder ─────────────────────────────────────────
+
+    def _pick_rom_folder(self):
+        current = QSettings().value(ROM_FOLDER_KEY, "", type=str)
+        folder = QFileDialog.getExistingDirectory(
+            self, "Elegir carpeta de ROMs", current or "",
+        )
+        if folder:
+            QSettings().setValue(ROM_FOLDER_KEY, folder)
+            self._status.showMessage(f"Carpeta de ROMs: {folder}")
+            if self._stack.currentIndex() == _PAGE_LIBRARY:
+                self._library.load_roms(folder)
+
+    # ── Emulation controls ─────────────────────────────────
 
     def _toggle_pause(self):
         self._paused = not self._paused
@@ -211,8 +279,7 @@ class MainWindow(QMainWindow):
         if not self._emu.is_valid or self._rom_path is None:
             return
         reply = QMessageBox.question(
-            self,
-            "Cerrar juego",
+            self, "Cerrar juego",
             "¿Seguro que querés cerrar el juego?\n\n"
             "Si no guardaste el estado, se perderá el progreso.",
             QMessageBox.StandardButton.Save
@@ -228,10 +295,10 @@ class MainWindow(QMainWindow):
         self._rom_path = None
         self._paused = False
         self._game.set_paused(False)
-        self._game.show_splash()
         self._pause_act.setText("Pausar")
-        self.setWindowTitle(self._profile.window_title)
-        self._status.showMessage("Juego cerrado")
+        self._show_library()
+
+    # ── Save states ────────────────────────────────────────
 
     def _state_path(self) -> str | None:
         if not self._rom_path:
@@ -267,13 +334,14 @@ class MainWindow(QMainWindow):
         else:
             self._status.showMessage(f"Error al cargar estado — archivo existe ({size} bytes) pero falló la carga")
 
+    # ── Audio ──────────────────────────────────────────────
+
     def _toggle_audio(self, checked: bool):
         QSettings().setValue(AUDIO_KEY, checked)
         self._emu.set_audio_enabled(checked)
         self._apply_audio_stream()
 
     def _apply_audio_stream(self):
-        """Abre o cierra el stream de salida según la opción y disponibilidad de sounddevice."""
         enabled = QSettings().value(AUDIO_KEY, False, type=bool)
         if self._audio_stream is not None:
             try:
@@ -286,8 +354,7 @@ class MainWindow(QMainWindow):
             return
         if not _SOUNDDEVICE_AVAILABLE:
             QMessageBox.information(
-                self,
-                "Audio",
+                self, "Audio",
                 "Para reproducir audio instala: pip install sounddevice",
             )
             self._audio_act.setChecked(False)
@@ -298,26 +365,18 @@ class MainWindow(QMainWindow):
         self._audio_chans = chans
         try:
             self._audio_stream = sd.RawOutputStream(
-                samplerate=rate,
-                channels=chans,
-                dtype="int16",
-                blocksize=1024,
-                latency="high",
+                samplerate=rate, channels=chans, dtype="int16",
+                blocksize=1024, latency="high",
                 callback=self._audio_callback,
             )
             self._audio_stream.start()
         except Exception as e:
-            QMessageBox.warning(
-                self,
-                "Audio",
-                f"No se pudo abrir el dispositivo de audio: {e}",
-            )
+            QMessageBox.warning(self, "Audio", f"No se pudo abrir el dispositivo de audio: {e}")
             self._audio_act.setChecked(False)
             QSettings().setValue(AUDIO_KEY, False)
             self._emu.set_audio_enabled(False)
 
     def _audio_callback(self, outdata, frames, time_info, status):
-        """sounddevice callback (audio thread): lee del buffer circular del core."""
         bytes_needed = frames * self._audio_chans * 2
         data = b""
         if self._emu and self._emu.is_valid:
@@ -328,6 +387,8 @@ class MainWindow(QMainWindow):
         if n < bytes_needed:
             outdata[n:bytes_needed] = b'\x00' * (bytes_needed - n)
 
+    # ── Gamepad ────────────────────────────────────────────
+
     def _on_gamepad_connected(self, name: str):
         self._status.showMessage(f"Gamepad detectado: {name}")
         if self._input_dialog is not None:
@@ -336,8 +397,7 @@ class MainWindow(QMainWindow):
             self._input_dialog.raise_()
             return
         reply = QMessageBox.question(
-            self,
-            "Gamepad detectado",
+            self, "Gamepad detectado",
             f"Se detectó: {name}\n\n¿Querés configurarlo?",
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
             QMessageBox.StandardButton.Yes,
@@ -363,10 +423,11 @@ class MainWindow(QMainWindow):
         self._input_dialog = None
         self._status.showMessage("Controles actualizados")
 
+    # ── Dialogs ────────────────────────────────────────────
+
     def _show_controls(self):
         QMessageBox.information(
-            self,
-            "Controles",
+            self, "Controles",
             "D-pad: W A S D o flechas\n"
             "A: J o Z\nB: K o X\nSelect: U\nStart: I o Enter\n\n"
             "F3: Pausar / Reanudar\nF4: Reiniciar\nF5: Cerrar juego\n"
@@ -415,11 +476,12 @@ class MainWindow(QMainWindow):
         layout.addWidget(btn_box)
         dlg.exec()
 
+    # ── Window close ───────────────────────────────────────
+
     def closeEvent(self, event: QCloseEvent):
         if self._rom_path is not None:
             reply = QMessageBox.question(
-                self,
-                "Salir de Bitemu",
+                self, "Salir de Bitemu",
                 "Hay un juego en ejecución.\n\n"
                 "¿Querés guardar el estado antes de salir?",
                 QMessageBox.StandardButton.Save

@@ -17,6 +17,11 @@ typedef struct gb_ppu
     int mode;
     int dot_counter;
     uint8_t framebuffer[GB_FRAMEBUFFER_SIZE];
+    int mode3_dots;
+    int window_line;
+    uint8_t stat_irq_line;
+    uint8_t latched_scy;
+    uint8_t latched_scx;
 } gb_ppu_t;
 
 void gb_ppu_init(gb_ppu_t *ppu);

@@ -210,7 +210,7 @@ static int op_ld_r_r(gb_cpu_t *cpu, gb_mem_t *m, uint8_t op)
     if (op == 0x76)
     {
         if (!cpu->ime && (m->io[GB_IO_IF] & m->ie & GB_IF_IE_MASK))
-            ;
+            cpu->halt_bug = 1;
         else
             cpu->halted = 1;
         return 4;

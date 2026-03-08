@@ -75,6 +75,7 @@ def test_custom_branding():
         fb_height=224,
         rom_extensions=["md"],
         window_title="Bitemu 2",
+        thumbnail_system="Sega - Mega Drive - Genesis",
         splash_bg=(0x0C, 0x1A, 0x3C),
         splash_fg=(0x21, 0x76, 0xFF),
         splash_accent=(0xD4, 0xA0, 0x17),
@@ -83,3 +84,19 @@ def test_custom_branding():
     )
     assert p.splash_fg == (0x21, 0x76, 0xFF)
     assert p.ansi_color == "34"
+    assert p.thumbnail_system == "Sega - Mega Drive - Genesis"
+
+
+def test_gb_profile_thumbnail_system():
+    assert PROFILE_GB.thumbnail_system == "Nintendo - Game Boy"
+
+
+def test_thumbnail_system_default():
+    p = ConsoleProfile(
+        name="Test",
+        fb_width=160,
+        fb_height=144,
+        rom_extensions=["gb"],
+        window_title="Test",
+    )
+    assert p.thumbnail_system == "Nintendo - Game Boy"

@@ -31,7 +31,7 @@
 
 TEST(abi_cpu_layout)
 {
-    ASSERT_MIN_SIZE(gb_cpu_t, 24);
+    ASSERT_MIN_SIZE(gb_cpu_t, 28);
 
     ASSERT_OFFSET(gb_cpu_t, pc,        0);
     ASSERT_OFFSET(gb_cpu_t, sp,        2);
@@ -46,17 +46,23 @@ TEST(abi_cpu_layout)
     ASSERT_OFFSET(gb_cpu_t, halted,   12);
     ASSERT_OFFSET(gb_cpu_t, ime,      16);
     ASSERT_OFFSET(gb_cpu_t, ime_delay,20);
+    ASSERT_OFFSET(gb_cpu_t, halt_bug, 24);
 }
 
 /* ── PPU layout (frozen at BST v2) ── */
 
 TEST(abi_ppu_layout)
 {
-    ASSERT_MIN_SIZE(gb_ppu_t, 23048);
+    ASSERT_MIN_SIZE(gb_ppu_t, 23060);
 
-    ASSERT_OFFSET(gb_ppu_t, mode,         0);
-    ASSERT_OFFSET(gb_ppu_t, dot_counter,  4);
-    ASSERT_OFFSET(gb_ppu_t, framebuffer,  8);
+    ASSERT_OFFSET(gb_ppu_t, mode,           0);
+    ASSERT_OFFSET(gb_ppu_t, dot_counter,    4);
+    ASSERT_OFFSET(gb_ppu_t, framebuffer,    8);
+    ASSERT_OFFSET(gb_ppu_t, mode3_dots,     23048);
+    ASSERT_OFFSET(gb_ppu_t, window_line,    23052);
+    ASSERT_OFFSET(gb_ppu_t, stat_irq_line,  23056);
+    ASSERT_OFFSET(gb_ppu_t, latched_scy,    23057);
+    ASSERT_OFFSET(gb_ppu_t, latched_scx,    23058);
 }
 
 /* ── APU layout (frozen at BST v2) ── */

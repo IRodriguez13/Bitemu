@@ -16,18 +16,23 @@
 /* Paleta DMG: índice de color 0-3 -> nivel de gris (255, 170, 85, 0) */
 static const uint8_t gb_dmg_palette[4] = {0xFF, 0xAA, 0x55, 0x00};
 
-/* Si STAT tiene habilitada la int correspondiente y se cumple la condición, activar IF bit LCDC */
-static void trigger_stat_if_needed(gb_mem_t *mem)
+/* STAT IRQ uses a combined OR line; interrupt fires on rising edge only */
+static void update_stat_irq(gb_ppu_t *ppu, gb_mem_t *mem)
 {
     uint8_t stat = mem->io[GB_IO_STAT];
+    uint8_t line = 0;
     if ((stat & GB_STAT_LYC_INT) && (stat & GB_STAT_LYC_EQ))
-        mem->io[GB_IO_IF] |= GB_IF_LCDC;
+        line = 1;
     if ((stat & GB_STAT_HBL_INT) && ((stat & GB_STAT_MODE_MASK) == GB_PPU_MODE_HBLANK))
-        mem->io[GB_IO_IF] |= GB_IF_LCDC;
+        line = 1;
     if ((stat & GB_STAT_VBL_INT) && ((stat & GB_STAT_MODE_MASK) == GB_PPU_MODE_VBLANK))
-        mem->io[GB_IO_IF] |= GB_IF_LCDC;
+        line = 1;
     if ((stat & GB_STAT_OAM_INT) && ((stat & GB_STAT_MODE_MASK) == GB_PPU_MODE_OAM))
+        line = 1;
+
+    if (line && !ppu->stat_irq_line)
         mem->io[GB_IO_IF] |= GB_IF_LCDC;
+    ppu->stat_irq_line = line;
 }
 
 static uint8_t get_pixel_from_tile(const uint8_t *vram, uint8_t tile_id,
@@ -61,8 +66,8 @@ static void render_scanline(gb_ppu_t *ppu, gb_mem_t *mem)
     if (ly >= GB_LCD_HEIGHT)
         return;
 
-    uint8_t scy = mem->io[GB_IO_SCY];
-    uint8_t scx = mem->io[GB_IO_SCX];
+    uint8_t scy = ppu->latched_scy;
+    uint8_t scx = ppu->latched_scx;
     uint8_t bgp = mem->io[GB_IO_BGP];
     uint16_t bg_map = (lcdc & GB_LCDC_BG_TILEMAP) ? GB_BG_MAP_HI : GB_BG_MAP_LO;
     int signed_tiles = !(lcdc & GB_LCDC_BG_TILES);
@@ -98,10 +103,10 @@ static void render_scanline(gb_ppu_t *ppu, gb_mem_t *mem)
         uint8_t wx = mem->io[GB_IO_WX];
         if (ly >= wy && wx <= 166)
         {
-            int win_y = ly - wy;
             int window_left = (int)wx - 7;
             if (window_left < GB_LCD_WIDTH)
             {
+                int win_y = ppu->window_line;
                 uint16_t win_map = (lcdc & GB_LCDC_WIN_TILEMAP) ? GB_BG_MAP_HI : GB_BG_MAP_LO;
                 int win_tile_row = win_y / GB_TILE_SIZE;
                 int win_py = win_y % GB_TILE_SIZE;
@@ -116,6 +121,7 @@ static void render_scanline(gb_ppu_t *ppu, gb_mem_t *mem)
                     bg_indices[px] = color_idx;
                     fb[px] = gb_dmg_palette[(bgp >> (color_idx * 2)) & 3];
                 }
+                ppu->window_line++;
             }
         }
     }
@@ -136,6 +142,20 @@ sprites:
         if (ly < obj_y || ly >= obj_y + obj_h)
             continue;
         sprite_oam_indices[sprite_count++] = i;
+    }
+
+    /* DMG: sort by X-coordinate (stable: equal X keeps OAM order) */
+    for (int a = 1; a < sprite_count; a++)
+    {
+        int key = sprite_oam_indices[a];
+        uint8_t key_x = mem->oam[key + 1];
+        int b = a - 1;
+        while (b >= 0 && mem->oam[sprite_oam_indices[b] + 1] > key_x)
+        {
+            sprite_oam_indices[b + 1] = sprite_oam_indices[b];
+            b--;
+        }
+        sprite_oam_indices[b + 1] = key;
     }
 
     for (int s = sprite_count - 1; s >= 0; s--)
@@ -162,8 +182,18 @@ sprites:
             if (bg_priority && bg_indices[screen_x] != 0)
                 continue;
             int tile_x = (flags & 0x20) ? (7 - j) : j;
-            uint8_t tile_id = (obj_h == 16 && line >= 8) ? tile | 1 : tile;
-            int ty = (obj_h == 16 && line >= 8) ? line - 8 : line;
+            uint8_t tile_id;
+            int ty;
+            if (obj_h == 16)
+            {
+                tile_id = (line >= 8) ? (tile | 0x01) : (tile & 0xFE);
+                ty = (line >= 8) ? line - 8 : line;
+            }
+            else
+            {
+                tile_id = tile;
+                ty = line;
+            }
             uint8_t color_idx = get_pixel_from_tile(mem->vram, tile_id, tile_x, ty, 0);
             if (color_idx != 0)
                 fb[screen_x] = gb_dmg_palette[(pal >> (color_idx * 2)) & 3];
@@ -175,6 +205,7 @@ void gb_ppu_init(gb_ppu_t *ppu)
 {
     memset(ppu, 0, sizeof(gb_ppu_t));
     ppu->mode = GB_PPU_MODE_OAM;
+    ppu->mode3_dots = GB_PPU_MODE3_MIN;
 }
 
 /* ---------------------------------------------------------------------------
@@ -207,9 +238,11 @@ void gb_ppu_step(gb_ppu_t *ppu, struct gb_mem *mem, int cycles)
                 if (ppu->dot_counter >= GB_PPU_MODE2_DOTS)
                 {
                     ppu->dot_counter -= GB_PPU_MODE2_DOTS;
+                    ppu->latched_scy = m->io[GB_IO_SCY];
+                    ppu->latched_scx = m->io[GB_IO_SCX];
                     ppu->mode = GB_PPU_MODE_TRANSFER;
                     *stat = (*stat & ~GB_STAT_MODE_MASK) | GB_PPU_MODE_TRANSFER;
-                    trigger_stat_if_needed(m);
+                    update_stat_irq(ppu, m);
                 }
                 else
                 {
@@ -218,14 +251,14 @@ void gb_ppu_step(gb_ppu_t *ppu, struct gb_mem *mem, int cycles)
             }
             else if (ppu->mode == GB_PPU_MODE_TRANSFER)
             {
-                int mode3 = GB_PPU_MODE3_MIN + (m->io[GB_IO_SCX] % GB_TILE_SIZE);
-                if (ppu->dot_counter >= mode3)
+                ppu->mode3_dots = GB_PPU_MODE3_MIN + (ppu->latched_scx % GB_TILE_SIZE);
+                if (ppu->dot_counter >= ppu->mode3_dots)
                 {
-                    ppu->dot_counter -= mode3;
+                    ppu->dot_counter -= ppu->mode3_dots;
                     render_scanline(ppu, m);
                     ppu->mode = GB_PPU_MODE_HBLANK;
                     *stat = (*stat & ~GB_STAT_MODE_MASK) | GB_PPU_MODE_HBLANK;
-                    trigger_stat_if_needed(m);
+                    update_stat_irq(ppu, m);
                 }
                 else
                 {
@@ -234,9 +267,10 @@ void gb_ppu_step(gb_ppu_t *ppu, struct gb_mem *mem, int cycles)
             }
             else
             {
-                if (ppu->dot_counter >= GB_DOTS_PER_SCANLINE - GB_PPU_MODE2_DOTS - GB_PPU_MODE3_MIN)
+                int hblank_dots = GB_DOTS_PER_SCANLINE - GB_PPU_MODE2_DOTS - ppu->mode3_dots;
+                if (ppu->dot_counter >= hblank_dots)
                 {
-                    ppu->dot_counter -= (GB_DOTS_PER_SCANLINE - GB_PPU_MODE2_DOTS - GB_PPU_MODE3_MIN);
+                    ppu->dot_counter -= hblank_dots;
                     ly++;
                     m->io[GB_IO_LY] = ly;
                     *stat = (*stat & ~GB_STAT_LYC_EQ) | ((ly == lyc) ? GB_STAT_LYC_EQ : 0);
@@ -245,7 +279,7 @@ void gb_ppu_step(gb_ppu_t *ppu, struct gb_mem *mem, int cycles)
                         ppu->mode = GB_PPU_MODE_OAM;
                         *stat = (*stat & ~GB_STAT_MODE_MASK) | GB_PPU_MODE_OAM;
                     }
-                    trigger_stat_if_needed(m);
+                    update_stat_irq(ppu, m);
                 }
                 else
                 {
@@ -260,7 +294,7 @@ void gb_ppu_step(gb_ppu_t *ppu, struct gb_mem *mem, int cycles)
                 ppu->mode = GB_PPU_MODE_VBLANK;
                 *stat = (*stat & ~GB_STAT_MODE_MASK) | GB_PPU_MODE_VBLANK;
                 m->io[GB_IO_IF] |= GB_IF_VBLANK;
-                trigger_stat_if_needed(m);
+                update_stat_irq(ppu, m);
             }
             if (ppu->dot_counter >= GB_DOTS_PER_SCANLINE)
             {
@@ -272,8 +306,9 @@ void gb_ppu_step(gb_ppu_t *ppu, struct gb_mem *mem, int cycles)
                 {
                     ppu->mode = GB_PPU_MODE_OAM;
                     *stat = (*stat & ~GB_STAT_MODE_MASK) | GB_PPU_MODE_OAM;
+                    ppu->window_line = 0;
                 }
-                trigger_stat_if_needed(m);
+                update_stat_irq(ppu, m);
             }
             else
             {

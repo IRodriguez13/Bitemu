@@ -38,6 +38,7 @@ void gb_cpu_init(gb_cpu_t *cpu)
     cpu->halted = 0;
     cpu->ime = 0;
     cpu->ime_delay = 0;
+    cpu->halt_bug = 0;
 }
 
 void gb_cpu_reset(gb_cpu_t *cpu)
@@ -55,6 +56,7 @@ void gb_cpu_reset(gb_cpu_t *cpu)
     cpu->halted = 0;
     cpu->ime = 0;
     cpu->ime_delay = 0;
+    cpu->halt_bug = 0;
 }
 
 /* ---------------------------------------------------------------------------
@@ -195,6 +197,11 @@ int gb_cpu_step(gb_cpu_t *cpu, struct gb_mem *mem)
     }
 
     uint8_t op = gb_mem_read(m, cpu->pc++);
+    if (cpu->halt_bug)
+    {
+        cpu->halt_bug = 0;
+        cpu->pc--;
+    }
     if (op == 0xCB) {
         uint8_t cb = gb_mem_read(m, cpu->pc++);
         return gb_cb_handlers[cb >> 3](cpu, m, cb);

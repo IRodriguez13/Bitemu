@@ -183,6 +183,7 @@ static uint32_t mem_section_size(const gb_mem_t *m)
     sz += 1 + 2;                            /* ie, timer_div */
     sz += 5 + 5 + 1;                        /* rtc, rtc_latched, rtc_latch_prev */
     sz += 1 + 1;                            /* joypad_state, apu_trigger_flags */
+    sz += 1;                                /* mbc1_mode */
     return sz;
 }
 
@@ -214,6 +215,7 @@ static int write_mem_fields(FILE *f, const gb_mem_t *m)
     err |= write_all(f, &m->rtc_latch_prev, 1);
     err |= write_all(f, &m->joypad_state, 1);
     err |= write_all(f, &m->apu_trigger_flags, 1);
+    err |= write_all(f, &m->mbc1_mode, 1);
     return err;
 }
 
@@ -250,7 +252,20 @@ static int read_mem_fields(FILE *f, gb_mem_t *m)
 
     long consumed = ftell(f) - start;
     if (consumed >= 0 && (uint32_t)consumed < stored)
-        fseek(f, (long)(stored - (uint32_t)consumed), SEEK_CUR);
+    {
+        m->mbc1_mode = 0;
+        if (stored - (uint32_t)consumed >= 1)
+        {
+            err |= read_all(f, &m->mbc1_mode, 1);
+            consumed++;
+        }
+        if ((uint32_t)consumed < stored)
+            fseek(f, (long)(stored - (uint32_t)consumed), SEEK_CUR);
+    }
+    else
+    {
+        m->mbc1_mode = 0;
+    }
 
     return err;
 }

@@ -117,6 +117,9 @@ typedef struct gb_mem {
 
     /* APU: flags de trigger pendientes (bits 0-3 = ch1-ch4); memory los activa, APU los consume */
     uint8_t apu_trigger_flags;
+
+    /* MBC1: banking mode (0 = ROM mode, 1 = RAM mode) — set via 0x6000-0x7FFF */
+    uint8_t mbc1_mode;
 } gb_mem_t;
 
 void gb_mem_init(gb_mem_t *mem);
