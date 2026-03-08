@@ -163,6 +163,12 @@ jobs:
             main.py
           cp ../VERSION dist/bitemu/
 
+          # Fail if libportaudio not bundled (required for systems without it)
+          if [ -z "$PA_FLAG" ] || ! find frontend/dist/bitemu -name 'libportaudio.so*' -print -quit | grep -q .; then
+            echo "::error::libportaudio not found in bundle. Install libportaudio2 on runner."
+            exit 1
+          fi
+
       - name: PyInstaller bundle (macOS)
         if: matrix.os == 'macos-latest'
         run: |
@@ -264,11 +270,15 @@ jobs:
           fi
 
           # AppRun entry point (LD_LIBRARY_PATH + QT_QPA_PLATFORM_PLUGIN_PATH for Qt xcb)
+          # PyInstaller 6+ puts binaries in _internal/, so we need both paths
           cat > AppDir/AppRun <<'APPRUN'
           #!/bin/sh
           HERE="$(dirname "$(readlink -f "${0}")")"
           BIN="${HERE}/usr/bin"
-          export LD_LIBRARY_PATH="${BIN}:${LD_LIBRARY_PATH}"
+          export LD_LIBRARY_PATH="${BIN}:${BIN}/_internal:${LD_LIBRARY_PATH}"
+          for p in "${BIN}/_internal/libportaudio.so"* "${BIN}/libportaudio.so"*; do
+            [ -e "$p" ] && export LD_PRELOAD="${p}${LD_PRELOAD:+:$LD_PRELOAD}" && break
+          done
           for d in "${BIN}/_internal/PySide6/Qt/plugins/platforms" \
                    "${BIN}/PySide6/Qt/plugins/platforms" \
                    "${BIN}/platforms"; do
@@ -293,7 +303,10 @@ jobs:
           cat > frontend/dist/bitemu/bitemu.sh <<'LAUNCHER'
           #!/bin/sh
           HERE="$(cd "$(dirname "$0")" && pwd)"
-          export LD_LIBRARY_PATH="${HERE}:${LD_LIBRARY_PATH}"
+          export LD_LIBRARY_PATH="${HERE}:${HERE}/_internal:${LD_LIBRARY_PATH}"
+          for p in "${HERE}/_internal/libportaudio.so"* "${HERE}/libportaudio.so"*; do
+            [ -e "$p" ] && export LD_PRELOAD="${p}${LD_PRELOAD:+:$LD_PRELOAD}" && break
+          done
           for d in "${HERE}/_internal/PySide6/Qt/plugins/platforms" \
                    "${HERE}/PySide6/Qt/plugins/platforms" \
                    "${HERE}/platforms"; do

@@ -3,8 +3,8 @@ PyInstaller runtime hook: ensure bundled native libraries are discoverable.
 Runs before any application code so sounddevice/pygame find their libs.
 Covers Linux, macOS and Windows.
 
-In --onedir mode, --add-binary puts libs next to the executable (parent of _MEIPASS),
-so we search both locations.
+PyInstaller 6+ onedir: binaries go in _internal/ (sys._MEIPASS).
+We search both parent (executable dir) and bundle (_internal).
 """
 import os
 import sys
