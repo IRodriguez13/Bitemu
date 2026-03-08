@@ -2,6 +2,7 @@
 
 import sys
 import os
+import tempfile
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", "frontend"))
 
@@ -88,20 +89,20 @@ def test_set_input():
 def test_save_state_no_rom():
     emu = Emu()
     emu.create()
-    assert not emu.save_state("/tmp/bitemu_py_test.bst")
+    assert not emu.save_state(os.path.join(tempfile.gettempdir(), "bitemu_py_test.bst"))
     emu.destroy()
 
 
 def test_load_state_no_rom():
     emu = Emu()
     emu.create()
-    assert not emu.load_state("/tmp/bitemu_py_test.bst")
+    assert not emu.load_state(os.path.join(tempfile.gettempdir(), "bitemu_py_test.bst"))
     emu.destroy()
 
 
 def test_save_load_roundtrip():
-    rom_path = "/tmp/bitemu_py_test_rom.gb"
-    state_path = "/tmp/bitemu_py_test.bst"
+    rom_path = os.path.join(tempfile.gettempdir(), "bitemu_py_test_rom.gb")
+    state_path = os.path.join(tempfile.gettempdir(), "bitemu_py_test.bst")
     rom_data = bytearray(512)
     rom_data[0x147] = 0x00
     with open(rom_path, "wb") as f:

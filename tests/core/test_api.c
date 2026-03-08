@@ -6,7 +6,25 @@
 #include "test_harness.h"
 #include "bitemu.h"
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
+
+static const char *_tmp_dir(void)
+{
+    const char *d = getenv("TEMP");
+    if (!d) d = getenv("TMP");
+    if (!d) d = getenv("TMPDIR");
+    if (!d) d = "/tmp";
+    return d;
+}
+
+static char _path_buf[512];
+
+static const char *tmp_path(const char *filename)
+{
+    snprintf(_path_buf, sizeof(_path_buf), "%s/%s", _tmp_dir(), filename);
+    return _path_buf;
+}
 
 /* --- Create returns valid handle --- */
 
@@ -151,7 +169,7 @@ TEST(api_framebuffer)
 TEST(api_save_state_no_rom)
 {
     bitemu_t *emu = bitemu_create();
-    int rc = bitemu_save_state(emu, "/tmp/bitemu_test.bst");
+    int rc = bitemu_save_state(emu, tmp_path("bitemu_test.bst"));
     ASSERT_EQ(rc, -1);
     bitemu_destroy(emu);
 }
@@ -160,7 +178,7 @@ TEST(api_save_state_no_rom)
 
 TEST(api_save_state_null)
 {
-    ASSERT_EQ(bitemu_save_state(NULL, "/tmp/x.bst"), -1);
+    ASSERT_EQ(bitemu_save_state(NULL, tmp_path("x.bst")), -1);
 
     bitemu_t *emu = bitemu_create();
     ASSERT_EQ(bitemu_save_state(emu, NULL), -1);
@@ -169,7 +187,7 @@ TEST(api_save_state_null)
 
 TEST(api_load_state_null)
 {
-    ASSERT_EQ(bitemu_load_state(NULL, "/tmp/x.bst"), -1);
+    ASSERT_EQ(bitemu_load_state(NULL, tmp_path("x.bst")), -1);
 
     bitemu_t *emu = bitemu_create();
     ASSERT_EQ(bitemu_load_state(emu, NULL), -1);
@@ -188,8 +206,14 @@ TEST(api_load_state_invalid_path)
 
 /* --- Save and load round-trip with a fake ROM --- */
 
-static const char *FAKE_ROM_PATH = "/tmp/bitemu_test_rom.gb";
-static const char *FAKE_ROM2_PATH = "/tmp/bitemu_test_rom2.gb";
+static char FAKE_ROM_PATH[512];
+static char FAKE_ROM2_PATH[512];
+
+static void init_test_paths(void)
+{
+    snprintf(FAKE_ROM_PATH, sizeof(FAKE_ROM_PATH), "%s/bitemu_test_rom.gb", _tmp_dir());
+    snprintf(FAKE_ROM2_PATH, sizeof(FAKE_ROM2_PATH), "%s/bitemu_test_rom2.gb", _tmp_dir());
+}
 
 static void write_fake_rom(const char *path, uint8_t fill, size_t size)
 {
@@ -212,7 +236,7 @@ static bitemu_t *create_with_rom(const char *rom_path)
 
 TEST(api_save_load_roundtrip)
 {
-    const char *state_path = "/tmp/bitemu_test_roundtrip.bst";
+    const char *state_path = tmp_path("bitemu_test_roundtrip.bst");
     write_fake_rom(FAKE_ROM_PATH, 0x00, 512);
     bitemu_t *emu = create_with_rom(FAKE_ROM_PATH);
 
@@ -242,7 +266,7 @@ TEST(api_save_load_roundtrip)
 
 TEST(api_load_state_crc_mismatch)
 {
-    const char *state_path = "/tmp/bitemu_test_crc.bst";
+    const char *state_path = tmp_path("bitemu_test_crc.bst");
     write_fake_rom(FAKE_ROM_PATH, 0x00, 512);
     write_fake_rom(FAKE_ROM2_PATH, 0xFF, 512);
 
@@ -263,7 +287,7 @@ TEST(api_load_state_crc_mismatch)
 
 TEST(api_load_state_v1_rejected)
 {
-    const char *state_path = "/tmp/bitemu_test_v1.bst";
+    const char *state_path = tmp_path("bitemu_test_v1.bst");
     write_fake_rom(FAKE_ROM_PATH, 0x00, 512);
     bitemu_t *emu = create_with_rom(FAKE_ROM_PATH);
 
@@ -290,7 +314,7 @@ TEST(api_load_state_v1_rejected)
 
 TEST(api_load_state_future_rejected)
 {
-    const char *state_path = "/tmp/bitemu_test_v99.bst";
+    const char *state_path = tmp_path("bitemu_test_v99.bst");
     write_fake_rom(FAKE_ROM_PATH, 0x00, 512);
     bitemu_t *emu = create_with_rom(FAKE_ROM_PATH);
 
@@ -314,6 +338,7 @@ TEST(api_load_state_future_rejected)
 
 void run_api_tests(void)
 {
+    init_test_paths();
     SUITE("Public API");
     RUN(api_create_destroy);
     RUN(api_destroy_null);
