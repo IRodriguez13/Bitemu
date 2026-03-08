@@ -108,7 +108,7 @@ jobs:
           cd frontend
           python -m venv venv
           ./venv/bin/pip install -r requirements.txt
-          ./venv/bin/pip install pyinstaller
+          ./venv/bin/pip install pyinstaller Pillow
           touch venv/.done
 
       - name: Create frontend venv (Windows)
@@ -118,7 +118,7 @@ jobs:
           cd frontend
           python -m venv venv
           venv/Scripts/pip install -r requirements.txt
-          venv/Scripts/pip install pyinstaller
+          venv/Scripts/pip install pyinstaller Pillow
           touch venv/.done
 
       # --- Package with PyInstaller (standalone, no Python needed by user) ---
