@@ -57,11 +57,13 @@ jobs:
 
       - name: Install build tools (Linux)
         if: matrix.os == 'ubuntu-latest'
-        run: sudo apt-get update && sudo apt-get install -y build-essential
+        run: sudo apt-get update && sudo apt-get install -y build-essential libportaudio2 libfuse2
 
       - name: Install build tools (macOS)
         if: matrix.os == 'macos-latest'
-        run: xcode-select -p || xcode-select --install
+        run: |
+          xcode-select -p || xcode-select --install
+          brew install portaudio
 
       - name: Install MSYS2 / MinGW (Windows)
         if: matrix.os == 'windows-latest'
@@ -127,11 +129,21 @@ jobs:
         if: matrix.os == 'ubuntu-latest'
         run: |
           cd frontend
+
+          # Find system libportaudio to bundle it
+          PA_LIB=$(find /usr/lib -name 'libportaudio.so*' -type f 2>/dev/null | head -1)
+          PA_FLAG=""
+          if [ -n "$PA_LIB" ]; then
+            PA_FLAG="--add-binary ${PA_LIB}:."
+          fi
+
           ./venv/bin/pyinstaller --onedir --name bitemu \
             --icon "assets/icon.png" \
             --add-data "../VERSION:." \
             --add-binary "../libbitemu.so:." \
             --add-data "assets:assets" \
+            $PA_FLAG \
+            --collect-all sounddevice \
             --hidden-import bitemu_gui \
             --hidden-import bitemu_gui.core \
             --hidden-import bitemu_gui.game_widget \
@@ -153,11 +165,20 @@ jobs:
         if: matrix.os == 'macos-latest'
         run: |
           cd frontend
+
+          PA_LIB=$(find /opt/homebrew/lib /usr/local/lib -name 'libportaudio*.dylib' -type f 2>/dev/null | head -1)
+          PA_FLAG=""
+          if [ -n "$PA_LIB" ]; then
+            PA_FLAG="--add-binary ${PA_LIB}:."
+          fi
+
           ./venv/bin/pyinstaller --onedir --name bitemu \
             --icon "assets/icon.png" \
             --add-data "../VERSION:." \
             --add-binary "../libbitemu.dylib:." \
             --add-data "assets:assets" \
+            $PA_FLAG \
+            --collect-all sounddevice \
             --hidden-import bitemu_gui \
             --hidden-import bitemu_gui.core \
             --hidden-import bitemu_gui.game_widget \
@@ -185,6 +206,7 @@ jobs:
             --add-data "../VERSION;." \
             --add-binary "../bitemu.dll;." \
             --add-data "assets;assets" \
+            --collect-all sounddevice \
             --hidden-import bitemu_gui \
             --hidden-import bitemu_gui.core \
             --hidden-import bitemu_gui.game_widget \
@@ -244,17 +266,23 @@ jobs:
           sed -i 's/^          //' AppDir/AppRun
           chmod +x AppDir/AppRun
 
-          # Build AppImage (APPIMAGE_EXTRACT_AND_RUN bypasses FUSE requirement)
+          # Build AppImage (APPIMAGE_EXTRACT_AND_RUN bypasses FUSE requirement on runner)
           wget -q https://github.com/AppImage/AppImageKit/releases/download/continuous/appimagetool-x86_64.AppImage -O appimagetool
           chmod +x appimagetool
           ARCH=x86_64 APPIMAGE_EXTRACT_AND_RUN=1 ./appimagetool AppDir ${{ matrix.artifact_name }}-${VERSION_STR}.AppImage || true
 
-          # Fallback: tar.gz with desktop file and icon
-          if [ ! -f ${{ matrix.artifact_name }}-${VERSION_STR}.AppImage ]; then
-            cp AppDir/bitemu.desktop frontend/dist/bitemu/
-            [ -f AppDir/bitemu.png ] && cp AppDir/bitemu.png frontend/dist/bitemu/
-            tar czf ${{ matrix.artifact_name }}-${VERSION_STR}.tar.gz -C frontend/dist bitemu
-          fi
+          # Always produce a tar.gz as FUSE-free alternative
+          cp AppDir/bitemu.desktop frontend/dist/bitemu/
+          [ -f AppDir/bitemu.png ] && cp AppDir/bitemu.png frontend/dist/bitemu/
+          cat > frontend/dist/bitemu/bitemu.sh <<'LAUNCHER'
+          #!/bin/sh
+          HERE="$(cd "$(dirname "$0")" && pwd)"
+          export LD_LIBRARY_PATH="${HERE}:${LD_LIBRARY_PATH}"
+          exec "${HERE}/bitemu" "$@"
+          LAUNCHER
+          sed -i 's/^          //' frontend/dist/bitemu/bitemu.sh
+          chmod +x frontend/dist/bitemu/bitemu.sh frontend/dist/bitemu/bitemu
+          tar czf ${{ matrix.artifact_name }}-${VERSION_STR}.tar.gz -C frontend/dist bitemu
 
       - name: Package DMG (macOS)
         if: matrix.os == 'macos-latest'
