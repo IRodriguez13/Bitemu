@@ -222,6 +222,71 @@ TEST(mix_sample_buffer_full)
     teardown();
 }
 
+/* --- Sweep init on ch1 trigger --- */
+
+TEST(sweep_init_on_trigger)
+{
+    setup();
+    mem.io[GB_IO_NR10] = 0x23;  /* period=2, negate=0, shift=3 */
+    mem.io[GB_IO_NR12] = 0xF0;
+    mem.io[GB_IO_NR13] = 0x00;
+    mem.io[GB_IO_NR14] = 0x04;  /* freq hi = 4 → freq = 0x400 = 1024 */
+
+    gb_apu_trigger(&apu, (struct gb_mem *)&mem, 1);
+
+    ASSERT_EQ(apu.sweep_freq, 1024);
+    ASSERT_EQ(apu.sweep_timer, 2);
+    ASSERT_TRUE(apu.sweep_enabled);
+    teardown();
+}
+
+/* --- Sweep disabled when period=0 and shift=0 --- */
+
+TEST(sweep_disabled_no_period_no_shift)
+{
+    setup();
+    mem.io[GB_IO_NR10] = 0x00;  /* period=0, shift=0 */
+    mem.io[GB_IO_NR12] = 0xF0;
+    mem.io[GB_IO_NR13] = 0x00;
+    mem.io[GB_IO_NR14] = 0x00;
+
+    gb_apu_trigger(&apu, (struct gb_mem *)&mem, 1);
+
+    ASSERT_FALSE(apu.sweep_enabled);
+    teardown();
+}
+
+/* --- Sweep overflow disables channel --- */
+
+TEST(sweep_overflow_disables_ch1)
+{
+    setup();
+    mem.io[GB_IO_NR10] = 0x11;  /* period=1, negate=0, shift=1 */
+    mem.io[GB_IO_NR12] = 0xF0;
+    mem.io[GB_IO_NR13] = 0xFF;
+    mem.io[GB_IO_NR14] = 0x07;  /* freq = 0x7FF = 2047 */
+    mem.io[GB_IO_NR52] = APU_NR52_POWER | APU_NR52_CH1;
+
+    gb_apu_trigger(&apu, (struct gb_mem *)&mem, 1);
+
+    ASSERT_FALSE(mem.io[GB_IO_NR52] & APU_NR52_CH1);
+    teardown();
+}
+
+/* --- Bulk step produces correct frame seq advancement --- */
+
+TEST(apu_bulk_step_frame_seq)
+{
+    setup();
+    apu.frame_seq_step = 0;
+    apu.frame_seq_cycles = 0;
+
+    gb_apu_step(&apu, (struct gb_mem *)&mem, APU_FRAME_SEQ_PERIOD * 3);
+
+    ASSERT_EQ(apu.frame_seq_step, 3);
+    teardown();
+}
+
 void run_apu_tests(void)
 {
     SUITE("APU");
@@ -237,4 +302,8 @@ void run_apu_tests(void)
     RUN(length_counter_disables_channel);
     RUN(mix_sample_writes_buffer);
     RUN(mix_sample_buffer_full);
+    RUN(sweep_init_on_trigger);
+    RUN(sweep_disabled_no_period_no_shift);
+    RUN(sweep_overflow_disables_ch1);
+    RUN(apu_bulk_step_frame_seq);
 }

@@ -45,6 +45,50 @@ void gb_apu_init(gb_apu_t *apu)
     apu->sq2_length = 0;
     apu->wave_length = 0;
     apu->noise_length = 0;
+    apu->sweep_timer = 0;
+    apu->sweep_freq = 0;
+    apu->sweep_enabled = 0;
+}
+
+/* ----- Frequency sweep (channel 1, NR10) ----- */
+
+static int sweep_calc(gb_apu_t *apu, gb_mem_t *m)
+{
+    uint8_t nr10 = m->io[GB_IO_NR10];
+    int shift = nr10 & 0x07;
+    int delta = apu->sweep_freq >> shift;
+    int new_freq = (nr10 & 0x08) ? apu->sweep_freq - delta
+                                 : apu->sweep_freq + delta;
+    if (new_freq > APU_FREQ_BASE - 1)
+        m->io[GB_IO_NR52] &= ~APU_NR52_CH1;
+    return new_freq;
+}
+
+static void clock_sweep(gb_apu_t *apu, gb_mem_t *m)
+{
+    if (!apu->sweep_enabled)
+        return;
+    if (apu->sweep_timer > 0)
+        apu->sweep_timer--;
+    if (apu->sweep_timer != 0)
+        return;
+
+    uint8_t nr10 = m->io[GB_IO_NR10];
+    int period = (nr10 >> 4) & 0x07;
+    apu->sweep_timer = period ? period : 8;
+
+    if (period == 0)
+        return;
+
+    int new_freq = sweep_calc(apu, m);
+    if (new_freq <= APU_FREQ_BASE - 1 && (nr10 & 0x07) != 0)
+    {
+        apu->sweep_freq = new_freq;
+        m->io[GB_IO_NR13] = new_freq & 0xFF;
+        m->io[GB_IO_NR14] = (m->io[GB_IO_NR14] & ~APU_FREQ_HI_MASK)
+                           | ((new_freq >> 8) & APU_FREQ_HI_MASK);
+        sweep_calc(apu, m);
+    }
 }
 
 /* ----- Frame sequencer helpers ----- */
@@ -112,6 +156,15 @@ void gb_apu_trigger(gb_apu_t *apu, struct gb_mem *mem, int channel)
         apu->sq1_env_timer = nr12 & APU_ENV_PERIOD_MASK;
         if (apu->sq1_length == 0)
             apu->sq1_length = APU_SQ_LENGTH_MAX;
+        /* Sweep init */
+        uint8_t nr10 = m->io[GB_IO_NR10];
+        int period = (nr10 >> 4) & 0x07;
+        int shift = nr10 & 0x07;
+        apu->sweep_freq = fv;
+        apu->sweep_timer = period ? period : 8;
+        apu->sweep_enabled = (period != 0 || shift != 0) ? 1 : 0;
+        if (shift)
+            sweep_calc(apu, m);
         break;
     }
     case 2: {
@@ -151,6 +204,65 @@ void gb_apu_trigger(gb_apu_t *apu, struct gb_mem *mem, int channel)
 
 /* ----- Step (per CPU cycle) ----- */
 
+static void advance_sq1(gb_apu_t *apu, gb_mem_t *m)
+{
+    int fv = ((m->io[GB_IO_NR14] & APU_FREQ_HI_MASK) << 8) | m->io[GB_IO_NR13];
+    apu->sq1_timer = (APU_FREQ_BASE - fv) * APU_SQUARE_PERIOD_MUL;
+    if (apu->sq1_timer <= 0)
+        apu->sq1_timer = APU_SQUARE_PERIOD_MUL;
+    apu->sq1_duty_pos = (apu->sq1_duty_pos + 1) & APU_DUTY_STEP_MASK;
+}
+
+static void advance_sq2(gb_apu_t *apu, gb_mem_t *m)
+{
+    int fv = ((m->io[GB_IO_NR24] & APU_FREQ_HI_MASK) << 8) | m->io[GB_IO_NR23];
+    apu->sq2_timer = (APU_FREQ_BASE - fv) * APU_SQUARE_PERIOD_MUL;
+    if (apu->sq2_timer <= 0)
+        apu->sq2_timer = APU_SQUARE_PERIOD_MUL;
+    apu->sq2_duty_pos = (apu->sq2_duty_pos + 1) & APU_DUTY_STEP_MASK;
+}
+
+static void advance_wave(gb_apu_t *apu, gb_mem_t *m)
+{
+    int fv = ((m->io[GB_IO_NR34] & APU_FREQ_HI_MASK) << 8) | m->io[GB_IO_NR33];
+    apu->wave_timer = (APU_FREQ_BASE - fv) * APU_WAVE_PERIOD_MUL;
+    if (apu->wave_timer <= 0)
+        apu->wave_timer = APU_WAVE_PERIOD_MUL;
+    apu->wave_pos = (apu->wave_pos + 1) & APU_WAVE_STEP_MASK;
+}
+
+static void advance_noise(gb_apu_t *apu, gb_mem_t *m)
+{
+    uint8_t nr43 = m->io[GB_IO_NR43];
+    int div = (nr43 & APU_NOISE_DIV_MASK) * APU_NOISE_DIV_MUL;
+    if (div == 0) div = APU_NOISE_DIV_ZERO;
+    apu->noise_timer = div << ((nr43 >> APU_NOISE_SHIFT_POS) & APU_NIBBLE_MASK);
+    if (apu->noise_timer <= 0)
+        apu->noise_timer = 1;
+    uint16_t bit = (apu->lfsr ^ (apu->lfsr >> 1)) & 1;
+    apu->lfsr = (apu->lfsr >> 1) | (bit << APU_LFSR_TAP_BIT);
+    if (nr43 & APU_NOISE_WIDTH_BIT)
+        apu->lfsr = (apu->lfsr & APU_LFSR_SHORT_CLR) | (bit << APU_LFSR_SHORT_TAP);
+}
+
+static void run_frame_sequencer(gb_apu_t *apu, gb_mem_t *m)
+{
+    switch (apu->frame_seq_step)
+    {
+    case 0: case 4:
+        clock_length(apu, m);
+        break;
+    case 2: case 6:
+        clock_length(apu, m);
+        clock_sweep(apu, m);
+        break;
+    case 7:
+        clock_envelope(apu, m);
+        break;
+    }
+    apu->frame_seq_step = (apu->frame_seq_step + 1) & (APU_FRAME_SEQ_STEPS - 1);
+}
+
 void gb_apu_step(gb_apu_t *apu, struct gb_mem *mem, int cycles)
 {
     gb_mem_t *m = (gb_mem_t *)mem;
@@ -165,75 +277,29 @@ void gb_apu_step(gb_apu_t *apu, struct gb_mem *mem, int cycles)
         m->apu_trigger_flags = 0;
     }
 
-    for (int i = 0; i < cycles; i++)
+    int remaining = cycles;
+    while (remaining > 0)
     {
-        /* Frame sequencer: 512 Hz tick */
-        if (++apu->frame_seq_cycles >= APU_FRAME_SEQ_PERIOD)
-        {
-            apu->frame_seq_cycles = 0;
-            switch (apu->frame_seq_step)
-            {
-            case 0: case 4:
-                clock_length(apu, m);
-                break;
-            case 2: case 6:
-                clock_length(apu, m);
-                /* TODO: ch1 frequency sweep */
-                break;
-            case 7:
-                clock_envelope(apu, m);
-                break;
-            }
-            apu->frame_seq_step = (apu->frame_seq_step + 1)
-                                & (APU_FRAME_SEQ_STEPS - 1);
-        }
+        int until_fs = APU_FRAME_SEQ_PERIOD - apu->frame_seq_cycles;
+        int step = remaining < until_fs ? remaining : until_fs;
 
-        /* Channel frequency timers */
-        if (--apu->sq1_timer <= 0)
-        {
-            int fv = ((m->io[GB_IO_NR14] & APU_FREQ_HI_MASK) << 8)
-                   | m->io[GB_IO_NR13];
-            apu->sq1_timer = (APU_FREQ_BASE - fv) * APU_SQUARE_PERIOD_MUL;
-            if (apu->sq1_timer <= 0)
-                apu->sq1_timer = APU_SQUARE_PERIOD_MUL;
-            apu->sq1_duty_pos = (apu->sq1_duty_pos + 1) & APU_DUTY_STEP_MASK;
-        }
+        apu->sq1_timer -= step;
+        apu->sq2_timer -= step;
+        apu->wave_timer -= step;
+        apu->noise_timer -= step;
 
-        if (--apu->sq2_timer <= 0)
-        {
-            int fv = ((m->io[GB_IO_NR24] & APU_FREQ_HI_MASK) << 8)
-                   | m->io[GB_IO_NR23];
-            apu->sq2_timer = (APU_FREQ_BASE - fv) * APU_SQUARE_PERIOD_MUL;
-            if (apu->sq2_timer <= 0)
-                apu->sq2_timer = APU_SQUARE_PERIOD_MUL;
-            apu->sq2_duty_pos = (apu->sq2_duty_pos + 1) & APU_DUTY_STEP_MASK;
-        }
+        while (apu->sq1_timer <= 0)   advance_sq1(apu, m);
+        while (apu->sq2_timer <= 0)   advance_sq2(apu, m);
+        while (apu->wave_timer <= 0)  advance_wave(apu, m);
+        while (apu->noise_timer <= 0) advance_noise(apu, m);
 
-        if (--apu->wave_timer <= 0)
+        apu->frame_seq_cycles += step;
+        if (apu->frame_seq_cycles >= APU_FRAME_SEQ_PERIOD)
         {
-            int fv = ((m->io[GB_IO_NR34] & APU_FREQ_HI_MASK) << 8)
-                   | m->io[GB_IO_NR33];
-            apu->wave_timer = (APU_FREQ_BASE - fv) * APU_WAVE_PERIOD_MUL;
-            if (apu->wave_timer <= 0)
-                apu->wave_timer = APU_WAVE_PERIOD_MUL;
-            apu->wave_pos = (apu->wave_pos + 1) & APU_WAVE_STEP_MASK;
+            apu->frame_seq_cycles -= APU_FRAME_SEQ_PERIOD;
+            run_frame_sequencer(apu, m);
         }
-
-        if (--apu->noise_timer <= 0)
-        {
-            uint8_t nr43 = m->io[GB_IO_NR43];
-            int div = (nr43 & APU_NOISE_DIV_MASK) * APU_NOISE_DIV_MUL;
-            if (div == 0)
-                div = APU_NOISE_DIV_ZERO;
-            apu->noise_timer = div << ((nr43 >> APU_NOISE_SHIFT_POS) & APU_NIBBLE_MASK);
-            if (apu->noise_timer <= 0)
-                apu->noise_timer = 1;
-
-            uint16_t bit = (apu->lfsr ^ (apu->lfsr >> 1)) & 1;
-            apu->lfsr = (apu->lfsr >> 1) | (bit << APU_LFSR_TAP_BIT);
-            if (nr43 & APU_NOISE_WIDTH_BIT)
-                apu->lfsr = (apu->lfsr & APU_LFSR_SHORT_CLR) | (bit << APU_LFSR_SHORT_TAP);
-        }
+        remaining -= step;
     }
 }
 

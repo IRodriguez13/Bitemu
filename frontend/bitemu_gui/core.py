@@ -116,8 +116,7 @@ class Emu:
         if not ptr:
             return None
         addr = cast(ptr, c_void_p).value
-        buf = (c_uint8 * FB_SIZE).from_address(addr)
-        return bytes(buf)
+        return (c_uint8 * FB_SIZE).from_address(addr)
 
     def set_input(self, state: int):
         if self._handle is not None:

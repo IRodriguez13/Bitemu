@@ -22,7 +22,7 @@ CLI_OBJS = $(CLI_SRCS:.c=.o)
 CLI_TARGET = bitemu-cli
 
 TEST_DIR   = tests/core
-TEST_SRCS  = $(TEST_DIR)/test_runner.c $(TEST_DIR)/test_memory.c $(TEST_DIR)/test_apu.c $(TEST_DIR)/test_timer.c $(TEST_DIR)/test_api.c
+TEST_SRCS  = $(TEST_DIR)/test_runner.c $(TEST_DIR)/test_memory.c $(TEST_DIR)/test_apu.c $(TEST_DIR)/test_timer.c $(TEST_DIR)/test_api.c $(TEST_DIR)/test_ppu.c $(TEST_DIR)/test_mbc2.c $(TEST_DIR)/test_abi_guard.c
 TEST_BIN   = build/test_runner
 VENV       = frontend/venv/bin
 

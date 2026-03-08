@@ -192,16 +192,14 @@ class GameWidget(QWidget):
 
         fb = self._emu.get_framebuffer()
         w, h = self._profile.fb_width, self._profile.fb_height
-        if not fb or len(fb) < w * h:
+        if fb is None or len(fb) < w * h:
             self._draw_splash(painter, rw, rh)
             painter.end()
             return
 
-        img = QImage(w, h, QImage.Format.Format_RGB32)
-        for y in range(h):
-            for x in range(w):
-                g = fb[y * w + x]
-                img.setPixel(x, y, (g << 16) | (g << 8) | g | 0xFF000000)
+        raw = bytes(fb)
+        img = QImage(raw, w, h, w, QImage.Format.Format_Grayscale8)
+
         scale = min(rw / w, rh / h) if rw and rh else 1
         sw, sh = int(w * scale), int(h * scale)
         ox = (rw - sw) // 2
@@ -209,8 +207,8 @@ class GameWidget(QWidget):
         painter.fillRect(0, 0, rw, rh, QColor(0, 0, 0))
         scaled = img.scaled(
             sw, sh,
-            Qt.AspectRatioMode.IgnoreAspectRatio,
-            Qt.TransformationMode.SmoothTransformation,
+            Qt.AspectRatioMode.KeepAspectRatio,
+            Qt.TransformationMode.FastTransformation,
         )
         painter.drawImage(ox, oy, scaled)
         painter.end()

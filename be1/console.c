@@ -23,7 +23,7 @@
 
 /* .bst save state format constants */
 #define BST_MAGIC       "BEMU"
-#define BST_VERSION     1
+#define BST_VERSION     2
 #define BST_CONSOLE_GB  1
 
 static void gb_init(console_t *ctx)
@@ -136,47 +136,62 @@ static int read_all(FILE *f, void *buf, size_t n)
     return fread(buf, 1, n, f) == n ? 0 : -1;
 }
 
-static int gb_save_state(console_t *ctx, const char *path)
+/*
+ * Section-based I/O: each section is prefixed with a uint32_t byte count.
+ * On load, if the stored section is smaller than the current struct, the
+ * extra fields (which MUST live at the end of the struct) are zero-filled.
+ * If the stored section is larger (save from a newer Bitemu), the unknown
+ * tail bytes are skipped.  This gives forward+backward compat for free
+ * as long as new fields are always appended.
+ */
+static int write_section(FILE *f, const void *data, uint32_t size)
 {
-    gb_impl_t *impl = ctx->impl;
-    gb_mem_t *m = &impl->mem;
+    int err = write_all(f, &size, sizeof(size));
+    err |= write_all(f, data, size);
+    return err;
+}
 
-    if (!m->rom || m->rom_size == 0)
+static int read_section(FILE *f, void *dest, uint32_t dest_size)
+{
+    uint32_t stored;
+    if (read_all(f, &stored, sizeof(stored)) != 0)
         return -1;
-
-    FILE *f = fopen(path, "wb");
-    if (!f)
+    memset(dest, 0, dest_size);
+    uint32_t to_read = stored < dest_size ? stored : dest_size;
+    if (to_read > 0 && read_all(f, dest, to_read) != 0)
         return -1;
+    if (stored > dest_size)
+    {
+        if (fseek(f, (long)(stored - dest_size), SEEK_CUR) != 0)
+            return -1;
+    }
+    return 0;
+}
 
-    bst_header_t hdr;
-    memcpy(hdr.magic, BST_MAGIC, 4);
-    hdr.version    = BST_VERSION;
-    hdr.console_id = BST_CONSOLE_GB;
-    hdr.rom_crc32  = bitemu_crc32(m->rom, m->rom_size);
+/* Compute memory-section byte count (all fields after rom/rom_size). */
+static uint32_t mem_section_size(const gb_mem_t *m)
+{
+    (void)m;
+    uint32_t sz = 0;
+    sz += 1 + 1 + 1;                       /* rom_bank, cart_type, mbc5_rom_bank_high */
+    sz += (uint32_t)sizeof(((gb_mem_t *)0)->ext_ram) + 1 + 1;
+    sz += (uint32_t)sizeof(((gb_mem_t *)0)->wram);
+    sz += (uint32_t)sizeof(((gb_mem_t *)0)->vram);
+    sz += (uint32_t)sizeof(((gb_mem_t *)0)->oam);
+    sz += (uint32_t)sizeof(((gb_mem_t *)0)->hram);
+    sz += (uint32_t)sizeof(((gb_mem_t *)0)->io);
+    sz += 1 + 2;                            /* ie, timer_div */
+    sz += 5 + 5 + 1;                        /* rtc, rtc_latched, rtc_latch_prev */
+    sz += 1 + 1;                            /* joypad_state, apu_trigger_flags */
+    return sz;
+}
 
-    uint32_t state_sz = (uint32_t)(sizeof(gb_cpu_t) + sizeof(gb_ppu_t) + sizeof(gb_apu_t));
-    state_sz += 1 + 1 + 1;  /* rom_bank, cart_type, mbc5_rom_bank_high */
-    state_sz += sizeof(m->ext_ram) + 1 + 1;  /* ext_ram, ext_ram_bank, ext_ram_enabled */
-    state_sz += sizeof(m->wram) + sizeof(m->vram) + sizeof(m->oam);
-    state_sz += sizeof(m->hram) + sizeof(m->io);
-    state_sz += 1 + 2;  /* ie, timer_div */
-    state_sz += 5 + 5 + 1;  /* rtc fields, rtc_latched, rtc_latch_prev */
-    state_sz += 1 + 1;  /* joypad_state, apu_trigger_flags */
-    hdr.state_size = state_sz;
-
+static int write_mem_fields(FILE *f, const gb_mem_t *m)
+{
     int err = 0;
-    err |= write_all(f, &hdr, sizeof(hdr));
+    uint32_t sz = mem_section_size(m);
+    err |= write_all(f, &sz, sizeof(sz));
 
-    /* CPU */
-    err |= write_all(f, &impl->cpu, sizeof(gb_cpu_t));
-
-    /* PPU */
-    err |= write_all(f, &impl->ppu, sizeof(gb_ppu_t));
-
-    /* APU */
-    err |= write_all(f, &impl->apu, sizeof(gb_apu_t));
-
-    /* Memory (field by field, skip rom pointer and rom_size) */
     err |= write_all(f, &m->rom_bank, 1);
     err |= write_all(f, &m->cart_type, 1);
     err |= write_all(f, &m->mbc5_rom_bank_high, 1);
@@ -199,6 +214,72 @@ static int gb_save_state(console_t *ctx, const char *path)
     err |= write_all(f, &m->rtc_latch_prev, 1);
     err |= write_all(f, &m->joypad_state, 1);
     err |= write_all(f, &m->apu_trigger_flags, 1);
+    return err;
+}
+
+static int read_mem_fields(FILE *f, gb_mem_t *m)
+{
+    uint32_t stored;
+    if (read_all(f, &stored, sizeof(stored)) != 0)
+        return -1;
+
+    long start = ftell(f);
+    int err = 0;
+    err |= read_all(f, &m->rom_bank, 1);
+    err |= read_all(f, &m->cart_type, 1);
+    err |= read_all(f, &m->mbc5_rom_bank_high, 1);
+    err |= read_all(f, m->ext_ram, sizeof(m->ext_ram));
+    err |= read_all(f, &m->ext_ram_bank, 1);
+    err |= read_all(f, &m->ext_ram_enabled, 1);
+    err |= read_all(f, m->wram, sizeof(m->wram));
+    err |= read_all(f, m->vram, sizeof(m->vram));
+    err |= read_all(f, m->oam, sizeof(m->oam));
+    err |= read_all(f, m->hram, sizeof(m->hram));
+    err |= read_all(f, m->io, sizeof(m->io));
+    err |= read_all(f, &m->ie, 1);
+    err |= read_all(f, &m->timer_div, 2);
+    err |= read_all(f, &m->rtc_s, 1);
+    err |= read_all(f, &m->rtc_m, 1);
+    err |= read_all(f, &m->rtc_h, 1);
+    err |= read_all(f, &m->rtc_dl, 1);
+    err |= read_all(f, &m->rtc_dh, 1);
+    err |= read_all(f, m->rtc_latched, sizeof(m->rtc_latched));
+    err |= read_all(f, &m->rtc_latch_prev, 1);
+    err |= read_all(f, &m->joypad_state, 1);
+    err |= read_all(f, &m->apu_trigger_flags, 1);
+
+    long consumed = ftell(f) - start;
+    if (consumed >= 0 && (uint32_t)consumed < stored)
+        fseek(f, (long)(stored - (uint32_t)consumed), SEEK_CUR);
+
+    return err;
+}
+
+static int gb_save_state(console_t *ctx, const char *path)
+{
+    gb_impl_t *impl = ctx->impl;
+    gb_mem_t *m = &impl->mem;
+
+    if (!m->rom || m->rom_size == 0)
+        return -1;
+
+    FILE *f = fopen(path, "wb");
+    if (!f)
+        return -1;
+
+    bst_header_t hdr;
+    memcpy(hdr.magic, BST_MAGIC, 4);
+    hdr.version    = BST_VERSION;
+    hdr.console_id = BST_CONSOLE_GB;
+    hdr.rom_crc32  = bitemu_crc32(m->rom, m->rom_size);
+    hdr.state_size = 0;
+
+    int err = 0;
+    err |= write_all(f, &hdr, sizeof(hdr));
+    err |= write_section(f, &impl->cpu, (uint32_t)sizeof(gb_cpu_t));
+    err |= write_section(f, &impl->ppu, (uint32_t)sizeof(gb_ppu_t));
+    err |= write_section(f, &impl->apu, (uint32_t)sizeof(gb_apu_t));
+    err |= write_mem_fields(f, m);
 
     fclose(f);
 
@@ -231,10 +312,25 @@ static int gb_load_state(console_t *ctx, const char *path)
     }
 
     if (memcmp(hdr.magic, BST_MAGIC, 4) != 0 ||
-        hdr.version != BST_VERSION ||
         hdr.console_id != BST_CONSOLE_GB)
     {
         log_error("Invalid save state header: %s", path);
+        fclose(f);
+        return -1;
+    }
+
+    if (hdr.version < BST_VERSION)
+    {
+        log_error("Save state v%u is obsolete (need v%u). "
+                  "Please load the ROM and re-save.", hdr.version, BST_VERSION);
+        fclose(f);
+        return -1;
+    }
+
+    if (hdr.version > BST_VERSION)
+    {
+        log_error("Save state v%u was created by a newer Bitemu (current: v%u). "
+                  "Please update Bitemu.", hdr.version, BST_VERSION);
         fclose(f);
         return -1;
     }
@@ -248,49 +344,18 @@ static int gb_load_state(console_t *ctx, const char *path)
         return -1;
     }
 
-    /* Preserve runtime pointers */
     uint8_t *saved_rom = m->rom;
     size_t saved_rom_size = m->rom_size;
     void *saved_audio = impl->audio_output;
 
     int err = 0;
-
-    /* CPU */
-    err |= read_all(f, &impl->cpu, sizeof(gb_cpu_t));
-
-    /* PPU */
-    err |= read_all(f, &impl->ppu, sizeof(gb_ppu_t));
-
-    /* APU */
-    err |= read_all(f, &impl->apu, sizeof(gb_apu_t));
-
-    /* Memory (field by field) */
-    err |= read_all(f, &m->rom_bank, 1);
-    err |= read_all(f, &m->cart_type, 1);
-    err |= read_all(f, &m->mbc5_rom_bank_high, 1);
-    err |= read_all(f, m->ext_ram, sizeof(m->ext_ram));
-    err |= read_all(f, &m->ext_ram_bank, 1);
-    err |= read_all(f, &m->ext_ram_enabled, 1);
-    err |= read_all(f, m->wram, sizeof(m->wram));
-    err |= read_all(f, m->vram, sizeof(m->vram));
-    err |= read_all(f, m->oam, sizeof(m->oam));
-    err |= read_all(f, m->hram, sizeof(m->hram));
-    err |= read_all(f, m->io, sizeof(m->io));
-    err |= read_all(f, &m->ie, 1);
-    err |= read_all(f, &m->timer_div, 2);
-    err |= read_all(f, &m->rtc_s, 1);
-    err |= read_all(f, &m->rtc_m, 1);
-    err |= read_all(f, &m->rtc_h, 1);
-    err |= read_all(f, &m->rtc_dl, 1);
-    err |= read_all(f, &m->rtc_dh, 1);
-    err |= read_all(f, m->rtc_latched, sizeof(m->rtc_latched));
-    err |= read_all(f, &m->rtc_latch_prev, 1);
-    err |= read_all(f, &m->joypad_state, 1);
-    err |= read_all(f, &m->apu_trigger_flags, 1);
+    err |= read_section(f, &impl->cpu, (uint32_t)sizeof(gb_cpu_t));
+    err |= read_section(f, &impl->ppu, (uint32_t)sizeof(gb_ppu_t));
+    err |= read_section(f, &impl->apu, (uint32_t)sizeof(gb_apu_t));
+    err |= read_mem_fields(f, m);
 
     fclose(f);
 
-    /* Restore runtime pointers */
     m->rom = saved_rom;
     m->rom_size = saved_rom_size;
     impl->audio_output = saved_audio;

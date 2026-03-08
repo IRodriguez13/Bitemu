@@ -8,19 +8,24 @@
 #include <stdio.h>
 #include <string.h>
 
-static void usage(const char *prog) {
+static void usage(const char *prog) 
+{
     fprintf(stderr, "Uso: %s -rom <archivo.gb> [--cli]\n", prog);
     fprintf(stderr, "  -rom    Cargar ROM\n");
     fprintf(stderr, "  --cli   Modo headless (sin ventana)\n");
 }
 
-int main(int argc, char *argv[]) {
+int main(int argc, char *argv[]) 
+{
     const char *rom_path = NULL;
 
-    for (int i = 1; i < argc; i++) {
-        if (strcmp(argv[i], "-rom") == 0 && i + 1 < argc) {
+    for (int i = 1; i < argc; i++) 
+    {
+        if (strcmp(argv[i], "-rom") == 0 && i + 1 < argc) 
+        {
             rom_path = argv[++i];
-        } else if (strcmp(argv[i], "--cli") == 0) {
+        } else if (strcmp(argv[i], "--cli") == 0) 
+        {
             /* CLI mode - headless */
         } else if (strcmp(argv[i], "-h") == 0 || strcmp(argv[i], "--help") == 0) {
             usage(argv[0]);
@@ -28,7 +33,8 @@ int main(int argc, char *argv[]) {
         }
     }
 
-    if (!rom_path) {
+    if (!rom_path) 
+    {
         fprintf(stderr, "Error: se requiere -rom <archivo>\n");
         usage(argv[0]);
         return 1;
@@ -37,7 +43,8 @@ int main(int argc, char *argv[]) {
     log_info("Bitemu CLI - %s", rom_path);
 
     bitemu_t *emu = bitemu_create();
-    if (!emu) {
+    if (!emu) 
+    {
         fprintf(stderr, "Error: no se pudo crear emulador\n");
         return 1;
     }
@@ -50,7 +57,8 @@ int main(int argc, char *argv[]) {
 
     log_info("ROM cargada. Ejecutando (Ctrl+C para salir)...");
 
-    while (1) {
+    while (1) 
+    {
         bitemu_poll_input(emu);  /* CLI: leer teclado antes de cada frame */
         if (!bitemu_run_frame(emu)) break;
     }

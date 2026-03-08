@@ -259,6 +259,59 @@ TEST(api_load_state_crc_mismatch)
     remove(FAKE_ROM2_PATH);
 }
 
+/* --- v1 save states are rejected gracefully --- */
+
+TEST(api_load_state_v1_rejected)
+{
+    const char *state_path = "/tmp/bitemu_test_v1.bst";
+    write_fake_rom(FAKE_ROM_PATH, 0x00, 512);
+    bitemu_t *emu = create_with_rom(FAKE_ROM_PATH);
+
+    /* Forge a v1 header (no section sizes, old format) */
+    FILE *f = fopen(state_path, "wb");
+    ASSERT_TRUE(f != NULL);
+    const char magic[4] = {'B','E','M','U'};
+    uint32_t version = 1, console_id = 1, rom_crc32 = 0, state_size = 0;
+    fwrite(magic, 1, 4, f);
+    fwrite(&version, 4, 1, f);
+    fwrite(&console_id, 4, 1, f);
+    fwrite(&rom_crc32, 4, 1, f);
+    fwrite(&state_size, 4, 1, f);
+    fclose(f);
+
+    ASSERT_EQ(bitemu_load_state(emu, state_path), -1);
+
+    bitemu_destroy(emu);
+    remove(state_path);
+    remove(FAKE_ROM_PATH);
+}
+
+/* --- v99 (future) save states are rejected gracefully --- */
+
+TEST(api_load_state_future_rejected)
+{
+    const char *state_path = "/tmp/bitemu_test_v99.bst";
+    write_fake_rom(FAKE_ROM_PATH, 0x00, 512);
+    bitemu_t *emu = create_with_rom(FAKE_ROM_PATH);
+
+    FILE *f = fopen(state_path, "wb");
+    ASSERT_TRUE(f != NULL);
+    const char magic[4] = {'B','E','M','U'};
+    uint32_t version = 99, console_id = 1, rom_crc32 = 0, state_size = 0;
+    fwrite(magic, 1, 4, f);
+    fwrite(&version, 4, 1, f);
+    fwrite(&console_id, 4, 1, f);
+    fwrite(&rom_crc32, 4, 1, f);
+    fwrite(&state_size, 4, 1, f);
+    fclose(f);
+
+    ASSERT_EQ(bitemu_load_state(emu, state_path), -1);
+
+    bitemu_destroy(emu);
+    remove(state_path);
+    remove(FAKE_ROM_PATH);
+}
+
 void run_api_tests(void)
 {
     SUITE("Public API");
@@ -282,4 +335,6 @@ void run_api_tests(void)
     RUN(api_load_state_invalid_path);
     RUN(api_save_load_roundtrip);
     RUN(api_load_state_crc_mismatch);
+    RUN(api_load_state_v1_rejected);
+    RUN(api_load_state_future_rejected);
 }

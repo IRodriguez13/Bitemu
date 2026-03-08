@@ -38,6 +38,11 @@ typedef struct gb_apu
     int sq2_length;
     int wave_length;
     int noise_length;
+
+    /* Frequency sweep (channel 1 only) */
+    int sweep_timer;
+    int sweep_freq;         /* shadow frequency register */
+    uint8_t sweep_enabled;
 } gb_apu_t;
 
 void gb_apu_init(gb_apu_t *apu);

@@ -20,8 +20,14 @@
  * --------------------------------------------------------------------------- */
 static int cart_has_battery(uint8_t cart_type)
 {
-    return cart_type == 0x03 || (cart_type >= 0x0F && cart_type <= 0x13) ||
-           cart_type == 0x1B || cart_type == 0x1E;  /* MBC5+RAM+Battery */
+    return cart_type == 0x03 || cart_type == GB_CART_MBC2_BAT ||
+           (cart_type >= 0x0F && cart_type <= 0x13) ||
+           cart_type == 0x1B || cart_type == 0x1E;
+}
+
+static int cart_is_mbc2(uint8_t cart_type)
+{
+    return cart_type == GB_CART_MBC2 || cart_type == GB_CART_MBC2_BAT;
 }
 
 /* ---------------------------------------------------------------------------
@@ -90,6 +96,11 @@ uint8_t gb_mem_read(gb_mem_t *mem, uint16_t addr)
     {
         if (!mem->ext_ram_enabled)
             return GB_READ_UNMAPPED;
+        if (cart_is_mbc2(mem->cart_type))
+        {
+            uint16_t off = (addr - GB_EXT_RAM_START) & (GB_MBC2_RAM_SIZE - 1);
+            return mem->ext_ram[off] | 0xF0;
+        }
         if (mem->cart_type >= 0x0F && mem->cart_type <= 0x13)
         {
             if (mem->ext_ram_bank >= GB_MBC3_RTC_S && mem->ext_ram_bank <= GB_MBC3_RTC_DH)
@@ -138,6 +149,21 @@ void gb_mem_write(gb_mem_t *mem, uint16_t addr, uint8_t val)
     {
         if (mem->cart_type == GB_CART_ROM_ONLY)
             return;
+        if (cart_is_mbc2(mem->cart_type))
+        {
+            if (addr <= GB_MBC_ROM_BANK_END)
+            {
+                if (addr & 0x0100)
+                {
+                    mem->rom_bank = val & 0x0F;
+                    if (mem->rom_bank == 0)
+                        mem->rom_bank = 1;
+                }
+                else
+                    mem->ext_ram_enabled = (val & GB_MBC_RAM_ENABLE_MASK) == GB_MBC_RAM_ENABLE_VAL;
+            }
+            return;
+        }
         if (mem->cart_type >= GB_CART_MBC5 && mem->cart_type <= GB_CART_MBC5_MAX)
         {
             /* MBC5 */
@@ -206,6 +232,12 @@ void gb_mem_write(gb_mem_t *mem, uint16_t addr, uint8_t val)
     {
         if (!mem->ext_ram_enabled)
             return;
+        if (cart_is_mbc2(mem->cart_type))
+        {
+            uint16_t off = (addr - GB_EXT_RAM_START) & (GB_MBC2_RAM_SIZE - 1);
+            mem->ext_ram[off] = val & 0x0F;
+            return;
+        }
         if (mem->cart_type >= 0x0F && mem->cart_type <= 0x13)
         {
             if (mem->ext_ram_bank >= GB_MBC3_RTC_S && mem->ext_ram_bank <= GB_MBC3_RTC_DH)

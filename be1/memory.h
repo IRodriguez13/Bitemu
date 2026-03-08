@@ -64,12 +64,17 @@
 #define GB_MBC_ROM_BANK_HI     0x60
 #define GB_MBC_RAM_BANK_MASK   0x03
 
-/* Cartridge type (ROM header 0x147): 0=ROM only, 1-3=MBC1, 0x0F-0x13=MBC3, 0x19-0x1E=MBC5 */
+/* Cartridge type (ROM header 0x147): 0=ROM only, 1-3=MBC1, 5-6=MBC2, 0x0F-0x13=MBC3, 0x19-0x1E=MBC5 */
 #define GB_CART_ROM_ONLY  0x00
 #define GB_CART_MBC1      0x01
+#define GB_CART_MBC2      0x05
+#define GB_CART_MBC2_BAT  0x06
 #define GB_CART_MBC3      0x13
 #define GB_CART_MBC5      0x19
 #define GB_CART_MBC5_MAX  0x1E
+
+/* MBC2: 512 x 4-bit internal RAM at 0xA000-0xA1FF */
+#define GB_MBC2_RAM_SIZE  512
 
 /* MBC3 RTC: registros 4-0xC (4=seconds, 5=min, 6=hours, 7=days low, 8=days high; 9-0xC no usados) */
 #define GB_MBC3_RTC_S   4

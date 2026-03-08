@@ -5,17 +5,21 @@
 *.dylib
 bitemu
 bitemu-cli
+build/
 
-# Rust
+# Rust (legacy)
 rust/target/
 rust/rust/
 
-# ROMs (user-provided; keep out of repo unless public-domain test ROMs)
+# ROMs and user data (never commit)
 roms/
+*.sav
+*.bst
 
 # Editor / IDE
 .idea/
 .vscode/
+.cursor/
 *.swp
 *~
 *.swo
@@ -59,3 +63,10 @@ htmlcov/
 pip-log.txt
 pip-delete-this-directory.txt
 .python-version
+
+# Packaging outputs
+*.AppImage
+*.dmg
+*.msi
+*.exe
+installer/Output/

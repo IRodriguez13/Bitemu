@@ -68,10 +68,12 @@ static void render_scanline(gb_ppu_t *ppu, gb_mem_t *mem)
     int signed_tiles = !(lcdc & GB_LCDC_BG_TILES);
 
     uint8_t *fb = ppu->framebuffer + ly * GB_LCD_WIDTH;
+    uint8_t bg_indices[GB_LCD_WIDTH];
     memset(fb, gb_dmg_palette[bgp & 3], GB_LCD_WIDTH);
+    memset(bg_indices, 0, GB_LCD_WIDTH);
 
     if (!(lcdc & GB_LCDC_BG_ON))
-        return;
+        goto sprites;
 
     int tile_y = (ly + scy) & GB_BYTE_LO;
     int tile_row = tile_y / GB_TILE_SIZE;
@@ -86,10 +88,10 @@ static void render_scanline(gb_ppu_t *ppu, gb_mem_t *mem)
         uint16_t map_addr = bg_map + tile_row * 32 + tile_col;
         uint8_t tile_id = mem->vram[map_addr - GB_VRAM_START];
         uint8_t color_idx = get_pixel_from_tile(mem->vram, tile_id, tx, py, signed_tiles);
+        bg_indices[px] = color_idx;
         fb[px] = gb_dmg_palette[(bgp >> (color_idx * 2)) & 3];
     }
 
-    /* Capa Window: se dibuja encima del BG cuando LY >= WY y WX <= 166 */
     if ((lcdc & GB_LCDC_WIN_ON) && (lcdc & GB_LCDC_ON))
     {
         uint8_t wy = mem->io[GB_IO_WY];
@@ -111,23 +113,24 @@ static void render_scanline(gb_ppu_t *ppu, gb_mem_t *mem)
                     uint16_t map_addr = win_map + win_tile_row * 32 + win_tile_col;
                     uint8_t tile_id = mem->vram[map_addr - GB_VRAM_START];
                     uint8_t color_idx = get_pixel_from_tile(mem->vram, tile_id, win_tx, win_py, signed_tiles);
+                    bg_indices[px] = color_idx;
                     fb[px] = gb_dmg_palette[(bgp >> (color_idx * 2)) & 3];
                 }
             }
         }
     }
 
+sprites:
     if (!(lcdc & GB_LCDC_OBJ_ON))
         return;
 
-    /* Solo los primeros 10 sprites que coinciden con esta línea se muestran (límite hardware) */
     int obj_h = (lcdc & GB_LCDC_OBJ_H) ? 16 : 8;
     int sprite_count = 0;
     int sprite_oam_indices[GB_OAM_SPRITES_PER_LINE];
     for (int i = 0; i < GB_OAM_SIZE && sprite_count < GB_OAM_SPRITES_PER_LINE; i += 4)
     {
         uint8_t y = mem->oam[i];
-        if (y == 0 || y >= 160)  /* 160 = 144+16: sprite totalmente debajo de la pantalla */
+        if (y == 0 || y >= 160)
             continue;
         int obj_y = y - 16;
         if (ly < obj_y || ly >= obj_y + obj_h)
@@ -135,7 +138,6 @@ static void render_scanline(gb_ppu_t *ppu, gb_mem_t *mem)
         sprite_oam_indices[sprite_count++] = i;
     }
 
-    /* Dibujar en orden inverso (mayor índice OAM encima) */
     for (int s = sprite_count - 1; s >= 0; s--)
     {
         int i = sprite_oam_indices[s];
@@ -148,6 +150,7 @@ static void render_scanline(gb_ppu_t *ppu, gb_mem_t *mem)
         if (obj_x <= -8 || obj_x >= GB_LCD_WIDTH)
             continue;
 
+        int bg_priority = flags & 0x80;
         int line = (flags & 0x40) ? (obj_h - 1 - (ly - obj_y)) : (ly - obj_y);
         uint8_t pal = (flags & 0x10) ? mem->io[GB_IO_OBP1] : mem->io[GB_IO_OBP0];
 
@@ -155,6 +158,8 @@ static void render_scanline(gb_ppu_t *ppu, gb_mem_t *mem)
         {
             int screen_x = obj_x + j;
             if (screen_x < 0 || screen_x >= GB_LCD_WIDTH)
+                continue;
+            if (bg_priority && bg_indices[screen_x] != 0)
                 continue;
             int tile_x = (flags & 0x20) ? (7 - j) : j;
             uint8_t tile_id = (obj_h == 16 && line >= 8) ? tile | 1 : tile;

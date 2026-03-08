@@ -40,6 +40,7 @@ Game Boy–specific implementation details.
 | [Audio Implementation](audio-implementation.md) | APU architecture, buffer circular, frontend playback |
 | [Audio Improvements](audio-improvements.md) | Known issues and fixes applied |
 | [Branding System](05-branding.md) | Adaptive visual identity per console edition |
+| [Save States](06-save-states.md) | BST v2 format, ABI guard, compatibility rules |
 
 ---
 

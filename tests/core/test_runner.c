@@ -12,6 +12,9 @@ extern void run_memory_tests(void);
 extern void run_apu_tests(void);
 extern void run_timer_tests(void);
 extern void run_api_tests(void);
+extern void run_ppu_tests(void);
+extern void run_mbc2_tests(void);
+extern void run_abi_guard_tests(void);
 
 int main(void)
 {
@@ -21,6 +24,9 @@ int main(void)
     run_apu_tests();
     run_timer_tests();
     run_api_tests();
+    run_ppu_tests();
+    run_mbc2_tests();
+    run_abi_guard_tests();
 
     REPORT();
 }
