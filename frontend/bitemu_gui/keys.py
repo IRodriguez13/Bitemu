@@ -3,6 +3,9 @@ Mapeo teclado Qt → estado joypad (1 = pulsado).
 Bits: 0–3 D-pad (R,L,U,D), 4–7 A,B,Select,Start.
 """
 from PySide6.QtCore import Qt
+from PySide6.QtGui import QKeySequence
+
+ACTION_NAMES = ["Derecha", "Izquierda", "Arriba", "Abajo", "A", "B", "Select", "Start"]
 
 # Por defecto: WASD + flechas, J/Z=A, K/X=B, U=Select, I/Enter=Start
 DEFAULT_MAP = {
@@ -23,6 +26,13 @@ DEFAULT_MAP = {
     Qt.Key.Key_Return: 7,
     Qt.Key.Key_Enter: 7,
 }
+
+
+def key_name(qt_key: int) -> str:
+    """Human-readable name for a Qt key code."""
+    seq = QKeySequence(qt_key)
+    text = seq.toString()
+    return text if text else f"Key({qt_key})"
 
 
 def key_to_joypad(key: int, key_map: dict | None = None) -> int | None:

@@ -6,7 +6,7 @@ import os
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", "frontend"))
 
 from PySide6.QtCore import Qt
-from bitemu_gui.keys import key_to_joypad, build_joypad_state, DEFAULT_MAP
+from bitemu_gui.keys import key_to_joypad, build_joypad_state, DEFAULT_MAP, key_name, ACTION_NAMES
 
 
 def test_wasd_mapped():
@@ -67,3 +67,13 @@ def test_custom_keymap():
 
     state = build_joypad_state({Qt.Key.Key_P}, custom)
     assert state == (1 << 4)
+
+
+def test_action_names_count():
+    assert len(ACTION_NAMES) == 8
+
+
+def test_key_name_readable():
+    name = key_name(Qt.Key.Key_W)
+    assert isinstance(name, str)
+    assert len(name) > 0

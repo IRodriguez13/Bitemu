@@ -33,6 +33,15 @@ Game Boy–specific implementation details.
 
 ---
 
+## Part III: Features / Funcionalidades
+
+| Feature | Description |
+|---------|-------------|
+| [Audio Implementation](audio-implementation.md) | APU architecture, buffer circular, frontend playback |
+| [Audio Improvements](audio-improvements.md) | Known issues and fixes applied |
+
+---
+
 ## File Structure / Estructura de Archivos
 
 ```
@@ -40,7 +49,9 @@ bitemu/
 ├── core/           # Reusable engine (no console-specific code)
 ├── be1/            # Game Boy implementation
 ├── include/        # Public API (bitemu.h)
-├── src/             # API wrapper (bitemu.c)
-├── rust/            # GUI frontend
+├── src/            # API wrapper (bitemu.c)
+├── frontend/       # GUI frontend (Python + PySide6)
+├── tests/          # Test suites (core/ and frontend/)
+├── installer/      # Packaging (Inno Setup template)
 └── Documentation/  # This directory
 ```

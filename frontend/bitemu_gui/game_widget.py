@@ -22,6 +22,7 @@ from PySide6.QtWidgets import QWidget, QSizePolicy
 from .core import Emu, FB_WIDTH, FB_HEIGHT
 from .keys import build_joypad_state
 from .profile import ConsoleProfile, DEFAULT_PROFILE
+from .input_config import InputConfig
 from . import get_version
 
 _GB_DARKEST  = QColor(0x0F, 0x38, 0x0F)
@@ -82,11 +83,13 @@ def _play_ding_async():
 
 
 class GameWidget(QWidget):
-    def __init__(self, profile: ConsoleProfile | None = None, parent=None):
+    def __init__(self, profile: ConsoleProfile | None = None, input_config: InputConfig | None = None, parent=None):
         super().__init__(parent)
         self._profile = profile or DEFAULT_PROFILE
+        self._input_config = input_config
         self._emu: Emu | None = None
         self._pressed_keys: set = set()
+        self._gamepad_state: int = 0
         self._paused = False
         self._show_splash = True
         self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
@@ -115,12 +118,18 @@ class GameWidget(QWidget):
         self.update()
         _play_ding_async()
 
+    def set_gamepad_state(self, state: int):
+        self._gamepad_state = state & 0xFF
+
     def _on_tick(self):
         if not self._emu or not self._emu.is_valid or self._paused:
             return
         if self._show_splash:
             return
-        self._emu.set_input(build_joypad_state(self._pressed_keys))
+        km = self._input_config.keyboard_map if self._input_config else None
+        kb_state = build_joypad_state(self._pressed_keys, km)
+        combined = (kb_state | self._gamepad_state) & 0xFF
+        self._emu.set_input(combined)
         self._emu.run_frame()
         self.update()
 

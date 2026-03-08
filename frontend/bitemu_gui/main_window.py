@@ -25,6 +25,9 @@ from PySide6.QtWidgets import (
 from .core import Emu
 from .game_widget import GameWidget
 from .profile import DEFAULT_PROFILE, ConsoleProfile
+from .input_config import InputConfig
+from .gamepad import GamepadPoller
+from .input_dialog import InputSettingsDialog
 
 RECENT_KEY = "bitemu/recent_roms"
 RECENT_MAX = 10
@@ -39,6 +42,9 @@ class MainWindow(QMainWindow):
         self._rom_path: str | None = None
         self._paused = False
         self._audio_stream = None
+        self._input_config = InputConfig()
+        self._gamepad = GamepadPoller(self._input_config, parent=self)
+        self._input_dialog: InputSettingsDialog | None = None
         self.setWindowTitle(self._profile.window_title)
         self.setMinimumSize(400, 380)
         self.resize(
@@ -49,8 +55,11 @@ class MainWindow(QMainWindow):
         self.setCentralWidget(central)
         layout = QVBoxLayout(central)
         layout.setContentsMargins(4, 4, 4, 4)
-        self._game = GameWidget(profile=self._profile)
+        self._game = GameWidget(profile=self._profile, input_config=self._input_config)
         self._game.set_emu(self._emu)
+        self._gamepad.state_changed.connect(self._game.set_gamepad_state)
+        self._gamepad.gamepad_connected.connect(self._on_gamepad_connected)
+        self._gamepad.gamepad_disconnected.connect(self._on_gamepad_disconnected)
         layout.addWidget(self._game)
         self._create_menus()
         self._status = QStatusBar()
@@ -107,13 +116,16 @@ class MainWindow(QMainWindow):
         load_state_act.setShortcut(QKeySequence("F7"))
         load_state_act.triggered.connect(self._load_state)
         emu_menu.addAction(load_state_act)
-        # Opciones (para futuras releases: audio, teclas, etc.)
         opts_menu = menubar.addMenu("&Opciones")
         self._audio_act = QAction("Activar audio", self)
         self._audio_act.setCheckable(True)
         self._audio_act.setChecked(QSettings().value(AUDIO_KEY, False, type=bool))
         self._audio_act.triggered.connect(self._toggle_audio)
         opts_menu.addAction(self._audio_act)
+        opts_menu.addSeparator()
+        input_act = QAction("Configurar controles...", self)
+        input_act.triggered.connect(self._open_input_settings)
+        opts_menu.addAction(input_act)
         # Ayuda
         help_menu = menubar.addMenu("A&yuda")
         controls_act = QAction("Controles...", self)
@@ -296,22 +308,66 @@ class MainWindow(QMainWindow):
         if n < bytes_needed:
             outdata[n:bytes_needed] = b'\x00' * (bytes_needed - n)
 
+    def _on_gamepad_connected(self, name: str):
+        self._status.showMessage(f"Gamepad detectado: {name}")
+        if self._input_dialog is not None:
+            self._input_dialog.select_gamepad_tab()
+            self._input_dialog.activateWindow()
+            self._input_dialog.raise_()
+            return
+        reply = QMessageBox.question(
+            self,
+            "Gamepad detectado",
+            f"Se detectó: {name}\n\n¿Querés configurarlo?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.Yes,
+        )
+        if reply == QMessageBox.StandardButton.Yes:
+            self._open_input_settings(gamepad_tab=True)
+
+    def _on_gamepad_disconnected(self):
+        self._status.showMessage("Gamepad desconectado")
+
+    def _open_input_settings(self, gamepad_tab: bool = False):
+        if self._input_dialog is not None:
+            if gamepad_tab:
+                self._input_dialog.select_gamepad_tab()
+            self._input_dialog.activateWindow()
+            self._input_dialog.raise_()
+            return
+        dlg = InputSettingsDialog(self._input_config, self._gamepad, parent=self)
+        self._input_dialog = dlg
+        if gamepad_tab:
+            dlg.select_gamepad_tab()
+        dlg.exec()
+        self._input_dialog = None
+        self._status.showMessage("Controles actualizados")
+
     def _show_controls(self):
         QMessageBox.information(
             self,
             "Controles",
             "D-pad: W A S D o flechas\n"
-            "A: J o Z\nB: K o X\nSelect: U\nStart: I o Enter\n"
-            "F3: Pausar\nF4: Reiniciar",
+            "A: J o Z\nB: K o X\nSelect: U\nStart: I o Enter\n\n"
+            "F3: Pausar / Reanudar\nF4: Reiniciar\nF5: Cerrar juego\n"
+            "F6: Guardar estado\nF7: Cargar estado\n\n"
+            "Opciones → Configurar controles para editar teclas y gamepad.",
         )
 
     def _show_about(self):
+        from . import get_version
         QMessageBox.about(
             self,
-            "Acerca de",
-            f"{self._profile.window_title}\n\n"
-            "Frontend Python (PySide6). Core en C.\n"
-            "Audio: buffer circular en el core; Opciones → Activar audio (sounddevice).",
+            "Acerca de Bitemu",
+            f"<h3>Bitemu v{get_version()}</h3>"
+            f"<p>{self._profile.name} Emulator</p>"
+            "<p>Core en C &middot; Frontend en Python (PySide6)</p>"
+            "<hr>"
+            "<p><b>Autor:</b> Iván Ezequiel Rodriguez</p>"
+            '<p><b>GitHub:</b> <a href="https://github.com/IRodriguez13">'
+            "github.com/IRodriguez13</a></p>"
+            "<hr>"
+            "<p><small>Licencia: LGPL v3.0</small></p>",
         )
 
     def closeEvent(self, event: QCloseEvent):
@@ -322,5 +378,6 @@ class MainWindow(QMainWindow):
             except Exception:
                 pass
             self._audio_stream = None
+        self._gamepad.shutdown()
         self._emu.destroy()
         event.accept()

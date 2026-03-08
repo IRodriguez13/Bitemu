@@ -4,7 +4,7 @@
 
 ### 4.1 Purpose
 
-`include/bitemu.h` defines the **public interface** for all frontends (CLI, Rust GUI). It hides the internal `engine_t` and `gb_impl_t` behind an opaque `bitemu_t` handle.
+`include/bitemu.h` defines the **public interface** for all frontends (CLI, Python GUI). It hides the internal `engine_t` and `gb_impl_t` behind an opaque `bitemu_t` handle.
 
 ### 4.2 Types and Constants
 
@@ -28,6 +28,15 @@ typedef struct bitemu bitemu_t;  /* Opaque */
 | `bitemu_set_input(emu, state)` | Set joypad state. Bits 0–3: D-pad (R,L,U,D), 4–7: A,B,Select,Start. 1 = pressed. |
 | `bitemu_stop(emu)` | Set `emu->running = 0`. |
 | `bitemu_is_running(emu)` | Return `emu->running`. |
+| `bitemu_reset(emu)` | Reset console state without reloading ROM. |
+| `bitemu_unload_rom(emu)` | Unload current ROM, save battery RAM, free memory. |
+| `bitemu_save_state(emu, path)` | Save full state to `.bst` file. Returns 0=OK, -1=error. |
+| `bitemu_load_state(emu, path)` | Load state from `.bst` file. Validates CRC32 against loaded ROM. Returns 0=OK, -1=error. |
+| `bitemu_audio_init(emu, backend, opts)` | Initialize audio buffer (circular, no SDL dependency). |
+| `bitemu_audio_shutdown(emu)` | Shutdown audio buffer. |
+| `bitemu_audio_set_enabled(emu, on)` | Enable/disable audio sample generation. |
+| `bitemu_read_audio(emu, buf, max)` | Read generated audio samples from circular buffer. |
+| `bitemu_get_audio_spec(&rate, &chans)` | Get audio format (44100 Hz, 1 channel, S16). |
 
 ### 4.4 Joypad Encoding
 
@@ -55,6 +64,7 @@ struct bitemu {
     engine_t engine;
     int running;
     unsigned frame_count;
+    bitemu_audio_t audio; /* circular buffer for audio output */
 };
 ```
 
@@ -64,7 +74,7 @@ struct bitemu {
 
 ### 4.1 Propósito
 
-`include/bitemu.h` define la **interfaz pública** para todos los frontends (CLI, GUI Rust). Oculta el `engine_t` y `gb_impl_t` internos detrás de un handle opaco `bitemu_t`.
+`include/bitemu.h` define la **interfaz pública** para todos los frontends (CLI, GUI Python). Oculta el `engine_t` y `gb_impl_t` internos detrás de un handle opaco `bitemu_t`.
 
 ### 4.2 Tipos y constantes
 
@@ -88,6 +98,15 @@ typedef struct bitemu bitemu_t;  /* Opaco */
 | `bitemu_set_input(emu, state)` | Estado del joypad. Bits 0–3: D-pad, 4–7: A,B,Select,Start. 1 = pulsado. |
 | `bitemu_stop(emu)` | Pone `emu->running = 0`. |
 | `bitemu_is_running(emu)` | Devuelve `emu->running`. |
+| `bitemu_reset(emu)` | Resetear estado sin recargar la ROM. |
+| `bitemu_unload_rom(emu)` | Descargar ROM, guardar batería, liberar memoria. |
+| `bitemu_save_state(emu, path)` | Guardar estado completo a archivo `.bst`. 0=OK, -1=error. |
+| `bitemu_load_state(emu, path)` | Cargar estado desde `.bst`. Valida CRC32 contra la ROM cargada. 0=OK, -1=error. |
+| `bitemu_audio_init(emu, backend, opts)` | Inicializar buffer de audio (circular, sin SDL). |
+| `bitemu_audio_shutdown(emu)` | Cerrar buffer de audio. |
+| `bitemu_audio_set_enabled(emu, on)` | Activar/desactivar generación de audio. |
+| `bitemu_read_audio(emu, buf, max)` | Leer muestras generadas del buffer circular. |
+| `bitemu_get_audio_spec(&rate, &chans)` | Obtener formato de audio (44100 Hz, 1 canal, S16). |
 
 ### 4.4 Codificación del Joypad
 
