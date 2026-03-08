@@ -143,6 +143,7 @@ jobs:
             --hidden-import bitemu_gui.input_config \
             --hidden-import bitemu_gui.input_dialog \
             --hidden-import bitemu_gui.gamepad \
+            --hidden-import bitemu_gui.update_checker \
             main.py
           cp ../VERSION dist/bitemu/
 
@@ -167,6 +168,7 @@ jobs:
             --hidden-import bitemu_gui.input_config \
             --hidden-import bitemu_gui.input_dialog \
             --hidden-import bitemu_gui.gamepad \
+            --hidden-import bitemu_gui.update_checker \
             main.py
           cp ../VERSION dist/bitemu/
 
@@ -191,6 +193,7 @@ jobs:
             --hidden-import bitemu_gui.input_config ^
             --hidden-import bitemu_gui.input_dialog ^
             --hidden-import bitemu_gui.gamepad ^
+            --hidden-import bitemu_gui.update_checker ^
             main.py
           copy ..\VERSION dist\bitemu\
 

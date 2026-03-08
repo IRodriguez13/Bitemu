@@ -11,7 +11,7 @@ except ImportError:
     sd = None
     _SOUNDDEVICE_AVAILABLE = False
 
-from PySide6.QtCore import Qt, QSettings
+from PySide6.QtCore import Qt, QSettings, QUrl
 from PySide6.QtGui import QAction, QKeySequence, QCloseEvent, QIcon, QPixmap
 from PySide6.QtWidgets import (
     QMainWindow,
@@ -35,6 +35,7 @@ from .profile import DEFAULT_PROFILE, ConsoleProfile
 from .input_config import InputConfig
 from .gamepad import GamepadPoller
 from .input_dialog import InputSettingsDialog
+from .update_checker import UpdateChecker
 
 RECENT_KEY = "bitemu/recent_roms"
 RECENT_MAX = 10
@@ -116,6 +117,26 @@ class MainWindow(QMainWindow):
         self._game.set_emu(self._emu)
         self._apply_audio_stream()
         self._audio_chans = 1
+
+        from . import get_version
+        self._update_checker = UpdateChecker(get_version(), parent=self)
+        self._update_checker.update_available.connect(self._on_update_available)
+        self._update_checker.check()
+
+    # ── Update notification ──────────────────────────────────
+
+    def _on_update_available(self, tag: str, url: str):
+        from PySide6.QtGui import QDesktopServices
+        msg = QMessageBox(self)
+        msg.setIcon(QMessageBox.Icon.Information)
+        msg.setWindowTitle("Actualización disponible")
+        msg.setText(f"Hay una nueva versión de Bitemu: <b>{tag}</b>")
+        msg.setInformativeText("¿Querés ir a la página de descarga?")
+        msg.setStandardButtons(QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
+        msg.button(QMessageBox.StandardButton.Yes).setText("Descargar")
+        msg.button(QMessageBox.StandardButton.No).setText("Ahora no")
+        if msg.exec() == QMessageBox.StandardButton.Yes:
+            QDesktopServices.openUrl(QUrl(url))
 
     # ── Navigation ─────────────────────────────────────────
 
