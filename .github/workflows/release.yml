@@ -113,6 +113,7 @@ jobs:
 
       - name: Create frontend venv (Windows)
         if: matrix.os == 'windows-latest'
+        shell: bash
         run: |
           cd frontend
           python -m venv venv
@@ -127,6 +128,7 @@ jobs:
         run: |
           cd frontend
           ./venv/bin/pyinstaller --onedir --name bitemu \
+            --icon "assets/icon.png" \
             --add-data "../VERSION:." \
             --add-binary "../libbitemu.so:." \
             --add-data "assets:assets" \
@@ -152,6 +154,7 @@ jobs:
         run: |
           cd frontend
           ./venv/bin/pyinstaller --onedir --name bitemu \
+            --icon "assets/icon.png" \
             --add-data "../VERSION:." \
             --add-binary "../libbitemu.dylib:." \
             --add-data "assets:assets" \
@@ -178,6 +181,7 @@ jobs:
         run: |
           cd frontend
           venv/Scripts/pyinstaller --onedir --name bitemu \
+            --icon "assets/icon.png" \
             --add-data "../VERSION;." \
             --add-binary "../bitemu.dll;." \
             --add-data "assets;assets" \
