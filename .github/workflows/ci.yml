@@ -23,7 +23,7 @@ jobs:
       - name: Install build tools
         run: |
           sudo apt-get update
-          sudo apt-get install -y build-essential libasound2-dev libegl1-mesa libxcb-cursor0
+          sudo apt-get install -y build-essential libasound2-dev libegl1 libxcb-cursor0
 
       - name: Build lib and CLI
         run: make lib cli
