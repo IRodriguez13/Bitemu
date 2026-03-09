@@ -279,10 +279,13 @@ jobs:
             exit 1
           fi
 
-          # Custom AppRun (linuxdeploy may create one; we overwrite for QT_QPA + LD paths)
+          # Remove linuxdeploy's AppRun from usr/bin (causes usr/bin/usr/bin path duplication)
+          rm -f AppDir/usr/bin/AppRun
+
+          # AppRun at root (rm -f usr/bin/AppRun above prevents path duplication)
           cat > AppDir/AppRun <<'APPRUN'
           #!/bin/sh
-          HERE="$(dirname "$(readlink -f "${0}")")"
+          HERE="$(dirname "$(readlink -f "$0")")"
           BIN="${HERE}/usr/bin"
           LIB="${HERE}/usr/lib"
           export LD_LIBRARY_PATH="${LIB}:${BIN}:${BIN}/_internal:${LD_LIBRARY_PATH}"
@@ -292,10 +295,7 @@ jobs:
           for d in "${BIN}/_internal/PySide6/Qt/plugins/platforms" \
                    "${BIN}/PySide6/Qt/plugins/platforms" \
                    "${BIN}/platforms"; do
-            if [ -d "$d" ]; then
-              export QT_QPA_PLATFORM_PLUGIN_PATH="$d"
-              break
-            fi
+            [ -d "$d" ] && export QT_QPA_PLATFORM_PLUGIN_PATH="$d" && break
           done
           exec "${BIN}/bitemu" "$@"
           APPRUN
@@ -311,6 +311,18 @@ jobs:
           wget -q https://github.com/AppImage/AppImageKit/releases/download/continuous/appimagetool-x86_64.AppImage -O appimagetool
           chmod +x appimagetool
           ARCH=x86_64 APPIMAGE_EXTRACT_AND_RUN=1 ./appimagetool AppDir ${{ matrix.artifact_name }}-${VERSION_STR}.AppImage || true
+
+          # Verify AppImage structure (prevent usr/bin/usr/bin path duplication)
+          if [ -f ${{ matrix.artifact_name }}-${VERSION_STR}.AppImage ]; then
+            chmod +x ${{ matrix.artifact_name }}-${VERSION_STR}.AppImage
+            ${{ matrix.artifact_name }}-${VERSION_STR}.AppImage --appimage-extract 2>/dev/null || true
+            if [ -d squashfs-root ]; then
+              [ -f squashfs-root/AppRun ] || (echo "::error::AppRun missing at root" && exit 1)
+              [ -f squashfs-root/usr/bin/bitemu ] || (echo "::error::usr/bin/bitemu missing" && exit 1)
+              [ ! -f squashfs-root/usr/bin/AppRun ] || (echo "::error::AppRun in usr/bin causes path duplication" && exit 1)
+              rm -rf squashfs-root
+            fi
+          fi
 
           # Always produce a tar.gz as FUSE-free alternative
           cp AppDir/bitemu.desktop frontend/dist/bitemu/
