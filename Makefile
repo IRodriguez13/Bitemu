@@ -10,10 +10,16 @@ LDFLAGS =
 UNAME_S := $(shell uname -s)
 ifeq ($(UNAME_S),Darwin)
   LIB_EXT = dylib
+  LIB_LIBS = -framework AudioToolbox -framework CoreFoundation -lm
+  BE1_AUDIO_SRCS = $(BE1_DIR)/audio/audio_coreaudio.c
 else ifeq ($(OS),Windows_NT)
   LIB_EXT = dll
+  LIB_LIBS = -lole32 -lpthread -lm
+  BE1_AUDIO_SRCS = $(BE1_DIR)/audio/audio_wasapi.c
 else
   LIB_EXT = so
+  LIB_LIBS = -lasound -lpthread -lm
+  BE1_AUDIO_SRCS = $(BE1_DIR)/audio/audio_alsa.c
 endif
 LIB_TARGET = libbitemu.$(LIB_EXT)
 
@@ -24,7 +30,7 @@ SRC_DIR = src
 
 CORE_SRCS = $(CORE_DIR)/engine.c $(CORE_DIR)/timing.c $(CORE_DIR)/input.c
 UTILS_SRCS = $(UTILS_DIR)/log.c $(UTILS_DIR)/helpers.c $(UTILS_DIR)/crc32.c
-BE1_SRCS = $(BE1_DIR)/console.c $(BE1_DIR)/cpu/cpu.c $(BE1_DIR)/cpu/cpu_handlers.c $(BE1_DIR)/ppu.c $(BE1_DIR)/apu.c $(BE1_DIR)/timer.c $(BE1_DIR)/memory.c $(BE1_DIR)/input.c
+BE1_SRCS = $(BE1_DIR)/console.c $(BE1_DIR)/cpu/cpu.c $(BE1_DIR)/cpu/cpu_handlers.c $(BE1_DIR)/ppu.c $(BE1_DIR)/apu.c $(BE1_DIR)/timer.c $(BE1_DIR)/memory.c $(BE1_DIR)/input.c $(BE1_AUDIO_SRCS)
 API_SRCS = $(SRC_DIR)/bitemu.c
 
 CLI_SRCS = main_cli.c $(API_SRCS) $(CORE_SRCS) $(UTILS_SRCS) $(BE1_SRCS)
@@ -64,12 +70,12 @@ cli: $(CLI_TARGET)
 lib: $(LIB_TARGET)
 
 $(CLI_TARGET): $(CLI_OBJS)
-	$(CC) $(CLI_OBJS) -o $@ $(LDFLAGS)
+	$(CC) $(CLI_OBJS) -o $@ $(LDFLAGS) $(LIB_LIBS)
 
 LIB_SRCS = $(API_SRCS) $(CORE_SRCS) $(UTILS_SRCS) $(BE1_SRCS)
 LIB_OBJS = $(patsubst %.c,build/lib/%.o,$(LIB_SRCS))
 $(LIB_TARGET): $(LIB_OBJS)
-	$(CC) -shared -o $@ $(LIB_OBJS) $(LDFLAGS)
+	$(CC) -shared -o $@ $(LIB_OBJS) $(LDFLAGS) $(LIB_LIBS)
 build/lib/%.o: %.c
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) -fPIC -c $< -o $@
@@ -84,6 +90,8 @@ test-core: lib
 	$(CC) $(CFLAGS) -Itests/core $(TEST_SRCS) -L. -lbitemu -o $(TEST_BIN)
 ifeq ($(UNAME_S),Darwin)
 	DYLD_LIBRARY_PATH=. ./$(TEST_BIN)
+else ifeq ($(OS),Windows_NT)
+	PATH=".:$$PATH" ./$(TEST_BIN)
 else
 	LD_LIBRARY_PATH=. ./$(TEST_BIN)
 endif
@@ -92,5 +100,5 @@ test-frontend: lib frontend/venv/.done
 	$(VENV)/python -m pytest tests/frontend/ -v
 
 clean:
-	rm -f $(CLI_OBJS) $(CLI_TARGET) libbitemu.so libbitemu.dylib bitemu.dll
+	rm -f $(CLI_OBJS) $(CLI_TARGET) libbitemu.so libbitemu.dylib libbitemu.dll bitemu.dll
 	rm -rf build

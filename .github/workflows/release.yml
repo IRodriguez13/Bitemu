@@ -59,14 +59,12 @@ jobs:
         if: matrix.os == 'ubuntu-latest'
         run: |
           sudo apt-get update
-          sudo apt-get install -y build-essential libportaudio2 libfuse2 \
+          sudo apt-get install -y build-essential libasound2-dev libfuse2 \
             libxcb-cursor0 libxcb-render-util0 libxcb-keysyms1
 
       - name: Install build tools (macOS)
         if: matrix.os == 'macos-latest'
-        run: |
-          xcode-select -p || xcode-select --install
-          brew install portaudio
+        run: xcode-select -p || xcode-select --install
 
       - name: Install MSYS2 / MinGW (Windows)
         if: matrix.os == 'windows-latest'
@@ -133,7 +131,6 @@ jobs:
         run: |
           cd frontend
 
-          # xcb libs for Qt platform plugin (portaudio via linuxdeploy later)
           LIB_DIRS="/usr/lib/x86_64-linux-gnu /usr/lib /usr/lib64"
           XCB_FLAGS=""
           for lib in libxcb-cursor libxcb-render-util libxcb-keysyms; do
@@ -150,7 +147,6 @@ jobs:
             --add-binary "../libbitemu.so:." \
             --add-data "assets:assets" \
             $XCB_FLAGS \
-            --collect-all sounddevice \
             --collect-all pygame \
             --collect-all PySide6 \
             --collect-submodules bitemu_gui \
@@ -162,20 +158,12 @@ jobs:
         run: |
           cd frontend
 
-          PA_FLAG=""
-          for p in /opt/homebrew/lib /usr/local/lib; do
-            PA=$(find "$p" -name 'libportaudio*.dylib' 2>/dev/null | head -1)
-            if [ -n "$PA" ]; then PA_FLAG="--add-binary ${PA}:."; break; fi
-          done
-
           ./venv/bin/pyinstaller --onedir --name bitemu \
             --icon "assets/icon.png" \
             --runtime-hook "hooks/rthook_portaudio.py" \
             --add-data "../VERSION:." \
             --add-binary "../libbitemu.dylib:." \
             --add-data "assets:assets" \
-            $PA_FLAG \
-            --collect-all sounddevice \
             --collect-all pygame \
             --hidden-import bitemu_gui \
             --hidden-import bitemu_gui.core \
@@ -205,7 +193,6 @@ jobs:
             --add-data "../VERSION;." \
             --add-binary "../bitemu.dll;." \
             --add-data "assets;assets" \
-            --collect-all sounddevice \
             --collect-all pygame \
             --hidden-import bitemu_gui \
             --hidden-import bitemu_gui.core \
@@ -257,41 +244,12 @@ jobs:
             cp frontend/assets/icon.png AppDir/bitemu.png
           fi
 
-          # linuxdeploy: bundle libportaudio + deps (libasound, etc.) into AppDir
-          PA_PATH=""
-          for p in /usr/lib/x86_64-linux-gnu /usr/lib /usr/lib64; do
-            PA_PATH=$(find "$p" -name 'libportaudio.so*' 2>/dev/null | head -1)
-            [ -n "$PA_PATH" ] && break
-          done
-          if [ -z "$PA_PATH" ]; then
-            echo "::error::libportaudio not found. Install libportaudio2 on runner."
-            exit 1
-          fi
-          wget -q https://github.com/linuxdeploy/linuxdeploy/releases/download/continuous/linuxdeploy-x86_64.AppImage -O linuxdeploy
-          chmod +x linuxdeploy
-          ./linuxdeploy --appdir AppDir \
-            --executable AppDir/usr/bin/bitemu \
-            --library "$PA_PATH" \
-            --desktop-file AppDir/bitemu.desktop
-
-          if ! find AppDir -name 'libportaudio.so*' -print -quit | grep -q .; then
-            echo "::error::linuxdeploy did not bundle libportaudio"
-            exit 1
-          fi
-
-          # Remove linuxdeploy's AppRun from usr/bin (causes usr/bin/usr/bin path duplication)
-          rm -f AppDir/usr/bin/AppRun
-
-          # AppRun at root (rm -f usr/bin/AppRun above prevents path duplication)
+          # AppRun: libbitemu usa ALSA (sin PortAudio)
           cat > AppDir/AppRun <<'APPRUN'
           #!/bin/sh
           HERE="$(dirname "$(readlink -f "$0")")"
           BIN="${HERE}/usr/bin"
-          LIB="${HERE}/usr/lib"
-          export LD_LIBRARY_PATH="${LIB}:${BIN}:${BIN}/_internal:${LD_LIBRARY_PATH}"
-          for p in "${LIB}/libportaudio.so"* "${BIN}/_internal/libportaudio.so"* "${BIN}/libportaudio.so"*; do
-            [ -e "$p" ] && export LD_PRELOAD="${p}${LD_PRELOAD:+:$LD_PRELOAD}" && break
-          done
+          export LD_LIBRARY_PATH="${BIN}:${BIN}/_internal:${LD_LIBRARY_PATH}"
           for d in "${BIN}/_internal/PySide6/Qt/plugins/platforms" \
                    "${BIN}/PySide6/Qt/plugins/platforms" \
                    "${BIN}/platforms"; do
@@ -302,27 +260,10 @@ jobs:
           sed -i 's/^          //' AppDir/AppRun
           chmod +x AppDir/AppRun
 
-          # tar.gz: copy linuxdeploy-bundled libportaudio into dist for FUSE-free package
-          if [ -d AppDir/usr/lib ]; then
-            cp -P AppDir/usr/lib/libportaudio.so* frontend/dist/bitemu/_internal/ 2>/dev/null || true
-          fi
-
           # Build AppImage (APPIMAGE_EXTRACT_AND_RUN bypasses FUSE requirement on runner)
           wget -q https://github.com/AppImage/AppImageKit/releases/download/continuous/appimagetool-x86_64.AppImage -O appimagetool
           chmod +x appimagetool
           ARCH=x86_64 APPIMAGE_EXTRACT_AND_RUN=1 ./appimagetool AppDir ${{ matrix.artifact_name }}-${VERSION_STR}.AppImage || true
-
-          # Verify AppImage structure (prevent usr/bin/usr/bin path duplication)
-          if [ -f ${{ matrix.artifact_name }}-${VERSION_STR}.AppImage ]; then
-            chmod +x ${{ matrix.artifact_name }}-${VERSION_STR}.AppImage
-            ${{ matrix.artifact_name }}-${VERSION_STR}.AppImage --appimage-extract 2>/dev/null || true
-            if [ -d squashfs-root ]; then
-              [ -f squashfs-root/AppRun ] || (echo "::error::AppRun missing at root" && exit 1)
-              [ -f squashfs-root/usr/bin/bitemu ] || (echo "::error::usr/bin/bitemu missing" && exit 1)
-              [ ! -f squashfs-root/usr/bin/AppRun ] || (echo "::error::AppRun in usr/bin causes path duplication" && exit 1)
-              rm -rf squashfs-root
-            fi
-          fi
 
           # Always produce a tar.gz as FUSE-free alternative
           cp AppDir/bitemu.desktop frontend/dist/bitemu/
@@ -331,9 +272,6 @@ jobs:
           #!/bin/sh
           HERE="$(cd "$(dirname "$0")" && pwd)"
           export LD_LIBRARY_PATH="${HERE}:${HERE}/_internal:${LD_LIBRARY_PATH}"
-          for p in "${HERE}/_internal/libportaudio.so"* "${HERE}/libportaudio.so"*; do
-            [ -e "$p" ] && export LD_PRELOAD="${p}${LD_PRELOAD:+:$LD_PRELOAD}" && break
-          done
           for d in "${HERE}/_internal/PySide6/Qt/plugins/platforms" \
                    "${HERE}/PySide6/Qt/plugins/platforms" \
                    "${HERE}/platforms"; do

@@ -22,10 +22,11 @@ typedef struct bitemu bitemu_t;
 
 typedef enum
 {
-       BITEMU_AUDIO_BACKEND_SDL2,
-       BITEMU_AUDIO_BACKEND_MINIAUDIO,
-       BITEMU_AUDIO_BACKEND_NULL,     // Sin audio
-       BITEMU_AUDIO_BACKEND_CALLBACK  // Para frontend custom
+    BITEMU_AUDIO_BACKEND_SDL2,
+    BITEMU_AUDIO_BACKEND_MINIAUDIO,
+    BITEMU_AUDIO_BACKEND_NULL,     /* Buffer only (legacy, frontend pulls) */
+    BITEMU_AUDIO_BACKEND_CALLBACK, /* Para frontend custom */
+    BITEMU_AUDIO_BACKEND_NATIVE    /* ALSA/WASAPI/CoreAudio según plataforma */
 } bitemu_audio_backend_t;
 
 typedef struct
@@ -38,6 +39,10 @@ typedef struct
 
 int bitemu_audio_init(bitemu_t *emu, bitemu_audio_backend_t back, const bitemu_audio_config_t *config);
 void bitemu_audio_set_enabled(bitemu_t *emu, bool enabled);
+
+/* Sonidos de sistema (chirp al cargar ROM, ding al mostrar splash) */
+void bitemu_audio_play_chirp(bitemu_t *emu);
+void bitemu_audio_play_ding(bitemu_t *emu);
 
 /*Front de python */
 typedef void (*bitemu_audio_callback_t)(void *userdata, int16_t *buffer, int samples);

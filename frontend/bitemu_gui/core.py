@@ -45,8 +45,9 @@ FB_WIDTH = 160
 FB_HEIGHT = 144
 FB_SIZE = FB_WIDTH * FB_HEIGHT
 
-# Audio: backend NULL = solo buffer circular (reproducción en Python)
-AUDIO_BACKEND_NULL = 2
+# Audio backends
+AUDIO_BACKEND_NULL = 2    # Buffer only (legacy)
+AUDIO_BACKEND_NATIVE = 4  # ALSA/WASAPI/CoreAudio según plataforma
 
 
 def _load_lib():
@@ -77,6 +78,10 @@ def _load_lib():
     lib.bitemu_audio_init.argtypes = [c_void_p, c_int, c_void_p]
     lib.bitemu_audio_init.restype = c_int
     lib.bitemu_audio_set_enabled.argtypes = [c_void_p, c_bool]
+    lib.bitemu_audio_play_chirp.argtypes = [c_void_p]
+    lib.bitemu_audio_play_chirp.restype = None
+    lib.bitemu_audio_play_ding.argtypes = [c_void_p]
+    lib.bitemu_audio_play_ding.restype = None
     lib.bitemu_audio_shutdown.argtypes = [c_void_p]
     lib.bitemu_read_audio.argtypes = [c_void_p, POINTER(c_short), c_int]
     lib.bitemu_read_audio.restype = c_int
@@ -153,14 +158,24 @@ class Emu:
         return self._lib.bitemu_load_state(self._handle, path.encode("utf-8")) == 0
 
     def init_audio(self) -> bool:
-        """Inicializa el buffer de audio (llamar tras create()). Sin dependencias de SDL."""
+        """Inicializa audio nativo (ALSA/CoreAudio/WASAPI según plataforma). Sin PortAudio."""
         if self._handle is None:
             return False
-        return self._lib.bitemu_audio_init(self._handle, AUDIO_BACKEND_NULL, None) == 0
+        return self._lib.bitemu_audio_init(self._handle, AUDIO_BACKEND_NATIVE, None) == 0
 
     def set_audio_enabled(self, enabled: bool):
         if self._handle is not None:
             self._lib.bitemu_audio_set_enabled(self._handle, enabled)
+
+    def play_chirp(self):
+        """Bip al cargar ROM (reproducido por el core)."""
+        if self._handle is not None:
+            self._lib.bitemu_audio_play_chirp(self._handle)
+
+    def play_ding(self):
+        """Doble bip al mostrar splash (reproducido por el core)."""
+        if self._handle is not None:
+            self._lib.bitemu_audio_play_ding(self._handle)
 
     def read_audio(self, max_samples: int = 1024) -> bytes:
         """Lee hasta max_samples muestras S16 del buffer. Vacío si no hay audio inicializado."""

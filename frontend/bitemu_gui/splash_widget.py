@@ -2,16 +2,7 @@
 Splash / Main Menu — BITEMU pixel-art logo with Start, Options, and Quit buttons.
 Replaces the old in-GameWidget splash; acts as the app's home screen.
 """
-import array
-import math
-import threading
-
-try:
-    import sounddevice as sd
-    _SOUNDDEVICE_AVAILABLE = True
-except ImportError:
-    sd = None
-    _SOUNDDEVICE_AVAILABLE = False
+from typing import Callable
 
 from PySide6.QtCore import Qt, Signal, QTimer
 from PySide6.QtGui import QPainter, QColor, QFont
@@ -36,44 +27,6 @@ _SPLASH_CHARS = {
     'U': [0b10001, 0b10001, 0b10001, 0b10001, 0b10001, 0b10001, 0b01110],
 }
 _CHAR_W, _CHAR_H, _CHAR_GAP = 5, 7, 1
-_DING_SR = 44100
-_DING_AMP = 8000
-
-
-def _generate_ding() -> bytes:
-    tones = [(523.25, 0.12, 10.0), (1046.5, 0.22, 8.0)]
-    gap = int(_DING_SR * 0.04)
-    samples = array.array("h")
-    for freq, dur, decay in tones:
-        n = int(_DING_SR * dur)
-        for i in range(n):
-            t = i / _DING_SR
-            phase = (freq * t) % 1.0
-            wave = 1.0 if phase < 0.5 else -1.0
-            env = math.exp(-t * decay)
-            samples.append(max(-32768, min(32767, int(wave * env * _DING_AMP))))
-        for _ in range(gap):
-            samples.append(0)
-    return samples.tobytes()
-
-
-def _play_ding():
-    if not _SOUNDDEVICE_AVAILABLE:
-        return
-
-    def _worker():
-        try:
-            data = _generate_ding()
-            stream = sd.RawOutputStream(samplerate=_DING_SR, channels=1, dtype="int16")
-            stream.start()
-            stream.write(data)
-            sd.sleep(80)
-            stream.stop()
-            stream.close()
-        except Exception:
-            pass
-
-    threading.Thread(target=_worker, daemon=True).start()
 
 
 def _qcolor(rgb: tuple[int, int, int]) -> QColor:
@@ -99,9 +52,15 @@ class SplashWidget(QWidget):
     options_clicked = Signal()
     quit_clicked = Signal()
 
-    def __init__(self, profile: ConsoleProfile | None = None, parent=None):
+    def __init__(
+        self,
+        profile: ConsoleProfile | None = None,
+        on_show_sound: Callable[[], None] | None = None,
+        parent=None,
+    ):
         super().__init__(parent)
         self._profile = profile or DEFAULT_PROFILE
+        self._on_show_sound = on_show_sound
         self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
 
         style = _btn_style(self._profile.splash_bg, self._profile.splash_fg, self._profile.splash_accent)
@@ -132,7 +91,11 @@ class SplashWidget(QWidget):
         self._btn_options.clicked.connect(self.options_clicked)
         self._btn_quit.clicked.connect(self.quit_clicked)
 
-        QTimer.singleShot(300, _play_ding)
+        def _maybe_play_ding():
+            if self._on_show_sound:
+                self._on_show_sound()
+
+        QTimer.singleShot(300, _maybe_play_ding)
 
     def paintEvent(self, event):
         super().paintEvent(event)

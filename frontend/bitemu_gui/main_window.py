@@ -1,15 +1,9 @@
 """
 Ventana principal: navega entre Splash (menú), Library (grilla de ROMs) y Game (emulación).
+Audio: core en C (ALSA en Linux). Sin PortAudio/sounddevice.
 """
 import os
 import sys
-
-try:
-    import sounddevice as sd
-    _SOUNDDEVICE_AVAILABLE = True
-except ImportError:
-    sd = None
-    _SOUNDDEVICE_AVAILABLE = False
 
 from PySide6.QtCore import Qt, QSettings, QUrl
 from PySide6.QtGui import QAction, QKeySequence, QCloseEvent, QIcon, QPixmap
@@ -62,7 +56,6 @@ class MainWindow(QMainWindow):
         self._emu = Emu()
         self._rom_path: str | None = None
         self._paused = False
-        self._audio_stream = None
         self._input_config = InputConfig()
         self._gamepad = GamepadPoller(self._input_config, parent=self)
         self._input_dialog: InputSettingsDialog | None = None
@@ -79,7 +72,10 @@ class MainWindow(QMainWindow):
         self._stack = QStackedWidget()
         self.setCentralWidget(self._stack)
 
-        self._splash = SplashWidget(profile=self._profile)
+        self._splash = SplashWidget(
+            profile=self._profile,
+            on_show_sound=lambda: self._emu.play_ding(),
+        )
         self._library = LibraryWidget(profile=self._profile)
         self._game = GameWidget(profile=self._profile, input_config=self._input_config)
 
@@ -115,8 +111,6 @@ class MainWindow(QMainWindow):
             pass
         self._emu.set_audio_enabled(QSettings().value(AUDIO_KEY, False, type=bool))
         self._game.set_emu(self._emu)
-        self._apply_audio_stream()
-        self._audio_chans = 1
 
         from . import get_version
         self._update_checker = UpdateChecker(get_version(), parent=self)
@@ -369,53 +363,6 @@ class MainWindow(QMainWindow):
     def _toggle_audio(self, checked: bool):
         QSettings().setValue(AUDIO_KEY, checked)
         self._emu.set_audio_enabled(checked)
-        self._apply_audio_stream()
-
-    def _apply_audio_stream(self):
-        enabled = QSettings().value(AUDIO_KEY, False, type=bool)
-        if self._audio_stream is not None:
-            try:
-                self._audio_stream.stop()
-                self._audio_stream.close()
-            except Exception:
-                pass
-            self._audio_stream = None
-        if not enabled:
-            return
-        if not _SOUNDDEVICE_AVAILABLE:
-            QMessageBox.information(
-                self, "Audio",
-                "Para reproducir audio instala: pip install sounddevice",
-            )
-            self._audio_act.setChecked(False)
-            QSettings().setValue(AUDIO_KEY, False)
-            self._emu.set_audio_enabled(False)
-            return
-        rate, chans = self._emu.get_audio_spec()
-        self._audio_chans = chans
-        try:
-            self._audio_stream = sd.RawOutputStream(
-                samplerate=rate, channels=chans, dtype="int16",
-                blocksize=1024, latency="high",
-                callback=self._audio_callback,
-            )
-            self._audio_stream.start()
-        except Exception as e:
-            QMessageBox.warning(self, "Audio", f"No se pudo abrir el dispositivo de audio: {e}")
-            self._audio_act.setChecked(False)
-            QSettings().setValue(AUDIO_KEY, False)
-            self._emu.set_audio_enabled(False)
-
-    def _audio_callback(self, outdata, frames, time_info, status):
-        bytes_needed = frames * self._audio_chans * 2
-        data = b""
-        if self._emu and self._emu.is_valid:
-            data = self._emu.read_audio(frames * self._audio_chans)
-        n = len(data)
-        if n > 0:
-            outdata[:n] = data
-        if n < bytes_needed:
-            outdata[n:bytes_needed] = b'\x00' * (bytes_needed - n)
 
     # ── Gamepad ────────────────────────────────────────────
 
@@ -523,13 +470,6 @@ class MainWindow(QMainWindow):
                 return
             if reply == QMessageBox.StandardButton.Save:
                 self._save_state()
-        if self._audio_stream is not None:
-            try:
-                self._audio_stream.stop()
-                self._audio_stream.close()
-            except Exception:
-                pass
-            self._audio_stream = None
         self._gamepad.shutdown()
         self._emu.destroy()
         event.accept()

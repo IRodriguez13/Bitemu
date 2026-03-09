@@ -1,0 +1,17 @@
+/**
+ * Bitemu - WASAPI backend (Windows)
+ */
+#ifndef BITEMU_AUDIO_WASAPI_H
+#define BITEMU_AUDIO_WASAPI_H
+
+#include "audio.h"
+
+#if defined(_WIN32) || defined(__MINGW32__)
+int bitemu_audio_wasapi_start(bitemu_audio_t *a);
+void bitemu_audio_wasapi_stop(bitemu_audio_t *a);
+#else
+static inline int bitemu_audio_wasapi_start(bitemu_audio_t *a) { (void)a; return -1; }
+static inline void bitemu_audio_wasapi_stop(bitemu_audio_t *a) { (void)a; }
+#endif
+
+#endif

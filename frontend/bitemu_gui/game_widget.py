@@ -3,17 +3,6 @@ Widget central: dibuja el framebuffer del core y captura teclas.
 Escala el juego para llenar la ventana (relación de aspecto 160:144).
 Muestra una pantalla de carga breve al cargar una ROM.
 """
-import array
-import math
-import threading
-
-try:
-    import sounddevice as sd
-    _SOUNDDEVICE_AVAILABLE = True
-except ImportError:
-    sd = None
-    _SOUNDDEVICE_AVAILABLE = False
-
 from PySide6.QtCore import Qt, QTimer, QSize
 from PySide6.QtGui import QImage, QPainter, QColor, QFont
 from PySide6.QtWidgets import QWidget, QSizePolicy
@@ -22,41 +11,6 @@ from .core import Emu, FB_WIDTH, FB_HEIGHT
 from .keys import build_joypad_state
 from .profile import ConsoleProfile, DEFAULT_PROFILE
 from .input_config import InputConfig
-
-_CHIRP_SR = 44100
-_CHIRP_AMP = 8000
-
-
-def _generate_chirp() -> bytes:
-    freq, duration, decay = 880.0, 0.08, 14.0
-    n = int(_CHIRP_SR * duration)
-    samples = array.array("h")
-    for i in range(n):
-        t = i / _CHIRP_SR
-        phase = (freq * t) % 1.0
-        wave = 1.0 if phase < 0.5 else -1.0
-        envelope = math.exp(-t * decay)
-        samples.append(max(-32768, min(32767, int(wave * envelope * _CHIRP_AMP))))
-    return samples.tobytes()
-
-
-def _play_chirp():
-    if not _SOUNDDEVICE_AVAILABLE:
-        return
-
-    def _worker():
-        try:
-            data = _generate_chirp()
-            stream = sd.RawOutputStream(samplerate=_CHIRP_SR, channels=1, dtype="int16")
-            stream.start()
-            stream.write(data)
-            sd.sleep(80)
-            stream.stop()
-            stream.close()
-        except Exception:
-            pass
-
-    threading.Thread(target=_worker, daemon=True).start()
 
 
 def _qcolor(rgb: tuple[int, int, int]) -> QColor:
@@ -92,7 +46,8 @@ class GameWidget(QWidget):
     def show_loading(self, rom_name: str, duration_ms: int = 1000):
         self._loading_rom_name = rom_name
         self.update()
-        _play_chirp()
+        if self._emu:
+            self._emu.play_chirp()
         QTimer.singleShot(duration_ms, self._finish_loading)
 
     def _finish_loading(self):

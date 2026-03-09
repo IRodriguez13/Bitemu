@@ -32,9 +32,31 @@ def test_load_invalid_rom():
 
 
 def test_audio_init():
+    """Audio init works on all platforms (ALSA/CoreAudio/WASAPI según OS)."""
     emu = Emu()
     emu.create()
     assert emu.init_audio()
+    emu.destroy()
+
+
+def test_set_audio_enabled():
+    """Frontend can enable/disable audio; core handles it."""
+    emu = Emu()
+    emu.create()
+    emu.init_audio()
+    emu.set_audio_enabled(True)
+    emu.set_audio_enabled(False)
+    emu.set_audio_enabled(True)
+    emu.destroy()
+
+
+def test_play_chirp_ding():
+    """System sounds (chirp on load, ding on splash) don't crash."""
+    emu = Emu()
+    emu.create()
+    emu.init_audio()
+    emu.play_chirp()
+    emu.play_ding()
     emu.destroy()
 
 

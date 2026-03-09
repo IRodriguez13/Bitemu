@@ -1,39 +1,12 @@
 """
 Tests that verify native dependencies are loadable at runtime.
-These catch the same class of errors that caused PortAudio failures
-in packaged builds — if they fail here, they'll fail in the bundle.
+Sin PortAudio: audio en core (ALSA en Linux).
 """
 import os
 import sys
-import ctypes
-import ctypes.util
 import importlib
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", "frontend"))
-
-
-class TestPortaudioAvailable:
-    def test_find_library_portaudio(self):
-        """ctypes.util.find_library must locate portaudio on the build system."""
-        name = ctypes.util.find_library("portaudio")
-        assert name is not None, (
-            "libportaudio not found. Install it: "
-            "apt install libportaudio2 (Linux), brew install portaudio (macOS)"
-        )
-
-    def test_load_portaudio(self):
-        """The shared library must actually load without errors."""
-        name = ctypes.util.find_library("portaudio")
-        if name is None:
-            import pytest
-            pytest.skip("libportaudio not installed on this system")
-        lib = ctypes.cdll.LoadLibrary(name)
-        assert lib is not None
-
-    def test_sounddevice_imports(self):
-        """sounddevice must import without OSError (proves portaudio is linked)."""
-        sd = importlib.import_module("sounddevice")
-        assert hasattr(sd, "OutputStream")
 
 
 class TestPygameAvailable:

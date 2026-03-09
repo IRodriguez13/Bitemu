@@ -1,7 +1,6 @@
 /**
- * Bitemu - Audio interno (buffer circular)
- * Sin dependencias de SDL/miniaudio. El frontend (p. ej. Python) lee
- * con bitemu_read_audio() y reproduce con su propia librería (sounddevice, etc.).
+ * Bitemu - Audio interno (buffer circular + backends nativos)
+ * Sin PortAudio. Backends: ALSA (Linux), NULL (buffer only).
  */
 #pragma once
 
@@ -18,4 +17,5 @@ typedef struct bitemu_audio
     size_t buffer_size;
     size_t write_pos;
     size_t read_pos;
+    void *userdata;  /* backend-specific (e.g. alsa_ctx_t) */
 } bitemu_audio_t;

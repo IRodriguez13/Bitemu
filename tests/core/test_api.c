@@ -104,6 +104,60 @@ TEST(api_audio_double_shutdown)
     bitemu_destroy(emu);
 }
 
+/* --- set_audio_enabled toggles without crash --- */
+
+TEST(api_audio_set_enabled)
+{
+    bitemu_t *emu = bitemu_create();
+    bitemu_audio_init(emu, BITEMU_AUDIO_BACKEND_NULL, NULL);
+    bitemu_audio_set_enabled(emu, true);
+    bitemu_audio_set_enabled(emu, false);
+    bitemu_audio_set_enabled(emu, true);
+    bitemu_audio_shutdown(emu);
+    bitemu_destroy(emu);
+}
+
+/* --- set_audio_enabled NULL emu is safe --- */
+
+TEST(api_audio_set_enabled_null)
+{
+    bitemu_audio_set_enabled(NULL, true);
+    bitemu_audio_set_enabled(NULL, false);
+    ASSERT_TRUE(1);
+}
+
+/* --- NATIVE backend init (ALSA/CoreAudio/WASAPI según plataforma) --- */
+TEST(api_audio_init_native)
+{
+    bitemu_t *emu = bitemu_create();
+    int rc = bitemu_audio_init(emu, BITEMU_AUDIO_BACKEND_NATIVE, NULL);
+    ASSERT_EQ(rc, 0);
+    bitemu_audio_shutdown(emu);
+    bitemu_destroy(emu);
+}
+
+/* --- play_chirp/play_ding with no buffer are safe --- */
+
+TEST(api_audio_play_chirp_ding_no_buffer)
+{
+    bitemu_t *emu = bitemu_create();
+    bitemu_audio_play_chirp(emu);
+    bitemu_audio_play_ding(emu);
+    bitemu_destroy(emu);
+}
+
+/* --- play_chirp/play_ding with init work --- */
+
+TEST(api_audio_play_chirp_ding)
+{
+    bitemu_t *emu = bitemu_create();
+    bitemu_audio_init(emu, BITEMU_AUDIO_BACKEND_NULL, NULL);
+    bitemu_audio_play_chirp(emu);
+    bitemu_audio_play_ding(emu);
+    bitemu_audio_shutdown(emu);
+    bitemu_destroy(emu);
+}
+
 /* --- Read audio with no init returns 0 --- */
 
 TEST(api_read_audio_no_init)
@@ -356,6 +410,11 @@ void run_api_tests(void)
     RUN(api_load_rom_null);
     RUN(api_audio_init_shutdown);
     RUN(api_audio_init_null);
+    RUN(api_audio_set_enabled);
+    RUN(api_audio_set_enabled_null);
+    RUN(api_audio_init_native);
+    RUN(api_audio_play_chirp_ding_no_buffer);
+    RUN(api_audio_play_chirp_ding);
     RUN(api_audio_double_shutdown);
     RUN(api_read_audio_no_init);
     RUN(api_audio_spec);
