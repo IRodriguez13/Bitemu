@@ -23,7 +23,7 @@ jobs:
       - name: Install build tools
         run: |
           sudo apt-get update
-          sudo apt-get install -y build-essential libasound2-dev
+          sudo apt-get install -y build-essential libasound2-dev libegl1-mesa libxcb-cursor0
 
       - name: Build lib and CLI
         run: make lib cli
@@ -39,4 +39,4 @@ jobs:
           touch venv/.done
 
       - name: Run frontend tests
-        run: make test-frontend
+        run: QT_QPA_PLATFORM=offscreen make test-frontend
