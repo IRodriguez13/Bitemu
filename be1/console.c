@@ -3,6 +3,9 @@
  *
  * Conecta console_t con gb_impl_t: init/reset, step (poll input + CPU hasta
  * completar un frame de ciclos), load_rom/unload_rom (incluye .sav si hay batería).
+ *
+ * Copyright (c) 2026 Iván Ezequiel Rodriguez
+ * SPDX-License-Identifier: LGPL-3.0-or-later
  */
 
 #include "core/console.h"

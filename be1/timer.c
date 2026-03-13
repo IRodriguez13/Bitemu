@@ -4,6 +4,9 @@
  * DIV: contador interno de 16 bits; el byte alto se expone en 0xFF04 (16384 Hz).
  * TIMA: se incrementa cuando TAC bit 2 está activo; overflow -> IF bit 2 y recarga desde TMA.
  * Escribir en DIV resetea el contador interno (y por tanto DIV visible).
+ *
+ * Copyright (c) 2026 Iván Ezequiel Rodriguez
+ * SPDX-License-Identifier: LGPL-3.0-or-later
  */
 
 #include "timer.h"

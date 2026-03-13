@@ -1,6 +1,9 @@
 /**
  * Bitemu - Timing
  * Control de sincronización y ciclos
+ *
+ * Copyright (c) 2026 Iván Ezequiel Rodriguez
+ * SPDX-License-Identifier: LGPL-3.0-or-later
  */
 
 #include "timing.h"

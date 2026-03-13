@@ -1,6 +1,9 @@
 /**
  * Bitemu - Audio backend ALSA (Linux)
  * Sin PortAudio. Usa ALSA directamente.
+ *
+ * Copyright (c) 2026 Iván Ezequiel Rodriguez
+ * SPDX-License-Identifier: LGPL-3.0-or-later
  */
 #ifdef __linux__
 

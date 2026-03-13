@@ -1,6 +1,9 @@
 /**
  * Bitemu - Game Boy PPU
  * Picture Processing Unit
+ *
+ * Copyright (c) 2026 Iván Ezequiel Rodriguez
+ * SPDX-License-Identifier: LGPL-3.0-or-later
  */
 
 #ifndef BITEMU_GB_PPU_H

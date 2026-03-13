@@ -1,6 +1,9 @@
 /**
  * Bitemu - WASAPI backend (Windows)
  * Sin PortAudio. Usa WASAPI directamente.
+ *
+ * Copyright (c) 2026 Iván Ezequiel Rodriguez
+ * SPDX-License-Identifier: LGPL-3.0-or-later
  */
 #if defined(_WIN32) || defined(__MINGW32__)
 

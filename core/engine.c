@@ -1,6 +1,9 @@
 /**
  * Bitemu - Core Engine
  * Motor genérico que delega en la consola vía interfaz.
+ *
+ * Copyright (c) 2026 Iván Ezequiel Rodriguez
+ * SPDX-License-Identifier: LGPL-3.0-or-later
  */
 
 #include "engine.h"

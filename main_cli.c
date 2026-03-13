@@ -1,6 +1,9 @@
 /**
  * Bitemu - Frontend CLI
  * bitemu -rom juego.gb [--cli]
+ *
+ * Copyright (c) 2026 Iván Ezequiel Rodriguez
+ * SPDX-License-Identifier: LGPL-3.0-or-later
  */
 
 #include "bitemu.h"

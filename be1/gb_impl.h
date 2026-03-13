@@ -1,6 +1,9 @@
 /**
  * BE1 - Game Boy: estructura interna del impl
  * Usado por main.c para alocar el estado.
+ *
+ * Copyright (c) 2026 Iván Ezequiel Rodriguez
+ * SPDX-License-Identifier: LGPL-3.0-or-later
  */
 
 #ifndef BITEMU_GB_IMPL_H

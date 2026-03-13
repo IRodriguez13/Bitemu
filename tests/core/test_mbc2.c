@@ -1,6 +1,9 @@
 /**
  * Tests: MBC2 cartridge mapper.
  * 512x4-bit RAM, bit-8 address banking, ROM bank select.
+ *
+ * Copyright (c) 2026 Iván Ezequiel Rodriguez
+ * SPDX-License-Identifier: LGPL-3.0-or-later
  */
 
 #include "test_harness.h"

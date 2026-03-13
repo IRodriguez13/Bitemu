@@ -13,6 +13,9 @@
  * When you add a field at the end, update:
  *   1. The MINIMUM_SIZEOF constant for that struct.
  *   2. Add an ASSERT_OFFSET line for the new field.
+ *
+ * Copyright (c) 2026 Iván Ezequiel Rodriguez
+ * SPDX-License-Identifier: LGPL-3.0-or-later
  */
 
 #include "test_harness.h"

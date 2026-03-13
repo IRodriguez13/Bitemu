@@ -1,6 +1,9 @@
 /**
  * Bitemu test runner - invokes all core test suites.
  * Build: see Makefile target 'test-core'.
+ *
+ * Copyright (c) 2026 Iván Ezequiel Rodriguez
+ * SPDX-License-Identifier: LGPL-3.0-or-later
  */
 
 #include "test_harness.h"

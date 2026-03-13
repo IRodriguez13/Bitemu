@@ -6,6 +6,9 @@
  * - MBC1/MBC3: cambio de bancos ROM/RAM, habilitación de RAM externa.
  * - I/O especial: JOYP (multiplexado D-pad/buttons), IF (bits reservados), DIV (reseteo), DMA (copia a OAM).
  * - Guardado/carga de batería (.sav) para cartuchos con RAM persistente.
+ *
+ * Copyright (c) 2026 Iván Ezequiel Rodriguez
+ * SPDX-License-Identifier: LGPL-3.0-or-later
  */
 
 #include "memory.h"

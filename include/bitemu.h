@@ -1,6 +1,9 @@
 /**
  * Bitemu - API pública para frontends (CLI, GUI)
  * Usado por bitemu (CLI) y bitemu-gui (Rust)
+ *
+ * Copyright (c) 2026 Iván Ezequiel Rodriguez
+ * SPDX-License-Identifier: LGPL-3.0-or-later
  */
 
 #ifndef BITEMU_H

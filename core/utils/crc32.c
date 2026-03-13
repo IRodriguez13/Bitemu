@@ -1,6 +1,9 @@
 /**
  * Bitemu - CRC32 (IEEE 802.3, polynomial 0xEDB88320)
  * Table-driven implementation; no external dependencies.
+ *
+ * Copyright (c) 2026 Iván Ezequiel Rodriguez
+ * SPDX-License-Identifier: LGPL-3.0-or-later
  */
 
 #include "crc32.h"

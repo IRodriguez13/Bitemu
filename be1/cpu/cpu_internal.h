@@ -4,6 +4,9 @@
  * Macros: HL, BC, DE (pares de registros como uint16_t), R(r) (puntero al registro r).
  * Helpers de flags: set_z/set_n/set_h/set_c, flag_z/flag_c.
  * Declaraciones: read_r8, write_r8, alu_* (implementadas en cpu.c).
+ *
+ * Copyright (c) 2026 Iván Ezequiel Rodriguez
+ * SPDX-License-Identifier: LGPL-3.0-or-later
  */
 
 #ifndef BITEMU_CPU_INTERNAL_H

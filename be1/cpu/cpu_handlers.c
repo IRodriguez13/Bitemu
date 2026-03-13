@@ -5,6 +5,9 @@
  * Cada handler recibe (cpu, mem, opcode) y devuelve ciclos consumidos.
  * CB-prefix: índice = cb_op >> 3 (grupos RLC/RRC/RL/RR, BIT, RES, SET, etc.).
  * Main opcodes: un handler por opcode o por grupo (p. ej. LD r,r', ALU A,r).
+ *
+ * Copyright (c) 2026 Iván Ezequiel Rodriguez
+ * SPDX-License-Identifier: LGPL-3.0-or-later
  */
 #include "cpu_internal.h"
 #include "cpu_handlers.h"

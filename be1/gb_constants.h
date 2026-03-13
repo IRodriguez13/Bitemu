@@ -3,6 +3,9 @@
  *
  * Agrupadas por subsistema en enums para type-safety y legibilidad.
  * Solo quedan como #define los valores float o usados en macros del preprocesador.
+ *
+ * Copyright (c) 2026 Iván Ezequiel Rodriguez
+ * SPDX-License-Identifier: LGPL-3.0-or-later
  */
 
 #ifndef BITEMU_GB_CONSTANTS_H

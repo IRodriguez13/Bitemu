@@ -1,6 +1,9 @@
 /**
  * Tests: Public bitemu API (bitemu.h).
  * Create/destroy, audio init/shutdown, unload, specs.
+ *
+ * Copyright (c) 2026 Iván Ezequiel Rodriguez
+ * SPDX-License-Identifier: LGPL-3.0-or-later
  */
 
 #include "test_harness.h"

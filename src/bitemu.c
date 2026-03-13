@@ -1,6 +1,9 @@
 /**
  * Bitemu - API pública
  * Wrapper sobre el engine y la consola BE1
+ *
+ * Copyright (c) 2026 Iván Ezequiel Rodriguez
+ * SPDX-License-Identifier: LGPL-3.0-or-later
  */
 
 #include "bitemu.h"

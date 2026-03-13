@@ -2,6 +2,9 @@
  * Bitemu - Game Boy Memory
  * Mapa de memoria y bancos
  *
+ * Copyright (c) 2026 Iván Ezequiel Rodriguez
+ * SPDX-License-Identifier: LGPL-3.0-or-later
+ *
  * 0x0000-0x3FFF  ROM Bank 0 (16KB, fija)
  * 0x4000-0x7FFF  ROM Bank 1-N (16KB, switchable)
  * 0x8000-0x9FFF  VRAM (8KB)

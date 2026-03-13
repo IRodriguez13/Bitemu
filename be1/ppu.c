@@ -6,6 +6,9 @@
  * - VBLANK: LY 144-153, disparo de interrupción VBLANK y STAT según modo.
  * - Renderizado: fondo (tile map + tile data), sprites (OAM), paletas BGP/OBP0/OBP1.
  * - STAT: comparación LYC=LY, interrupciones por modo (HBL, VBL, OAM, LYC).
+ *
+ * Copyright (c) 2026 Iván Ezequiel Rodriguez
+ * SPDX-License-Identifier: LGPL-3.0-or-later
  */
 
 #include "ppu.h"

@@ -7,6 +7,9 @@
  *
  * Frame sequencer (512 Hz): controla length counters (256 Hz) y
  * volume envelope (64 Hz).  Sweep (ch1, 128 Hz) queda como TODO.
+ *
+ * Copyright (c) 2026 Iván Ezequiel Rodriguez
+ * SPDX-License-Identifier: LGPL-3.0-or-later
  */
 
 #include "apu.h"

@@ -7,6 +7,9 @@
  * - bitemu3 (PS1)
  *
  * El core usa esta interfaz; cada repo aporta su implementación.
+ *
+ * Copyright (c) 2026 Iván Ezequiel Rodriguez
+ * SPDX-License-Identifier: LGPL-3.0-or-later
  */
 
 #ifndef BITEMU_CONSOLE_H

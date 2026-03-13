@@ -1,6 +1,9 @@
 /**
  * Bitemu - Game Boy APU
  * 4 canales: Square1, Square2, Wave, Noise
+ *
+ * Copyright (c) 2026 Iván Ezequiel Rodriguez
+ * SPDX-License-Identifier: LGPL-3.0-or-later
  */
 
 #ifndef BITEMU_GB_APU_H

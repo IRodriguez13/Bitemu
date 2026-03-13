@@ -6,6 +6,9 @@
  * - Interrupciones: IME, retardo tras EI, despacho a vector y actualización de IF/IE.
  * - HALT: despertar cuando hay interrupción pendiente (IF & IE).
  * - Helpers compartidos: read_r8/write_r8 (registros y (HL)), alu_add/alu_sub/alu_and/alu_xor/alu_or/alu_cp.
+ *
+ * Copyright (c) 2026 Iván Ezequiel Rodriguez
+ * SPDX-License-Identifier: LGPL-3.0-or-later
  */
 
 #include "cpu_internal.h"

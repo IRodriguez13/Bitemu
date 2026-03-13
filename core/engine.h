@@ -2,6 +2,9 @@
  * Bitemu - Core Engine
  * Motor genérico que usa la interfaz de consola.
  * Reutilizable por bitemu1 (GB), bitemu2 (Genesis), bitemu3 (PS1).
+ *
+ * Copyright (c) 2026 Iván Ezequiel Rodriguez
+ * SPDX-License-Identifier: LGPL-3.0-or-later
  */
 
 #ifndef BITEMU_ENGINE_H

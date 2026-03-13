@@ -3,6 +3,9 @@
  *
  * Define el estado (gb_cpu_t), flags (F_Z, F_N, F_H, F_C) y la API pública:
  * init, reset y step (una instrucción por llamada; retorna ciclos).
+ *
+ * Copyright (c) 2026 Iván Ezequiel Rodriguez
+ * SPDX-License-Identifier: LGPL-3.0-or-later
  */
 
 #ifndef BITEMU_GB_CPU_H

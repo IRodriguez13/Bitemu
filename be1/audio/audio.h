@@ -1,6 +1,9 @@
 /**
  * Bitemu - Audio interno (buffer circular + backends nativos)
- * Sin PortAudio. Backends: ALSA (Linux), NULL (buffer only).
+ * Sin PortAudio. Backends: ALSA (Linux), CoreAudio (macOS), WASAPI (Windows).
+ *
+ * Copyright (c) 2026 Iván Ezequiel Rodriguez
+ * SPDX-License-Identifier: LGPL-3.0-or-later
  */
 #pragma once
 

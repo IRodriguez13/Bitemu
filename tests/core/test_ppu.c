@@ -1,6 +1,9 @@
 /**
  * Tests: Game Boy PPU subsystem.
  * Sprite BG priority (OAM flag bit 7).
+ *
+ * Copyright (c) 2026 Iván Ezequiel Rodriguez
+ * SPDX-License-Identifier: LGPL-3.0-or-later
  */
 
 #include "test_harness.h"

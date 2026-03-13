@@ -1,6 +1,9 @@
 /**
  * Bitemu BE1 - Game Boy Input
  * Mapeo: D-pad=WASD, A=J, B=K, Select=U, Start=I (o Enter)
+ *
+ * Copyright (c) 2026 Iván Ezequiel Rodriguez
+ * SPDX-License-Identifier: LGPL-3.0-or-later
  */
 
 #include "input.h"

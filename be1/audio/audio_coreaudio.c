@@ -1,6 +1,9 @@
 /**
  * Bitemu - CoreAudio backend (macOS)
  * Sin PortAudio. Usa AudioQueue directamente.
+ *
+ * Copyright (c) 2026 Iván Ezequiel Rodriguez
+ * SPDX-License-Identifier: LGPL-3.0-or-later
  */
 #ifdef __APPLE__
 
