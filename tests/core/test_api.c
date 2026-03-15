@@ -231,6 +231,20 @@ TEST(api_framebuffer)
     bitemu_destroy(emu);
 }
 
+TEST(api_get_video_size)
+{
+    bitemu_t *emu = bitemu_create();
+    int w = 0, h = 0;
+    bitemu_get_video_size(emu, &w, &h);
+    ASSERT_EQ(w, 160);
+    ASSERT_EQ(h, 144);
+    bitemu_get_video_size(emu, &w, NULL);
+    ASSERT_EQ(w, 160);
+    bitemu_get_video_size(emu, NULL, &h);
+    ASSERT_EQ(h, 144);
+    bitemu_destroy(emu);
+}
+
 /* --- Save state without ROM fails --- */
 
 TEST(api_save_state_no_rom)
@@ -426,6 +440,7 @@ void run_api_tests(void)
     RUN(api_reset_no_rom);
     RUN(api_is_running);
     RUN(api_framebuffer);
+    RUN(api_get_video_size);
     RUN(api_save_state_no_rom);
     RUN(api_save_state_null);
     RUN(api_load_state_null);

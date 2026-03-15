@@ -132,7 +132,7 @@ make test-frontend # Python frontend tests (81 tests: bindings, keys, input conf
 | **PPU** | Mode-level (not dot-accurate); timing-sensitive games may have minor HUD glitches |
 | **APU** | Functional with occasional glitches in complex games |
 | **Gamepad** | Detection and mapping WIP — keyboard fully functional |
-| **RTC** | Registers read/write and latch work; time does not advance in real-time |
+| **RTC** | Real-time clock advances; save/load in .sav (MBC3) |
 | **Boot ROM** | Not emulated; starts at 0x0100 with post-boot register state |
 | **Serial** | Stub only — no link cable (single-player unaffected) |
 

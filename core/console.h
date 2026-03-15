@@ -40,6 +40,12 @@ typedef struct
     /* Save state: serializar/deserializar estado completo a archivo. 0=OK, -1=error. */
     int (*save_state)(console_t *ctx, const char *path);
     int (*load_state)(console_t *ctx, const char *path);
+
+    /* Video: resolución del framebuffer. NULL = 160x144 (GB). Para Genesis, GBA, etc. */
+    void (*get_video_info)(const console_t *ctx, int *width, int *height);
+
+    /* Media múltiple (CD-ROM, etc.). NULL = solo load_rom. Para PS1, etc. */
+    bool (*load_media)(console_t *ctx, const char *path, const char **extra_paths, int extra_count);
 } console_ops_t;
 
 struct console 
@@ -88,6 +94,21 @@ static inline int console_load_state(console_t *c, const char *path) {
     if (c && c->ops && c->ops->load_state)
         return c->ops->load_state(c, path);
     return -1;
+}
+
+static inline void console_get_video_info(const console_t *c, int *width, int *height) {
+    if (c && c->ops && c->ops->get_video_info)
+        c->ops->get_video_info(c, width, height);
+    else {
+        if (width) *width = 160;
+        if (height) *height = 144;
+    }
+}
+
+static inline bool console_load_media(console_t *c, const char *path, const char **extra_paths, int extra_count) {
+    if (c && c->ops && c->ops->load_media)
+        return c->ops->load_media(c, path, extra_paths, extra_count);
+    return false;
 }
 
 #endif /* BITEMU_CONSOLE_H */

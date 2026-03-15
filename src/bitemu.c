@@ -139,6 +139,13 @@ const uint8_t *bitemu_get_framebuffer(const bitemu_t *emu)
     return emu->impl.ppu.framebuffer;
 }
 
+void bitemu_get_video_size(const bitemu_t *emu, int *width, int *height)
+{
+    if (!emu)
+        return;
+    console_get_video_info(&emu->engine.console, width, height);
+}
+
 void bitemu_set_input(bitemu_t *emu, uint8_t state)
 {
     if (emu)

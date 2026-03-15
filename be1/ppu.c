@@ -56,6 +56,22 @@ static uint8_t get_pixel_from_tile(const uint8_t *vram, uint8_t tile_id,
     return ((hi >> bit) << 1 | (lo >> bit)) & 3;
 }
 
+/* Decodifica una fila de 8 píxeles de un tile (evita 8 llamadas a get_pixel_from_tile) */
+static void decode_tile_row(const uint8_t *vram, uint8_t tile_id, int py,
+                            int signed_addr, uint8_t out[8])
+{
+    uint16_t base = signed_addr ? GB_TILE_DATA_SIGNED : GB_TILE_DATA_UNSIGNED;
+    int16_t offset = signed_addr ? (int16_t)(int8_t)tile_id : (tile_id & GB_BYTE_LO);
+    uint16_t addr = base + offset * 16 + py * 2 - GB_VRAM_START;
+    uint8_t lo = vram[addr];
+    uint8_t hi = vram[addr + 1];
+    for (int i = 0; i < 8; i++)
+    {
+        int bit = 7 - i;
+        out[i] = ((hi >> bit) << 1 | (lo >> bit)) & 3;
+    }
+}
+
 /* ---------------------------------------------------------------------------
  * Dibujar una scanline: fondo (BG) y sprites (OBJ) según LCDC
  * --------------------------------------------------------------------------- */
@@ -86,18 +102,25 @@ static void render_scanline(gb_ppu_t *ppu, gb_mem_t *mem)
     int tile_y = (ly + scy) & GB_BYTE_LO;
     int tile_row = tile_y / GB_TILE_SIZE;
     int py = tile_y % GB_TILE_SIZE;
+    int tile_start = scx / GB_TILE_SIZE;
+    int tx_start = scx % GB_TILE_SIZE;
+    int px_out = 0;
 
-    for (int px = 0; px < GB_LCD_WIDTH; px++)
+    /* Render por tiles: 1 decode por tile vs 8 por tile (menos accesos VRAM) */
+    for (int tc = tile_start; px_out < GB_LCD_WIDTH; tc++)
     {
-        int tile_x = (px + scx) & GB_BYTE_LO;
-        int tile_col = tile_x / GB_TILE_SIZE;
-        int tx = tile_x % GB_TILE_SIZE;
-
+        int tile_col = tc & 31;
         uint16_t map_addr = bg_map + tile_row * 32 + tile_col;
         uint8_t tile_id = mem->vram[map_addr - GB_VRAM_START];
-        uint8_t color_idx = get_pixel_from_tile(mem->vram, tile_id, tx, py, signed_tiles);
-        bg_indices[px] = color_idx;
-        fb[px] = gb_dmg_palette[(bgp >> (color_idx * 2)) & 3];
+        uint8_t row[8];
+        decode_tile_row(mem->vram, tile_id, py, signed_tiles, row);
+        for (int tx = tx_start; tx < GB_TILE_SIZE && px_out < GB_LCD_WIDTH; tx++, px_out++)
+        {
+            uint8_t color_idx = row[tx];
+            bg_indices[px_out] = color_idx;
+            fb[px_out] = gb_dmg_palette[(bgp >> (color_idx * 2)) & 3];
+        }
+        tx_start = 0;
     }
 
     if ((lcdc & GB_LCDC_WIN_ON) && (lcdc & GB_LCDC_ON))
@@ -113,16 +136,22 @@ static void render_scanline(gb_ppu_t *ppu, gb_mem_t *mem)
                 uint16_t win_map = (lcdc & GB_LCDC_WIN_TILEMAP) ? GB_BG_MAP_HI : GB_BG_MAP_LO;
                 int win_tile_row = win_y / GB_TILE_SIZE;
                 int win_py = win_y % GB_TILE_SIZE;
-                for (int px = (window_left > 0) ? window_left : 0; px < GB_LCD_WIDTH; px++)
+                int win_tx_start = (window_left < 0) ? -window_left : 0;
+                int px_out = (window_left > 0) ? window_left : 0;
+                for (int tc = 0; px_out < GB_LCD_WIDTH; tc++)
                 {
-                    int win_x = px - window_left;
-                    int win_tile_col = win_x / GB_TILE_SIZE;
-                    int win_tx = win_x % GB_TILE_SIZE;
-                    uint16_t map_addr = win_map + win_tile_row * 32 + win_tile_col;
+                    int tile_col = tc & 31;
+                    uint16_t map_addr = win_map + win_tile_row * 32 + tile_col;
                     uint8_t tile_id = mem->vram[map_addr - GB_VRAM_START];
-                    uint8_t color_idx = get_pixel_from_tile(mem->vram, tile_id, win_tx, win_py, signed_tiles);
-                    bg_indices[px] = color_idx;
-                    fb[px] = gb_dmg_palette[(bgp >> (color_idx * 2)) & 3];
+                    uint8_t row[8];
+                    decode_tile_row(mem->vram, tile_id, win_py, signed_tiles, row);
+                    for (int tx = win_tx_start; tx < GB_TILE_SIZE && px_out < GB_LCD_WIDTH; tx++, px_out++)
+                    {
+                        uint8_t color_idx = row[tx];
+                        bg_indices[px_out] = color_idx;
+                        fb[px_out] = gb_dmg_palette[(bgp >> (color_idx * 2)) & 3];
+                    }
+                    win_tx_start = 0;  /* siguientes tiles: fila completa */
                 }
                 ppu->window_line++;
             }

@@ -24,7 +24,8 @@ typedef struct bitemu bitemu_t;  /* Opaque */
 | `bitemu_destroy(emu)` | Unload ROM, free handle. |
 | `bitemu_load_rom(emu, path)` | Open file, read, call `console_load_rom`. Returns true on success. |
 | `bitemu_run_frame(emu)` | Run `GB_DOTS_PER_FRAME` (70224) cycles via `console_step`. Returns `emu->running`. |
-| `bitemu_get_framebuffer(emu)` | Return pointer to PPU framebuffer (160×144, 1 byte/pixel, 0=white, 0xFF=black). |
+| `bitemu_get_framebuffer(emu)` | Return pointer to PPU framebuffer (size via `bitemu_get_video_size`; 1 byte/pixel, 0=white, 0xFF=black). |
+| `bitemu_get_video_size(emu, w, h)` | Get framebuffer dimensions. NULL = ignore. GB: 160×144; future consoles may differ. |
 | `bitemu_set_input(emu, state)` | Set joypad state. Bits 0–3: D-pad (R,L,U,D), 4–7: A,B,Select,Start. 1 = pressed. |
 | `bitemu_stop(emu)` | Set `emu->running = 0`. |
 | `bitemu_is_running(emu)` | Return `emu->running`. |
@@ -94,7 +95,8 @@ typedef struct bitemu bitemu_t;  /* Opaco */
 | `bitemu_destroy(emu)` | Descargar ROM, liberar handle. |
 | `bitemu_load_rom(emu, path)` | Abrir archivo, leer, llamar `console_load_rom`. Devuelve true si OK. |
 | `bitemu_run_frame(emu)` | Ejecutar 70224 ciclos vía `console_step`. Devuelve `emu->running`. |
-| `bitemu_get_framebuffer(emu)` | Puntero al framebuffer PPU (160×144, 1 byte/píxel). |
+| `bitemu_get_framebuffer(emu)` | Puntero al framebuffer PPU (tamaño vía `bitemu_get_video_size`; 1 byte/píxel). |
+| `bitemu_get_video_size(emu, w, h)` | Obtener dimensiones del framebuffer. NULL = ignorar. GB: 160×144. |
 | `bitemu_set_input(emu, state)` | Estado del joypad. Bits 0–3: D-pad, 4–7: A,B,Select,Start. 1 = pulsado. |
 | `bitemu_stop(emu)` | Pone `emu->running = 0`. |
 | `bitemu_is_running(emu)` | Devuelve `emu->running`. |

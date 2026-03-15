@@ -85,12 +85,16 @@
 #define GB_MBC3_RTC_H   6
 #define GB_MBC3_RTC_DL  7
 #define GB_MBC3_RTC_DH  8
+#define GB_MBC3_RTC_HALT 0x40   /* DH bit 6: RTC halted */
 
 typedef struct gb_mem {
     /* ROM: apuntado desde fuera (cargado por load_rom) */
     uint8_t *rom;
     size_t rom_size;
     uint8_t rom_bank;
+    /* Fast path: punteros a bancos actuales (actualizados en reset y bank switch) */
+    const uint8_t *rom0_ptr;
+    const uint8_t *rom1_ptr;
     uint8_t cart_type;
     uint8_t mbc5_rom_bank_high;  /* MBC5: bit 9 del banco ROM (0x3000-0x3FFF) */
 
@@ -114,6 +118,7 @@ typedef struct gb_mem {
     uint8_t rtc_s, rtc_m, rtc_h, rtc_dl, rtc_dh;
     uint8_t rtc_latched[5];
     uint8_t rtc_latch_prev;  /* 1 = se escribió 0x01, siguiente 0x00 hace latch */
+    uint64_t rtc_last_sync;  /* timestamp (segundos) última sincronización con reloj real */
 
     /* Joypad: bits 0-3 = D-pad (R,L,U,D), 4-7 = buttons (A,B,Select,Start); 1 = pressed */
     uint8_t joypad_state;
@@ -127,6 +132,7 @@ typedef struct gb_mem {
 
 void gb_mem_init(gb_mem_t *mem);
 void gb_mem_reset(gb_mem_t *mem);
+void gb_mem_update_rom_ptrs(gb_mem_t *mem);  /* tras load_state o cambio de banco */
 
 /* Battery save: path = ROM path; .sav derived by replacing extension. No-op if no battery cart. */
 void gb_mem_load_sav(gb_mem_t *mem, const char *rom_path);

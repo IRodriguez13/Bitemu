@@ -69,8 +69,11 @@ void bitemu_unload_rom(bitemu_t *emu);
 /* Ejecutar un frame (70224 ciclos). Retorna false si debe parar */
 bool bitemu_run_frame(bitemu_t *emu);
 
-/* Framebuffer: 160x144, 1 byte por pixel (0=blanco, 0xFF=negro) */
+/* Framebuffer: 1 byte por pixel (0=blanco, 0xFF=negro). Tamaño: bitemu_get_video_size(). */
 const uint8_t *bitemu_get_framebuffer(const bitemu_t *emu);
+
+/* Resolución actual (160x144 GB, 320x224 Genesis, etc.). NULL = ignorar. */
+void bitemu_get_video_size(const bitemu_t *emu, int *width, int *height);
 
 /* Joypad: bits 0-3=D-pad(R,L,U,D), 4-7=botones(A,B,Select,Start); 1=presionado */
 void bitemu_set_input(bitemu_t *emu, uint8_t state);

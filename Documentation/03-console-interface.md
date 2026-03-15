@@ -21,6 +21,9 @@ typedef struct {
 
     int (*save_state)(console_t *ctx, const char *path);
     int (*load_state)(console_t *ctx, const char *path);
+
+    void (*get_video_info)(const console_t *ctx, int *width, int *height);  /* NULL = 160x144 */
+    bool (*load_media)(console_t *ctx, const char *path, const char **extra_paths, int extra_count);  /* NULL = ROM only */
 } console_ops_t;
 ```
 
@@ -45,6 +48,8 @@ struct console {
 | `cycles_per_frame` | Optional; used by engine_run | Return cycles per frame (e.g. 70224 for GB) |
 | `save_state(path)` | User triggers save (F6) | Serialize full state to file; return 0=OK, -1=error |
 | `load_state(path)` | User triggers load (F7) | Deserialize state from file, validate ROM CRC; return 0=OK, -1=error |
+| `get_video_info(ctx, w, h)` | Optional; frontend queries resolution | Set width/height of framebuffer. NULL = 160x144 (GB) |
+| `load_media(path, extra, n)` | Optional; for CD-ROM consoles | Load from multiple files. NULL = use load_rom only |
 
 ### 3.4 BE1 Implementation
 
@@ -58,6 +63,8 @@ struct console {
 - `gb_cycles_per_frame`: Return `GB_DOTS_PER_FRAME` (70224)
 - `gb_save_state`: Serialize CPU+PPU+APU+memory to `.bst` file with CRC32 header
 - `gb_load_state`: Deserialize from `.bst`, validate CRC32 against loaded ROM
+- `gb_get_video_info`: Returns 160×144 (GB)
+- `load_media`: NULL (ROM-only)
 
 ---
 
@@ -82,6 +89,9 @@ typedef struct {
 
     int (*save_state)(console_t *ctx, const char *path);
     int (*load_state)(console_t *ctx, const char *path);
+
+    void (*get_video_info)(const console_t *ctx, int *width, int *height);  /* NULL = 160x144 */
+    bool (*load_media)(console_t *ctx, const char *path, const char **extra_paths, int extra_count);  /* NULL = ROM only */
 } console_ops_t;
 ```
 
@@ -106,6 +116,8 @@ struct console {
 | `cycles_per_frame` | Opcional; usado por engine_run | Devolver ciclos por frame (ej. 70224 para GB) |
 | `save_state(path)` | El usuario guarda estado (F6) | Serializar estado completo a archivo; 0=OK, -1=error |
 | `load_state(path)` | El usuario carga estado (F7) | Deserializar estado, validar CRC de ROM; 0=OK, -1=error |
+| `get_video_info(ctx, w, h)` | Opcional; frontend consulta resolución | Establecer ancho/alto del framebuffer. NULL = 160x144 (GB) |
+| `load_media(path, extra, n)` | Opcional; para consolas con CD-ROM | Cargar desde múltiples archivos. NULL = solo load_rom |
 
 ### 3.4 Implementación BE1
 
@@ -119,3 +131,5 @@ struct console {
 - `gb_cycles_per_frame`: Devolver `GB_DOTS_PER_FRAME` (70224)
 - `gb_save_state`: Serializar CPU+PPU+APU+memoria a archivo `.bst` con header CRC32
 - `gb_load_state`: Deserializar desde `.bst`, validar CRC32 contra la ROM cargada
+- `gb_get_video_info`: Devuelve 160×144 (GB)
+- `load_media`: NULL (solo ROM)

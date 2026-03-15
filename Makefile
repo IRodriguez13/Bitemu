@@ -2,10 +2,17 @@
 # Backend: C (core + libbitemu.so). Frontend: Python (PySide6). CLI: C (bitemu-cli).
 # make all   → compila lib + cli y ejecuta frontend Python
 # make help  → ver objetivos
+# make DEBUG=1 → build sin optimizaciones (debug)
 
 CC = gcc
-CFLAGS = -Wall -Wextra -std=c11 -I. -Iinclude
-LDFLAGS =
+DEBUG ?= 0
+ifeq ($(DEBUG),1)
+  CFLAGS = -Wall -Wextra -std=c11 -I. -Iinclude -O0 -g
+  LDFLAGS =
+else
+  CFLAGS = -Wall -Wextra -std=c11 -I. -Iinclude -O3 -flto -DNDEBUG
+  LDFLAGS = -flto
+endif
 
 UNAME_S := $(shell uname -s)
 ifeq ($(UNAME_S),Darwin)
@@ -58,6 +65,8 @@ help:
 	@echo "  test-frontend Solo tests del frontend Python"
 	@echo "  clean        Borra binarios y objetos"
 	@echo "  help         Esta ayuda"
+	@echo ""
+	@echo "  DEBUG=1      Build sin optimizaciones (-O0 -g, sin LTO)"
 
 run: lib frontend/venv/.done
 	cd frontend && ./venv/bin/python main.py
@@ -87,7 +96,7 @@ test: test-core test-frontend
 
 test-core: lib
 	@mkdir -p build
-	$(CC) $(CFLAGS) -Itests/core $(TEST_SRCS) -L. -lbitemu -o $(TEST_BIN)
+	$(CC) $(CFLAGS) -Itests/core $(TEST_SRCS) -L. -lbitemu -o $(TEST_BIN) $(LDFLAGS)
 ifeq ($(UNAME_S),Darwin)
 	DYLD_LIBRARY_PATH=. ./$(TEST_BIN)
 else ifeq ($(OS),Windows_NT)

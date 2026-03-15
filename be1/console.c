@@ -23,10 +23,11 @@
 #include <stdlib.h>
 #include <string.h>
 #include <stdio.h>
+#include <time.h>
 
 /* .bst save state format constants */
 #define BST_MAGIC       "BEMU"
-#define BST_VERSION     2
+#define BST_VERSION     3
 #define BST_CONSOLE_GB  1
 
 static void gb_init(console_t *ctx)
@@ -110,12 +111,20 @@ static void gb_unload_rom(console_t *ctx)
     impl->mem.rom = NULL;
     impl->mem.rom_size = 0;
     impl->rom_path[0] = '\0';
+    gb_mem_reset(&impl->mem);  /* limpia rom0_ptr/rom1_ptr */
 }
 
 static int gb_cycles_per_frame(console_t *ctx)
 {
     (void)ctx;
     return GB_DOTS_PER_FRAME;
+}
+
+static void gb_get_video_info(const console_t *ctx, int *width, int *height)
+{
+    (void)ctx;
+    if (width) *width = GB_LCD_WIDTH;
+    if (height) *height = GB_LCD_HEIGHT;
 }
 
 /* ----- Save state (.bst) ----- */
@@ -184,7 +193,7 @@ static uint32_t mem_section_size(const gb_mem_t *m)
     sz += (uint32_t)sizeof(((gb_mem_t *)0)->hram);
     sz += (uint32_t)sizeof(((gb_mem_t *)0)->io);
     sz += 1 + 2;                            /* ie, timer_div */
-    sz += 5 + 5 + 1;                        /* rtc, rtc_latched, rtc_latch_prev */
+    sz += 5 + 5 + 1 + 8;                   /* rtc, rtc_latched, rtc_latch_prev, rtc_last_sync */
     sz += 1 + 1;                            /* joypad_state, apu_trigger_flags */
     sz += 1;                                /* mbc1_mode */
     return sz;
@@ -216,13 +225,14 @@ static int write_mem_fields(FILE *f, const gb_mem_t *m)
     err |= write_all(f, &m->rtc_dh, 1);
     err |= write_all(f, m->rtc_latched, sizeof(m->rtc_latched));
     err |= write_all(f, &m->rtc_latch_prev, 1);
+    err |= write_all(f, &m->rtc_last_sync, sizeof(m->rtc_last_sync));
     err |= write_all(f, &m->joypad_state, 1);
     err |= write_all(f, &m->apu_trigger_flags, 1);
     err |= write_all(f, &m->mbc1_mode, 1);
     return err;
 }
 
-static int read_mem_fields(FILE *f, gb_mem_t *m)
+static int read_mem_fields(FILE *f, gb_mem_t *m, uint32_t version)
 {
     uint32_t stored;
     if (read_all(f, &stored, sizeof(stored)) != 0)
@@ -250,6 +260,10 @@ static int read_mem_fields(FILE *f, gb_mem_t *m)
     err |= read_all(f, &m->rtc_dh, 1);
     err |= read_all(f, m->rtc_latched, sizeof(m->rtc_latched));
     err |= read_all(f, &m->rtc_latch_prev, 1);
+    if (version >= 3 && stored - (uint32_t)(ftell(f) - start) >= sizeof(m->rtc_last_sync))
+        err |= read_all(f, &m->rtc_last_sync, sizeof(m->rtc_last_sync));
+    else if (m->cart_type >= 0x0F && m->cart_type <= 0x13)
+        m->rtc_last_sync = (uint64_t)time(NULL);
     err |= read_all(f, &m->joypad_state, 1);
     err |= read_all(f, &m->apu_trigger_flags, 1);
 
@@ -370,7 +384,7 @@ static int gb_load_state(console_t *ctx, const char *path)
     err |= read_section(f, &impl->cpu, (uint32_t)sizeof(gb_cpu_t));
     err |= read_section(f, &impl->ppu, (uint32_t)sizeof(gb_ppu_t));
     err |= read_section(f, &impl->apu, (uint32_t)sizeof(gb_apu_t));
-    err |= read_mem_fields(f, m);
+    err |= read_mem_fields(f, m, hdr.version);
 
     fclose(f);
 
@@ -383,6 +397,7 @@ static int gb_load_state(console_t *ctx, const char *path)
         log_error("Error reading save state: %s", path);
         return -1;
     }
+    gb_mem_update_rom_ptrs(m);
     log_info("State loaded: %s", path);
     return 0;
 }
@@ -397,4 +412,5 @@ const console_ops_t gb_console_ops = {
     .cycles_per_frame = gb_cycles_per_frame,
     .save_state = gb_save_state,
     .load_state = gb_load_state,
+    .get_video_info = gb_get_video_info,
 };
