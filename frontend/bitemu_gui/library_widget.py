@@ -1,7 +1,7 @@
 """
-Game Library — scrollable grid of ROM cards with cover art.
-Covers are fetched asynchronously from the libretro-thumbnails CDN
-and cached on disk.  ROMs without covers show a styled placeholder.
+Game Library — lista + preview (estilo Genesis Plus GX).
+Lista de ROMs a la izquierda, portada/cartucho a la derecha.
+Portadas desde libretro-thumbnails CDN.
 """
 import os
 
@@ -18,20 +18,31 @@ from PySide6.QtWidgets import (
     QLabel,
     QFrame,
     QSizePolicy,
-    QFileDialog,
 )
 
-from .profile import ConsoleProfile, DEFAULT_PROFILE
+from .profile import ConsoleProfile, DEFAULT_PROFILE, PROFILE_GENESIS
 from .rom_scanner import RomEntry, scan_folder
-from .scraper import CoverScraper
+from .metadata_service import MetadataService
+from .layout_components import AppHeader, AppFooter, ListWithPreviewPanel
+from .game_preview import GamePreviewWithMetadata
+from .i18n import t
 
 _CARD_W = 160
 _CARD_H = 210
 _COVER_H = 160
+_PREVIEW_SIZE = 200
+
+
+def _asset_path(filename: str) -> str:
+    import sys
+    bundle = getattr(sys, "_MEIPASS", None)
+    if bundle:
+        return os.path.join(bundle, "assets", filename)
+    return os.path.join(os.path.dirname(__file__), "..", "assets", filename)
 
 
 class GameCard(QFrame):
-    """Single card: cover image + game name. Emits clicked(path)."""
+    """Single card: cover image + game name. Emits clicked(path). Usado en modo grid (legacy)."""
 
     clicked = Signal(str)
 
@@ -102,26 +113,39 @@ class GameCard(QFrame):
 
 
 class LibraryWidget(QWidget):
-    """Scrollable grid of GameCard widgets with a toolbar."""
+    """Biblioteca con layout lista + preview (estilo Genesis Plus GX)."""
 
     rom_selected = Signal(str)
     back_clicked = Signal()
     open_rom_clicked = Signal()
     change_folder_clicked = Signal()
 
-    def __init__(self, profile: ConsoleProfile | None = None, parent=None):
+    def __init__(
+        self,
+        profile: ConsoleProfile | None = None,
+        input_config=None,
+        parent=None,
+    ):
         super().__init__(parent)
         self._profile = profile or DEFAULT_PROFILE
+        self._input_config = input_config
         self._cards: dict[str, GameCard] = {}
         self._all_entries: list[RomEntry] = []
-        self._scraper: CoverScraper | None = None
+        self._metadata = MetadataService(parent=self)
 
         main_layout = QVBoxLayout(self)
-        main_layout.setContentsMargins(8, 8, 8, 8)
+        main_layout.setContentsMargins(12, 12, 12, 12)
+        main_layout.setSpacing(12)
+
+        self._header = AppHeader(
+            t("library.header"),
+            profile=self._profile,
+            logo_path=_asset_path("bitemu-web.png"),
+        )
+        main_layout.addWidget(self._header)
 
         toolbar = QHBoxLayout()
         p = self._profile
-
         btn_style = (
             f"QPushButton {{ background: rgb({p.splash_bg[0]},{p.splash_bg[1]},{p.splash_bg[2]});"
             f" color: rgb({p.splash_fg[0]},{p.splash_fg[1]},{p.splash_fg[2]});"
@@ -129,22 +153,19 @@ class LibraryWidget(QWidget):
             f" border-radius: 4px; padding: 6px 14px; font-family: monospace; font-weight: bold; }}"
             f" QPushButton:hover {{ background: rgb({p.splash_accent[0]},{p.splash_accent[1]},{p.splash_accent[2]}); }}"
         )
-
-        self._btn_back = QPushButton("← Volver")
-        self._btn_open = QPushButton("Abrir ROM...")
-        self._btn_folder = QPushButton("Carpeta de ROMs...")
-
+        self._btn_back = QPushButton(t("library.back"))
+        self._btn_open = QPushButton(t("library.open_rom"))
+        self._btn_folder = QPushButton(t("library.rom_folder"))
         for btn in (self._btn_back, self._btn_open, self._btn_folder):
             btn.setStyleSheet(btn_style)
             btn.setCursor(Qt.CursorShape.PointingHandCursor)
-
         toolbar.addWidget(self._btn_back)
         toolbar.addWidget(self._btn_open)
         toolbar.addWidget(self._btn_folder)
         toolbar.addStretch()
 
         self._search = QLineEdit()
-        self._search.setPlaceholderText("Buscar...")
+        self._search.setPlaceholderText(t("library.search"))
         self._search.setMaximumWidth(250)
         self._search.setStyleSheet(
             f"QLineEdit {{ background: rgb({p.splash_bg[0]},{p.splash_bg[1]},{p.splash_bg[2]});"
@@ -153,24 +174,30 @@ class LibraryWidget(QWidget):
             f" border-radius: 4px; padding: 6px; font-family: monospace; }}"
         )
         toolbar.addWidget(self._search)
-
         main_layout.addLayout(toolbar)
 
-        self._scroll = QScrollArea()
-        self._scroll.setWidgetResizable(True)
-        self._scroll.setStyleSheet("QScrollArea { border: none; background: transparent; }")
-        self._grid_widget = QWidget()
-        bg = self._profile.splash_bg
-        self._grid_widget.setStyleSheet(
-            f"background: rgb({bg[0]},{bg[1]},{bg[2]});"
-        )
-        self._grid_layout = QGridLayout(self._grid_widget)
-        self._grid_layout.setSpacing(12)
-        self._grid_layout.setAlignment(Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignLeft)
-        self._scroll.setWidget(self._grid_widget)
-        main_layout.addWidget(self._scroll)
+        def make_preview(parent_widget):
+            return GamePreviewWithMetadata(self._profile, size=_PREVIEW_SIZE)
 
-        self._empty_label = QLabel("No hay ROMs. Elegí una carpeta de ROMs para comenzar.")
+        self._list_panel = ListWithPreviewPanel[RomEntry](
+            profile=self._profile,
+            list_width=300,
+            item_to_display=lambda e: e.display_name,
+            preview_widget_factory=make_preview,
+        )
+        self._list_panel.item_selected.connect(self._on_item_selected)
+        self._list_panel.item_activated.connect(self._on_item_activated)
+        self._list_panel.set_preview_updater(self._update_preview)
+        main_layout.addWidget(self._list_panel, 1)
+
+        self._footer = AppFooter(
+            actions=[(5, t("footer.back")), (4, t("footer.load"))],
+            input_config=input_config,
+            profile=self._profile,
+        )
+        main_layout.addWidget(self._footer)
+
+        self._empty_label = QLabel(t("library.empty"))
         fg = self._profile.splash_fg
         self._empty_label.setStyleSheet(
             f"color: rgb({fg[0]},{fg[1]},{fg[2]}); font-size: 14px;"
@@ -183,17 +210,83 @@ class LibraryWidget(QWidget):
         self._btn_back.clicked.connect(self.back_clicked)
         self._btn_open.clicked.connect(self.open_rom_clicked)
         self._btn_folder.clicked.connect(self.change_folder_clicked)
-        self._search.textChanged.connect(self._filter_cards)
+        self._search.textChanged.connect(self._filter_list)
 
-        bg_css = f"rgb({bg[0]},{bg[1]},{bg[2]})"
-        self.setStyleSheet(f"LibraryWidget {{ background: {bg_css}; }}")
+        bg = self._profile.splash_bg
+        self.setStyleSheet(f"LibraryWidget {{ background: rgb({bg[0]},{bg[1]},{bg[2]}); }}")
+
+    def _update_preview(self, entry: RomEntry | None):
+        preview = self._list_panel.get_preview_widget()
+        if not preview or not isinstance(preview, GamePreviewWithMetadata):
+            return
+        if entry is None:
+            preview.set_cover(None)
+            preview.set_title(t("library.select_game"))
+            preview.set_metadata(None)
+            return
+        card = self._cards.get(entry.raw_name)
+        pix = card._cover_label.pixmap() if card else None
+        preview.set_cover(pix if (pix and not pix.isNull()) else None)
+        preview.set_title(entry.display_name or "—")
+        self._metadata.fetch_metadata(
+            self._profile.thumbnail_system,
+            entry.raw_name,
+            lambda rn, meta: self._on_metadata_ready(rn, meta, entry),
+        )
+
+    def _on_metadata_ready(self, rom_name: str, meta, current_entry: RomEntry | None):
+        if current_entry and current_entry.raw_name == rom_name:
+            preview = self._list_panel.get_preview_widget()
+            if isinstance(preview, GamePreviewWithMetadata):
+                preview.set_metadata(meta)
+
+    def _on_item_selected(self, entry: RomEntry | None):
+        if entry:
+            self._update_preview(entry)
+
+    def _on_item_activated(self, entry: RomEntry):
+        """Doble clic o Enter en la lista → cargar ROM."""
+        self.rom_selected.emit(entry.path)
+
+    def set_profile(self, profile: ConsoleProfile):
+        self._profile = profile
+        self._header.set_profile(profile)
+        self._list_panel.set_profile(profile)
+        self._footer.set_profile(profile)
+        self._footer.set_actions([(5, t("footer.back")), (4, t("footer.load"))])
+        self._apply_profile_styles()
+
+    def _apply_profile_styles(self):
+        p = self._profile
+        btn_style = (
+            f"QPushButton {{ background: rgb({p.splash_bg[0]},{p.splash_bg[1]},{p.splash_bg[2]});"
+            f" color: rgb({p.splash_fg[0]},{p.splash_fg[1]},{p.splash_fg[2]});"
+            f" border: 1px solid rgb({p.splash_accent[0]},{p.splash_accent[1]},{p.splash_accent[2]});"
+            f" border-radius: 4px; padding: 6px 14px; font-family: monospace; font-weight: bold; }}"
+            f" QPushButton:hover {{ background: rgb({p.splash_accent[0]},{p.splash_accent[1]},{p.splash_accent[2]}); }}"
+        )
+        for btn in (self._btn_back, self._btn_open, self._btn_folder):
+            btn.setStyleSheet(btn_style)
+        self._search.setStyleSheet(
+            f"QLineEdit {{ background: rgb({p.splash_bg[0]},{p.splash_bg[1]},{p.splash_bg[2]});"
+            f" color: rgb({p.splash_fg[0]},{p.splash_fg[1]},{p.splash_fg[2]});"
+            f" border: 1px solid rgb({p.splash_accent[0]},{p.splash_accent[1]},{p.splash_accent[2]});"
+            f" border-radius: 4px; padding: 6px; font-family: monospace; }}"
+        )
+        self._empty_label.setStyleSheet(
+            f"color: rgb({p.splash_fg[0]},{p.splash_fg[1]},{p.splash_fg[2]}); font-size: 14px;"
+            f" font-family: monospace; padding: 40px;"
+        )
+        self.setStyleSheet(
+            f"LibraryWidget {{ background: rgb({p.splash_bg[0]},{p.splash_bg[1]},{p.splash_bg[2]}); }}"
+        )
 
     def load_roms(self, folder: str | None):
-        """Scan folder and populate the grid."""
-        self._clear_grid()
+        self._cards.clear()
+        self._all_entries = []
         if not folder or not os.path.isdir(folder):
             self._empty_label.show()
-            self._scroll.hide()
+            self._list_panel.hide()
             return
 
         entries = scan_folder(folder, self._profile.rom_extensions)
@@ -201,56 +294,38 @@ class LibraryWidget(QWidget):
 
         if not entries:
             self._empty_label.show()
-            self._scroll.hide()
+            self._list_panel.hide()
             return
 
         self._empty_label.hide()
-        self._scroll.show()
-        self._populate_grid(entries)
-        self._start_scraping()
-
-    def _populate_grid(self, entries: list[RomEntry]):
-        cols = max(1, (self._scroll.viewport().width() - 24) // (_CARD_W + 12))
-        for i, entry in enumerate(entries):
+        self._list_panel.show()
+        for entry in entries:
             card = GameCard(entry, self._profile)
-            card.clicked.connect(self.rom_selected)
             self._cards[entry.raw_name] = card
-            self._grid_layout.addWidget(card, i // cols, i % cols)
-
-    def _clear_grid(self):
-        self._cards.clear()
-        while self._grid_layout.count():
-            item = self._grid_layout.takeAt(0)
-            w = item.widget()
-            if w:
-                w.deleteLater()
+        self._list_panel.set_items(entries)
+        self._start_scraping()
+        if entries:
+            self._update_preview(entries[0])
 
     def _start_scraping(self):
-        if self._scraper is not None:
-            self._scraper.deleteLater()
-        self._scraper = CoverScraper(self._profile.thumbnail_system, parent=self)
-        self._scraper.cover_ready.connect(self._on_cover_ready)
         for entry in self._all_entries:
-            self._scraper.fetch(entry.raw_name)
+            self._metadata.fetch_boxart(
+                self._profile.thumbnail_system,
+                entry.raw_name,
+                self._on_cover_ready,
+            )
 
-    def _on_cover_ready(self, rom_name: str, pixmap: QPixmap):
+    def _on_cover_ready(self, rom_name: str, pixmap: QPixmap | None):
         card = self._cards.get(rom_name)
-        if card:
+        if card and pixmap and not pixmap.isNull():
             card.set_cover(pixmap)
+        current = self._list_panel.current_item()
+        if current and current.raw_name == rom_name:
+            self._update_preview(current)
 
-    def _filter_cards(self, text: str):
+    def _filter_list(self, text: str):
         query = text.lower().strip()
-        for raw_name, card in self._cards.items():
-            visible = not query or query in card._entry.display_name.lower()
-            card.setVisible(visible)
-
-    def resizeEvent(self, event):
-        super().resizeEvent(event)
-        if self._all_entries and self._cards:
-            self._reflow_grid()
-
-    def _reflow_grid(self):
-        visible = [c for c in self._cards.values() if not c.isHidden()]
-        cols = max(1, (self._scroll.viewport().width() - 24) // (_CARD_W + 12))
-        for i, card in enumerate(visible):
-            self._grid_layout.addWidget(card, i // cols, i % cols)
+        filtered = [e for e in self._all_entries if not query or query in e.display_name.lower()]
+        self._list_panel.set_items(filtered)
+        if filtered:
+            self._update_preview(filtered[0])

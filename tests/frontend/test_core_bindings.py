@@ -140,3 +140,25 @@ def test_save_load_roundtrip():
     os.remove(rom_path)
     if os.path.exists(state_path):
         os.remove(state_path)
+
+
+def test_load_genesis_rom():
+    """Genesis ROM loads and returns 320x224 video size (architecture resilience)."""
+    rom_path = os.path.join(tempfile.gettempdir(), "bitemu_py_test_genesis.bin")
+    rom_data = bytearray(0x200)
+    rom_data[0x100:0x104] = b"SEGA"
+    with open(rom_path, "wb") as f:
+        f.write(rom_data)
+
+    emu = Emu()
+    emu.create()
+    assert emu.load_rom(rom_path)
+    w, h = emu.get_video_size()
+    assert w == 320
+    assert h == 224
+    fb = emu.get_framebuffer()
+    assert fb is not None
+    assert len(fb) == 320 * 224
+    emu.destroy()
+
+    os.remove(rom_path)

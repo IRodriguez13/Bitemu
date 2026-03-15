@@ -289,11 +289,13 @@ TEST(api_load_state_invalid_path)
 
 static char FAKE_ROM_PATH[512];
 static char FAKE_ROM2_PATH[512];
+static char FAKE_GENESIS_ROM_PATH[512];
 
 static void init_test_paths(void)
 {
     snprintf(FAKE_ROM_PATH, sizeof(FAKE_ROM_PATH), "%s/bitemu_test_rom.gb", _tmp_dir());
     snprintf(FAKE_ROM2_PATH, sizeof(FAKE_ROM2_PATH), "%s/bitemu_test_rom2.gb", _tmp_dir());
+    snprintf(FAKE_GENESIS_ROM_PATH, sizeof(FAKE_GENESIS_ROM_PATH), "%s/bitemu_test_genesis.bin", _tmp_dir());
 }
 
 static void write_fake_rom(const char *path, uint8_t fill, size_t size)
@@ -305,6 +307,20 @@ static void write_fake_rom(const char *path, uint8_t fill, size_t size)
     buf[0x147] = 0x00;
     size_t n = size < sizeof(buf) ? size : sizeof(buf);
     fwrite(buf, 1, n, f);
+    fclose(f);
+}
+
+/* Genesis: "SEGA" at 0x100 (min 0x104 bytes) */
+static void write_fake_genesis_rom(const char *path, size_t size)
+{
+    FILE *f = fopen(path, "wb");
+    if (!f) return;
+    size_t n = size < 0x104 ? 0x104 : size;
+    uint8_t *buf = calloc(1, n);
+    if (!buf) { fclose(f); return; }
+    memcpy(buf + 0x100, "SEGA", 4);
+    fwrite(buf, 1, n, f);
+    free(buf);
     fclose(f);
 }
 
@@ -417,6 +433,46 @@ TEST(api_load_state_future_rejected)
     remove(FAKE_ROM_PATH);
 }
 
+/* --- Load Genesis ROM: validates multi-console architecture --- */
+
+TEST(api_load_genesis_rom)
+{
+    write_fake_genesis_rom(FAKE_GENESIS_ROM_PATH, 0x200);
+    bitemu_t *emu = bitemu_create();
+    ASSERT_TRUE(bitemu_load_rom(emu, FAKE_GENESIS_ROM_PATH));
+
+    int w = 0, h = 0;
+    bitemu_get_video_size(emu, &w, &h);
+    ASSERT_EQ(w, 320);
+    ASSERT_EQ(h, 224);
+
+    const uint8_t *fb = bitemu_get_framebuffer(emu);
+    ASSERT_TRUE(fb != NULL);
+
+    ASSERT_TRUE(bitemu_run_frame(emu));
+    bitemu_unload_rom(emu);
+    bitemu_destroy(emu);
+    remove(FAKE_GENESIS_ROM_PATH);
+}
+
+/* --- Genesis save/load roundtrip --- */
+
+TEST(api_save_load_genesis_roundtrip)
+{
+    const char *state_path = tmp_path("bitemu_test_genesis.bst");
+    write_fake_genesis_rom(FAKE_GENESIS_ROM_PATH, 0x200);
+    bitemu_t *emu = bitemu_create();
+    ASSERT_TRUE(bitemu_load_rom(emu, FAKE_GENESIS_ROM_PATH));
+
+    ASSERT_TRUE(bitemu_run_frame(emu));
+    ASSERT_EQ(bitemu_save_state(emu, state_path), 0);
+    ASSERT_EQ(bitemu_load_state(emu, state_path), 0);
+
+    bitemu_destroy(emu);
+    remove(state_path);
+    remove(FAKE_GENESIS_ROM_PATH);
+}
+
 void run_api_tests(void)
 {
     init_test_paths();
@@ -449,4 +505,6 @@ void run_api_tests(void)
     RUN(api_load_state_crc_mismatch);
     RUN(api_load_state_v1_rejected);
     RUN(api_load_state_future_rejected);
+    RUN(api_load_genesis_rom);
+    RUN(api_save_load_genesis_roundtrip);
 }

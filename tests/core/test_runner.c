@@ -18,6 +18,7 @@ extern void run_api_tests(void);
 extern void run_ppu_tests(void);
 extern void run_mbc2_tests(void);
 extern void run_abi_guard_tests(void);
+extern void run_genesis_abi_guard_tests(void);
 
 int main(void)
 {
@@ -30,6 +31,7 @@ int main(void)
     run_ppu_tests();
     run_mbc2_tests();
     run_abi_guard_tests();
+    run_genesis_abi_guard_tests();
 
     REPORT();
 }

@@ -13,8 +13,8 @@
 
 static void usage(const char *prog) 
 {
-    fprintf(stderr, "Uso: %s -rom <archivo.gb> [--cli]\n", prog);
-    fprintf(stderr, "  -rom    Cargar ROM\n");
+    fprintf(stderr, "Uso: %s -rom <archivo> [--cli]\n", prog);
+    fprintf(stderr, "  -rom    Cargar ROM (.gb Game Boy, .md/.gen Genesis)\n");
     fprintf(stderr, "  --cli   Modo headless (sin ventana)\n");
 }
 
@@ -60,7 +60,7 @@ int main(int argc, char *argv[])
 
     log_info("ROM cargada. Ejecutando (Ctrl+C para salir)...");
 
-    while (1) 
+    for(;;) 
     {
         bitemu_poll_input(emu);  /* CLI: leer teclado antes de cada frame */
         if (!bitemu_run_frame(emu)) break;

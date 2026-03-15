@@ -1,6 +1,6 @@
 # Bitemu
 
-Game Boy emulator with a generic engine designed for future console editions (Genesis, GBA, etc.).
+Multi-console emulator: Game Boy (BE1) and Sega Genesis (BE2, stub). Generic engine designed for future editions (GBA, etc.).
 
 **Author:** [Iván Ezequiel Rodriguez](https://github.com/IRodriguez13)
 
@@ -31,7 +31,7 @@ Game Boy emulator with a generic engine designed for future console editions (Ge
 ### Infrastructure
 - Automatic update notifications — checks GitHub Releases API on startup, prompts download if newer version exists
 - CI/CD pipeline — automated builds on Windows, macOS, and Linux with native packaging (AppImage, DMG, Inno Setup)
-- 148 automated tests (67 C core + 81 Python frontend) including ABI guard for save state binary compatibility
+- 157 automated tests (77 C core + 81 Python frontend) including ABI guard for save state binary compatibility (GB + Genesis)
 - Version injection from git tags
 
 ## Architecture
@@ -47,9 +47,9 @@ The core defines a generic `console_ops_t` interface. Each console (Game Boy, fu
           │ console_ops_t
           ▼
 ┌─────────────────┐     ┌─────────────────┐
-│   BE1 - GB      │     │  Future: BE2,   │
-│   CPU, PPU,     │     │  BE_GBA, etc.   │
-│   APU, Memory   │     │                 │
+│   BE1 - GB      │     │  BE2 - Genesis  │
+│   CPU, PPU,     │     │  (stub, v1.0)   │
+│   APU, Memory   │     │  Future: GBA    │
 └─────────────────┘     └─────────────────┘
           │
           ▼
@@ -66,6 +66,7 @@ The core defines a generic `console_ops_t` interface. Each console (Game Boy, fu
 bitemu/
 ├── core/              # Generic engine (console.h, engine, timing, input, utils, crc32)
 ├── be1/               # Game Boy backend (cpu, ppu, apu, memory, timer)
+├── be2/               # Genesis backend (stub: ROM load, 320×224 framebuffer)
 ├── include/           # Public API (bitemu.h)
 ├── src/               # API implementation (bitemu.c)
 ├── frontend/          # GUI frontend (Python + PySide6)
@@ -120,8 +121,8 @@ make run
 ## Tests
 
 ```bash
-make test          # all tests (148 total)
-make test-core     # C core tests (67 tests: memory, APU, timer, API, PPU, MBC2, ABI guard)
+make test          # all tests (158 total)
+make test-core     # C core tests (77 tests: memory, APU, timer, API, PPU, MBC2, Genesis, ABI guard GB+Genesis)
 make test-frontend # Python frontend tests (81 tests: bindings, keys, input config, profile, ROM scanner, scraper, update checker, bundle deps)
 ```
 

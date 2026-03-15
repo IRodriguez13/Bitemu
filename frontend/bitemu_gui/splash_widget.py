@@ -1,6 +1,6 @@
 """
-Splash / Main Menu — BITEMU pixel-art logo with Start, Options, and Quit buttons.
-Replaces the old in-GameWidget splash; acts as the app's home screen.
+Splash / Main Menu — BITEMU logo, Start, Options, Quit.
+Botón Start lleva al Lobby (selector de consola).
 """
 from typing import Callable
 
@@ -16,6 +16,7 @@ from PySide6.QtWidgets import (
 )
 
 from .profile import ConsoleProfile, DEFAULT_PROFILE
+from .i18n import t
 from . import get_version
 
 _SPLASH_CHARS = {
@@ -33,20 +34,8 @@ def _qcolor(rgb: tuple[int, int, int]) -> QColor:
     return QColor(rgb[0], rgb[1], rgb[2])
 
 
-def _btn_style(bg: tuple[int, int, int], fg: tuple[int, int, int], accent: tuple[int, int, int]) -> str:
-    bg_css = f"rgb({bg[0]},{bg[1]},{bg[2]})"
-    fg_css = f"rgb({fg[0]},{fg[1]},{fg[2]})"
-    acc_css = f"rgb({accent[0]},{accent[1]},{accent[2]})"
-    return (
-        f"QPushButton {{ background: {bg_css}; color: {fg_css}; border: 2px solid {acc_css};"
-        f" border-radius: 6px; padding: 10px 32px; font-family: monospace;"
-        f" font-size: 16px; font-weight: bold; }}"
-        f" QPushButton:hover {{ background: {acc_css}; }}"
-    )
-
-
 class SplashWidget(QWidget):
-    """Main menu screen with BITEMU logo and navigation buttons."""
+    """Menú principal: logo + Start + Options + Quit."""
 
     start_clicked = Signal()
     options_clicked = Signal()
@@ -63,39 +52,45 @@ class SplashWidget(QWidget):
         self._on_show_sound = on_show_sound
         self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
 
-        style = _btn_style(self._profile.splash_bg, self._profile.splash_fg, self._profile.splash_accent)
-
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
 
         layout.addSpacerItem(QSpacerItem(0, 0, QSizePolicy.Policy.Minimum, QSizePolicy.Policy.Expanding))
 
-        btn_layout = QVBoxLayout()
-        btn_layout.setSpacing(12)
+        # Start + Options + Quit
+        btn_layout = QHBoxLayout()
+        btn_layout.setSpacing(16)
         btn_layout.setAlignment(Qt.AlignmentFlag.AlignHCenter)
-
-        self._btn_start = QPushButton("Start")
-        self._btn_options = QPushButton("Opciones")
-        self._btn_quit = QPushButton("Cerrar Bitemu")
-
+        self._btn_start = QPushButton(t("splash.start"))
+        self._btn_options = QPushButton(t("splash.options"))
+        self._btn_quit = QPushButton(t("splash.quit"))
         for btn in (self._btn_start, self._btn_options, self._btn_quit):
-            btn.setMinimumWidth(220)
+            btn.setMinimumWidth(160)
             btn.setCursor(Qt.CursorShape.PointingHandCursor)
-            btn.setStyleSheet(style)
-            btn_layout.addWidget(btn, alignment=Qt.AlignmentFlag.AlignHCenter)
+            self._apply_btn_style(btn)
+            btn_layout.addWidget(btn)
 
         layout.addLayout(btn_layout)
         layout.addSpacerItem(QSpacerItem(0, 40, QSizePolicy.Policy.Minimum, QSizePolicy.Policy.Fixed))
 
-        self._btn_start.clicked.connect(self.start_clicked)
+        self._btn_start.clicked.connect(self.start_clicked.emit)
         self._btn_options.clicked.connect(self.options_clicked)
         self._btn_quit.clicked.connect(self.quit_clicked)
 
         def _maybe_play_ding():
             if self._on_show_sound:
                 self._on_show_sound()
-
         QTimer.singleShot(300, _maybe_play_ding)
+
+    def _apply_btn_style(self, btn: QPushButton):
+        p = self._profile
+        btn.setStyleSheet(
+            f"QPushButton {{ background: rgb({p.splash_bg[0]},{p.splash_bg[1]},{p.splash_bg[2]});"
+            f" color: rgb({p.splash_fg[0]},{p.splash_fg[1]},{p.splash_fg[2]});"
+            f" border: 2px solid rgb({p.splash_accent[0]},{p.splash_accent[1]},{p.splash_accent[2]});"
+            " border-radius: 6px; padding: 10px 24px; font-family: monospace; font-size: 14px; font-weight: bold; }"
+            f" QPushButton:hover {{ background: rgb({p.splash_accent[0]},{p.splash_accent[1]},{p.splash_accent[2]}); }}"
+        )
 
     def paintEvent(self, event):
         super().paintEvent(event)
@@ -153,7 +148,20 @@ class SplashWidget(QWidget):
         painter.drawText(
             margin, rh - credit_font.pixelSize() - margin, rw, credit_font.pixelSize(),
             Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop,
-            "Created by: Iván Ezequiel Rodriguez",
+            t("splash.credit"),
         )
 
+        # Efecto CRT noventero: scanlines sutiles
+        painter.setCompositionMode(QPainter.CompositionMode.CompositionMode_Multiply)
+        scan_color = QColor(0, 0, 0, 12)
+        for y in range(0, rh, 3):
+            painter.fillRect(0, y, rw, 1, scan_color)
+        painter.setCompositionMode(QPainter.CompositionMode.CompositionMode_SourceOver)
+
         painter.end()
+
+    def retranslate(self):
+        """Actualiza textos al cambiar idioma."""
+        self._btn_start.setText(t("splash.start"))
+        self._btn_options.setText(t("splash.options"))
+        self._btn_quit.setText(t("splash.quit"))

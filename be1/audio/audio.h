@@ -14,6 +14,7 @@
 typedef struct bitemu_audio
 {
     bool enabled;
+    float volume;    /* 0.0–1.0, aplicado al leer/escribir a dispositivo */
     int sample_rate;
     int channels;
     int16_t *buffer;

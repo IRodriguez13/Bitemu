@@ -141,7 +141,7 @@ jobs:
           done
 
           ./venv/bin/pyinstaller --onedir --name bitemu \
-            --icon "assets/icon.png" \
+            --icon "assets/bitemu-web.png" \
             --runtime-hook "hooks/rthook_portaudio.py" \
             --add-data "../VERSION:." \
             --add-binary "../libbitemu.so:." \
@@ -159,7 +159,7 @@ jobs:
           cd frontend
 
           ./venv/bin/pyinstaller --onedir --name bitemu \
-            --icon "assets/icon.png" \
+            --icon "assets/bitemu-web.png" \
             --runtime-hook "hooks/rthook_portaudio.py" \
             --add-data "../VERSION:." \
             --add-binary "../libbitemu.dylib:." \
@@ -188,7 +188,7 @@ jobs:
         run: |
           cd frontend
           venv/Scripts/pyinstaller --onedir --name bitemu \
-            --icon "assets/icon.png" \
+            --icon "assets/bitemu-web.png" \
             --runtime-hook "hooks/rthook_portaudio.py" \
             --add-data "../VERSION;." \
             --add-binary "../bitemu.dll;." \
@@ -239,9 +239,9 @@ jobs:
           cp AppDir/bitemu.desktop AppDir/usr/share/applications/
 
           # Icon from project assets
-          if [ -f frontend/assets/icon.png ]; then
-            cp frontend/assets/icon.png AppDir/usr/share/icons/hicolor/256x256/apps/bitemu.png
-            cp frontend/assets/icon.png AppDir/bitemu.png
+          if [ -f frontend/assets/bitemu-web.png ]; then
+            cp frontend/assets/bitemu-web.png AppDir/usr/share/icons/hicolor/256x256/apps/bitemu.png
+            cp frontend/assets/bitemu-web.png AppDir/bitemu.png
           fi
 
           # AppRun: libbitemu usa ALSA (sin PortAudio)

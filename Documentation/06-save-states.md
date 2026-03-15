@@ -118,7 +118,7 @@ console's structs get their own ABI Guard test in their respective
 test suite.
 
 ```
-tests/core/test_abi_guard.c       ← Game Boy structs
-tests/be2/test_abi_guard.c        ← Genesis structs (future)
+tests/core/test_abi_guard.c       ← Game Boy structs (gb_cpu_t, gb_ppu_t, gb_apu_t)
+tests/be2/test_abi_guard.c        ← Genesis structs (gen_cpu_t, gen_vdp_t)
 tests/be3/test_abi_guard.c        ← GBA structs (future)
 ```

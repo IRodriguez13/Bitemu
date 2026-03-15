@@ -40,6 +40,14 @@ class GameWidget(QWidget):
     def set_emu(self, emu: Emu | None):
         self._emu = emu
 
+    def set_profile(self, profile: ConsoleProfile):
+        """Cambiar perfil (ej. al elegir otra edición en el lobby)."""
+        self._profile = profile
+        self.setMinimumSize(
+            self._profile.fb_width * 2,
+            self._profile.fb_height * 2,
+        )
+
     def set_paused(self, paused: bool):
         self._paused = paused
 
@@ -94,7 +102,7 @@ class GameWidget(QWidget):
             return
 
         fb = self._emu.get_framebuffer()
-        w, h = self._profile.fb_width, self._profile.fb_height
+        w, h = self._emu.get_video_size()
         if fb is None or len(fb) < w * h:
             painter.fillRect(0, 0, rw, rh, QColor(0, 0, 0))
             painter.end()

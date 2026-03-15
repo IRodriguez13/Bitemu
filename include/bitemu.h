@@ -42,6 +42,7 @@ typedef struct
 
 int bitemu_audio_init(bitemu_t *emu, bitemu_audio_backend_t back, const bitemu_audio_config_t *config);
 void bitemu_audio_set_enabled(bitemu_t *emu, bool enabled);
+void bitemu_audio_set_volume(bitemu_t *emu, float volume);  /* 0.0–1.0 */
 
 /* Sonidos de sistema (chirp al cargar ROM, ding al mostrar splash) */
 void bitemu_audio_play_chirp(bitemu_t *emu);

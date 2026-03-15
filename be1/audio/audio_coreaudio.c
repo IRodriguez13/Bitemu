@@ -48,9 +48,13 @@ static void coreaudio_callback(void *userdata, AudioQueueRef queue, AudioQueueBu
         size_t avail = (wr >= rd) ? (wr - rd) : (size - rd + wr);
         if (avail > (size_t)max_frames)
             avail = (size_t)max_frames;
+        float vol = a->volume;
         for (size_t i = 0; i < avail; i++)
         {
-            out[i] = a->buffer[rd];
+            int32_t v = (int32_t)(a->buffer[rd] * vol);
+            if (v > 32767) v = 32767;
+            if (v < -32768) v = -32768;
+            out[i] = (int16_t)v;
             rd = (rd + 1) % size;
         }
         a->read_pos = rd;

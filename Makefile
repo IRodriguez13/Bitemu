@@ -33,19 +33,22 @@ LIB_TARGET = libbitemu.$(LIB_EXT)
 CORE_DIR = core
 UTILS_DIR = core/utils
 BE1_DIR = be1
+BE2_DIR = be2
 SRC_DIR = src
 
 CORE_SRCS = $(CORE_DIR)/engine.c $(CORE_DIR)/timing.c $(CORE_DIR)/input.c
 UTILS_SRCS = $(UTILS_DIR)/log.c $(UTILS_DIR)/helpers.c $(UTILS_DIR)/crc32.c
 BE1_SRCS = $(BE1_DIR)/console.c $(BE1_DIR)/cpu/cpu.c $(BE1_DIR)/cpu/cpu_handlers.c $(BE1_DIR)/ppu.c $(BE1_DIR)/apu.c $(BE1_DIR)/timer.c $(BE1_DIR)/memory.c $(BE1_DIR)/input.c $(BE1_AUDIO_SRCS)
+BE2_SRCS = $(BE2_DIR)/console.c $(BE2_DIR)/memory.c $(BE2_DIR)/vdp/vdp.c $(BE2_DIR)/ym2612/ym2612.c $(BE2_DIR)/psg/psg.c $(BE2_DIR)/cpu/cpu.c $(BE2_DIR)/cpu/cpu_handlers.c $(BE2_DIR)/input.c
 API_SRCS = $(SRC_DIR)/bitemu.c
 
-CLI_SRCS = main_cli.c $(API_SRCS) $(CORE_SRCS) $(UTILS_SRCS) $(BE1_SRCS)
+CLI_SRCS = main_cli.c $(API_SRCS) $(CORE_SRCS) $(UTILS_SRCS) $(BE1_SRCS) $(BE2_SRCS)
 CLI_OBJS = $(CLI_SRCS:.c=.o)
 CLI_TARGET = bitemu-cli
 
 TEST_DIR   = tests/core
-TEST_SRCS  = $(TEST_DIR)/test_runner.c $(TEST_DIR)/test_memory.c $(TEST_DIR)/test_apu.c $(TEST_DIR)/test_timer.c $(TEST_DIR)/test_api.c $(TEST_DIR)/test_ppu.c $(TEST_DIR)/test_mbc2.c $(TEST_DIR)/test_abi_guard.c
+TEST_BE2   = tests/be2
+TEST_SRCS  = $(TEST_DIR)/test_runner.c $(TEST_DIR)/test_memory.c $(TEST_DIR)/test_apu.c $(TEST_DIR)/test_timer.c $(TEST_DIR)/test_api.c $(TEST_DIR)/test_ppu.c $(TEST_DIR)/test_mbc2.c $(TEST_DIR)/test_abi_guard.c $(TEST_BE2)/test_abi_guard.c
 TEST_BIN   = build/test_runner
 VENV       = frontend/venv/bin
 
@@ -81,7 +84,7 @@ lib: $(LIB_TARGET)
 $(CLI_TARGET): $(CLI_OBJS)
 	$(CC) $(CLI_OBJS) -o $@ $(LDFLAGS) $(LIB_LIBS)
 
-LIB_SRCS = $(API_SRCS) $(CORE_SRCS) $(UTILS_SRCS) $(BE1_SRCS)
+LIB_SRCS = $(API_SRCS) $(CORE_SRCS) $(UTILS_SRCS) $(BE1_SRCS) $(BE2_SRCS)
 LIB_OBJS = $(patsubst %.c,build/lib/%.o,$(LIB_SRCS))
 $(LIB_TARGET): $(LIB_OBJS)
 	$(CC) -shared -o $@ $(LIB_OBJS) $(LDFLAGS) $(LIB_LIBS)

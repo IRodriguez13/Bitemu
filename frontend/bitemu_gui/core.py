@@ -8,6 +8,7 @@ from ctypes import (
     CDLL,
     c_void_p,
     c_bool,
+    c_float,
     c_uint8,
     c_int,
     c_short,
@@ -43,7 +44,7 @@ _LIB_PATH = _find_lib()
 
 FB_WIDTH = 160
 FB_HEIGHT = 144
-FB_SIZE = FB_WIDTH * FB_HEIGHT
+FB_SIZE = FB_WIDTH * FB_HEIGHT  # Default GB; use get_video_size() after load_rom for Genesis
 
 # Audio backends
 AUDIO_BACKEND_NULL = 2    # Buffer only (legacy)
@@ -67,6 +68,8 @@ def _load_lib():
     lib.bitemu_run_frame.restype = c_bool
     lib.bitemu_get_framebuffer.argtypes = [c_void_p]
     lib.bitemu_get_framebuffer.restype = POINTER(c_uint8)
+    lib.bitemu_get_video_size.argtypes = [c_void_p, POINTER(c_int), POINTER(c_int)]
+    lib.bitemu_get_video_size.restype = None
     lib.bitemu_set_input.argtypes = [c_void_p, c_uint8]
     lib.bitemu_reset.argtypes = [c_void_p]
     lib.bitemu_unload_rom.argtypes = [c_void_p]
@@ -78,6 +81,8 @@ def _load_lib():
     lib.bitemu_audio_init.argtypes = [c_void_p, c_int, c_void_p]
     lib.bitemu_audio_init.restype = c_int
     lib.bitemu_audio_set_enabled.argtypes = [c_void_p, c_bool]
+    lib.bitemu_audio_set_volume.argtypes = [c_void_p, c_float]
+    lib.bitemu_audio_set_volume.restype = None
     lib.bitemu_audio_play_chirp.argtypes = [c_void_p]
     lib.bitemu_audio_play_chirp.restype = None
     lib.bitemu_audio_play_ding.argtypes = [c_void_p]
@@ -126,14 +131,24 @@ class Emu:
             return False
         return self._lib.bitemu_run_frame(self._handle)
 
+    def get_video_size(self) -> tuple[int, int]:
+        """(width, height) — 160×144 GB, 320×224 Genesis."""
+        if self._handle is None:
+            return FB_WIDTH, FB_HEIGHT
+        w, h = c_int(), c_int()
+        self._lib.bitemu_get_video_size(self._handle, byref(w), byref(h))
+        return w.value or FB_WIDTH, h.value or FB_HEIGHT
+
     def get_framebuffer(self):
         if self._handle is None:
             return None
         ptr = self._lib.bitemu_get_framebuffer(self._handle)
         if not ptr:
             return None
+        w, h = self.get_video_size()
+        size = w * h
         addr = cast(ptr, c_void_p).value
-        return (c_uint8 * FB_SIZE).from_address(addr)
+        return (c_uint8 * size).from_address(addr)
 
     def set_input(self, state: int):
         if self._handle is not None:
@@ -166,6 +181,12 @@ class Emu:
     def set_audio_enabled(self, enabled: bool):
         if self._handle is not None:
             self._lib.bitemu_audio_set_enabled(self._handle, enabled)
+
+    def set_audio_volume(self, volume: float):
+        """Volumen 0.0–1.0. Se aplica al leer del buffer."""
+        if self._handle is not None:
+            v = max(0.0, min(1.0, float(volume)))
+            self._lib.bitemu_audio_set_volume(self._handle, v)
 
     def play_chirp(self):
         """Bip al cargar ROM (reproducido por el core)."""
