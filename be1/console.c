@@ -9,6 +9,7 @@
  */
 
 #include "core/console.h"
+#include "core/savestate.h"
 #include "gb_impl.h"
 #include "cpu/cpu.h"
 #include "ppu.h"
@@ -24,11 +25,6 @@
 #include <string.h>
 #include <stdio.h>
 #include <time.h>
-
-/* .bst save state format constants */
-#define BST_MAGIC       "BEMU"
-#define BST_VERSION     3
-#define BST_CONSOLE_GB  1
 
 static void gb_init(console_t *ctx)
 {
@@ -129,57 +125,6 @@ static void gb_get_video_info(const console_t *ctx, int *width, int *height)
 
 /* ----- Save state (.bst) ----- */
 
-typedef struct 
-{
-    char     magic[4];
-    uint32_t version;
-    uint32_t console_id;
-    uint32_t rom_crc32;
-    uint32_t state_size;
-} bst_header_t;
-
-static int write_all(FILE *f, const void *buf, size_t n)
-{
-    return fwrite(buf, 1, n, f) == n ? 0 : -1;
-}
-
-static int read_all(FILE *f, void *buf, size_t n)
-{
-    return fread(buf, 1, n, f) == n ? 0 : -1;
-}
-
-/*
- * Section-based I/O: each section is prefixed with a uint32_t byte count.
- * On load, if the stored section is smaller than the current struct, the
- * extra fields (which MUST live at the end of the struct) are zero-filled.
- * If the stored section is larger (save from a newer Bitemu), the unknown
- * tail bytes are skipped.  This gives forward+backward compat for free
- * as long as new fields are always appended.
- */
-static int write_section(FILE *f, const void *data, uint32_t size)
-{
-    int err = write_all(f, &size, sizeof(size));
-    err |= write_all(f, data, size);
-    return err;
-}
-
-static int read_section(FILE *f, void *dest, uint32_t dest_size)
-{
-    uint32_t stored;
-    if (read_all(f, &stored, sizeof(stored)) != 0)
-        return -1;
-    memset(dest, 0, dest_size);
-    uint32_t to_read = stored < dest_size ? stored : dest_size;
-    if (to_read > 0 && read_all(f, dest, to_read) != 0)
-        return -1;
-    if (stored > dest_size)
-    {
-        if (fseek(f, (long)(stored - dest_size), SEEK_CUR) != 0)
-            return -1;
-    }
-    return 0;
-}
-
 /* Compute memory-section byte count (all fields after rom/rom_size). */
 static uint32_t mem_section_size(const gb_mem_t *m)
 {
@@ -203,69 +148,69 @@ static int write_mem_fields(FILE *f, const gb_mem_t *m)
 {
     int err = 0;
     uint32_t sz = mem_section_size(m);
-    err |= write_all(f, &sz, sizeof(sz));
+    err |= bst_write_all(f, &sz, sizeof(sz));
 
-    err |= write_all(f, &m->rom_bank, 1);
-    err |= write_all(f, &m->cart_type, 1);
-    err |= write_all(f, &m->mbc5_rom_bank_high, 1);
-    err |= write_all(f, m->ext_ram, sizeof(m->ext_ram));
-    err |= write_all(f, &m->ext_ram_bank, 1);
-    err |= write_all(f, &m->ext_ram_enabled, 1);
-    err |= write_all(f, m->wram, sizeof(m->wram));
-    err |= write_all(f, m->vram, sizeof(m->vram));
-    err |= write_all(f, m->oam, sizeof(m->oam));
-    err |= write_all(f, m->hram, sizeof(m->hram));
-    err |= write_all(f, m->io, sizeof(m->io));
-    err |= write_all(f, &m->ie, 1);
-    err |= write_all(f, &m->timer_div, 2);
-    err |= write_all(f, &m->rtc_s, 1);
-    err |= write_all(f, &m->rtc_m, 1);
-    err |= write_all(f, &m->rtc_h, 1);
-    err |= write_all(f, &m->rtc_dl, 1);
-    err |= write_all(f, &m->rtc_dh, 1);
-    err |= write_all(f, m->rtc_latched, sizeof(m->rtc_latched));
-    err |= write_all(f, &m->rtc_latch_prev, 1);
-    err |= write_all(f, &m->rtc_last_sync, sizeof(m->rtc_last_sync));
-    err |= write_all(f, &m->joypad_state, 1);
-    err |= write_all(f, &m->apu_trigger_flags, 1);
-    err |= write_all(f, &m->mbc1_mode, 1);
+    err |= bst_write_all(f, &m->rom_bank, 1);
+    err |= bst_write_all(f, &m->cart_type, 1);
+    err |= bst_write_all(f, &m->mbc5_rom_bank_high, 1);
+    err |= bst_write_all(f, m->ext_ram, sizeof(m->ext_ram));
+    err |= bst_write_all(f, &m->ext_ram_bank, 1);
+    err |= bst_write_all(f, &m->ext_ram_enabled, 1);
+    err |= bst_write_all(f, m->wram, sizeof(m->wram));
+    err |= bst_write_all(f, m->vram, sizeof(m->vram));
+    err |= bst_write_all(f, m->oam, sizeof(m->oam));
+    err |= bst_write_all(f, m->hram, sizeof(m->hram));
+    err |= bst_write_all(f, m->io, sizeof(m->io));
+    err |= bst_write_all(f, &m->ie, 1);
+    err |= bst_write_all(f, &m->timer_div, 2);
+    err |= bst_write_all(f, &m->rtc_s, 1);
+    err |= bst_write_all(f, &m->rtc_m, 1);
+    err |= bst_write_all(f, &m->rtc_h, 1);
+    err |= bst_write_all(f, &m->rtc_dl, 1);
+    err |= bst_write_all(f, &m->rtc_dh, 1);
+    err |= bst_write_all(f, m->rtc_latched, sizeof(m->rtc_latched));
+    err |= bst_write_all(f, &m->rtc_latch_prev, 1);
+    err |= bst_write_all(f, &m->rtc_last_sync, sizeof(m->rtc_last_sync));
+    err |= bst_write_all(f, &m->joypad_state, 1);
+    err |= bst_write_all(f, &m->apu_trigger_flags, 1);
+    err |= bst_write_all(f, &m->mbc1_mode, 1);
     return err;
 }
 
 static int read_mem_fields(FILE *f, gb_mem_t *m, uint32_t version)
 {
     uint32_t stored;
-    if (read_all(f, &stored, sizeof(stored)) != 0)
+    if (bst_read_all(f, &stored, sizeof(stored)) != 0)
         return -1;
 
     long start = ftell(f);
     int err = 0;
-    err |= read_all(f, &m->rom_bank, 1);
-    err |= read_all(f, &m->cart_type, 1);
-    err |= read_all(f, &m->mbc5_rom_bank_high, 1);
-    err |= read_all(f, m->ext_ram, sizeof(m->ext_ram));
-    err |= read_all(f, &m->ext_ram_bank, 1);
-    err |= read_all(f, &m->ext_ram_enabled, 1);
-    err |= read_all(f, m->wram, sizeof(m->wram));
-    err |= read_all(f, m->vram, sizeof(m->vram));
-    err |= read_all(f, m->oam, sizeof(m->oam));
-    err |= read_all(f, m->hram, sizeof(m->hram));
-    err |= read_all(f, m->io, sizeof(m->io));
-    err |= read_all(f, &m->ie, 1);
-    err |= read_all(f, &m->timer_div, 2);
-    err |= read_all(f, &m->rtc_s, 1);
-    err |= read_all(f, &m->rtc_m, 1);
-    err |= read_all(f, &m->rtc_h, 1);
-    err |= read_all(f, &m->rtc_dl, 1);
-    err |= read_all(f, &m->rtc_dh, 1);
-    err |= read_all(f, m->rtc_latched, sizeof(m->rtc_latched));
-    err |= read_all(f, &m->rtc_latch_prev, 1);
+    err |= bst_read_all(f, &m->rom_bank, 1);
+    err |= bst_read_all(f, &m->cart_type, 1);
+    err |= bst_read_all(f, &m->mbc5_rom_bank_high, 1);
+    err |= bst_read_all(f, m->ext_ram, sizeof(m->ext_ram));
+    err |= bst_read_all(f, &m->ext_ram_bank, 1);
+    err |= bst_read_all(f, &m->ext_ram_enabled, 1);
+    err |= bst_read_all(f, m->wram, sizeof(m->wram));
+    err |= bst_read_all(f, m->vram, sizeof(m->vram));
+    err |= bst_read_all(f, m->oam, sizeof(m->oam));
+    err |= bst_read_all(f, m->hram, sizeof(m->hram));
+    err |= bst_read_all(f, m->io, sizeof(m->io));
+    err |= bst_read_all(f, &m->ie, 1);
+    err |= bst_read_all(f, &m->timer_div, 2);
+    err |= bst_read_all(f, &m->rtc_s, 1);
+    err |= bst_read_all(f, &m->rtc_m, 1);
+    err |= bst_read_all(f, &m->rtc_h, 1);
+    err |= bst_read_all(f, &m->rtc_dl, 1);
+    err |= bst_read_all(f, &m->rtc_dh, 1);
+    err |= bst_read_all(f, m->rtc_latched, sizeof(m->rtc_latched));
+    err |= bst_read_all(f, &m->rtc_latch_prev, 1);
     if (version >= 3 && stored - (uint32_t)(ftell(f) - start) >= sizeof(m->rtc_last_sync))
-        err |= read_all(f, &m->rtc_last_sync, sizeof(m->rtc_last_sync));
+        err |= bst_read_all(f, &m->rtc_last_sync, sizeof(m->rtc_last_sync));
     else if (m->cart_type >= 0x0F && m->cart_type <= 0x13)
         m->rtc_last_sync = (uint64_t)time(NULL);
-    err |= read_all(f, &m->joypad_state, 1);
-    err |= read_all(f, &m->apu_trigger_flags, 1);
+    err |= bst_read_all(f, &m->joypad_state, 1);
+    err |= bst_read_all(f, &m->apu_trigger_flags, 1);
 
     long consumed = ftell(f) - start;
     if (consumed >= 0 && (uint32_t)consumed < stored)
@@ -273,7 +218,7 @@ static int read_mem_fields(FILE *f, gb_mem_t *m, uint32_t version)
         m->mbc1_mode = 0;
         if (stored - (uint32_t)consumed >= 1)
         {
-            err |= read_all(f, &m->mbc1_mode, 1);
+            err |= bst_read_all(f, &m->mbc1_mode, 1);
             consumed++;
         }
         if ((uint32_t)consumed < stored)
@@ -299,18 +244,11 @@ static int gb_save_state(console_t *ctx, const char *path)
     if (!f)
         return -1;
 
-    bst_header_t hdr;
-    memcpy(hdr.magic, BST_MAGIC, 4);
-    hdr.version    = BST_VERSION;
-    hdr.console_id = BST_CONSOLE_GB;
-    hdr.rom_crc32  = bitemu_crc32(m->rom, m->rom_size);
-    hdr.state_size = 0;
-
     int err = 0;
-    err |= write_all(f, &hdr, sizeof(hdr));
-    err |= write_section(f, &impl->cpu, (uint32_t)sizeof(gb_cpu_t));
-    err |= write_section(f, &impl->ppu, (uint32_t)sizeof(gb_ppu_t));
-    err |= write_section(f, &impl->apu, (uint32_t)sizeof(gb_apu_t));
+    err |= bst_write_header(f, BST_CONSOLE_GB, bitemu_crc32(m->rom, m->rom_size));
+    err |= bst_write_section(f, &impl->cpu, (uint32_t)sizeof(gb_cpu_t));
+    err |= bst_write_section(f, &impl->ppu, (uint32_t)sizeof(gb_ppu_t));
+    err |= bst_write_section(f, &impl->apu, (uint32_t)sizeof(gb_apu_t));
     err |= write_mem_fields(f, m);
 
     fclose(f);
@@ -337,41 +275,13 @@ static int gb_load_state(console_t *ctx, const char *path)
         return -1;
 
     bst_header_t hdr;
-    if (read_all(f, &hdr, sizeof(hdr)) != 0)
+    if (bst_read_header(f, &hdr) != 0)
     {
         fclose(f);
         return -1;
     }
-
-    if (memcmp(hdr.magic, BST_MAGIC, 4) != 0 ||
-        hdr.console_id != BST_CONSOLE_GB)
+    if (bst_validate_header(&hdr, BST_CONSOLE_GB, bitemu_crc32(m->rom, m->rom_size)) != 0)
     {
-        log_error("Invalid save state header: %s", path);
-        fclose(f);
-        return -1;
-    }
-
-    if (hdr.version < BST_VERSION)
-    {
-        log_error("Save state v%u is obsolete (need v%u). "
-                  "Please load the ROM and re-save.", hdr.version, BST_VERSION);
-        fclose(f);
-        return -1;
-    }
-
-    if (hdr.version > BST_VERSION)
-    {
-        log_error("Save state v%u was created by a newer Bitemu (current: v%u). "
-                  "Please update Bitemu.", hdr.version, BST_VERSION);
-        fclose(f);
-        return -1;
-    }
-
-    uint32_t current_crc = bitemu_crc32(m->rom, m->rom_size);
-    if (hdr.rom_crc32 != current_crc)
-    {
-        log_error("ROM CRC mismatch in state file (expected %08X, got %08X)",
-                  current_crc, hdr.rom_crc32);
         fclose(f);
         return -1;
     }
@@ -381,9 +291,9 @@ static int gb_load_state(console_t *ctx, const char *path)
     void *saved_audio = impl->audio_output;
 
     int err = 0;
-    err |= read_section(f, &impl->cpu, (uint32_t)sizeof(gb_cpu_t));
-    err |= read_section(f, &impl->ppu, (uint32_t)sizeof(gb_ppu_t));
-    err |= read_section(f, &impl->apu, (uint32_t)sizeof(gb_apu_t));
+    err |= bst_read_section(f, &impl->cpu, (uint32_t)sizeof(gb_cpu_t));
+    err |= bst_read_section(f, &impl->ppu, (uint32_t)sizeof(gb_ppu_t));
+    err |= bst_read_section(f, &impl->apu, (uint32_t)sizeof(gb_apu_t));
     err |= read_mem_fields(f, m, hdr.version);
 
     fclose(f);

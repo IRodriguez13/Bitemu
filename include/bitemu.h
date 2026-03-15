@@ -76,8 +76,11 @@ const uint8_t *bitemu_get_framebuffer(const bitemu_t *emu);
 /* Resolución actual (160x144 GB, 320x224 Genesis, etc.). NULL = ignorar. */
 void bitemu_get_video_size(const bitemu_t *emu, int *width, int *height);
 
-/* Joypad: bits 0-3=D-pad(R,L,U,D), 4-7=botones(A,B,Select,Start); 1=presionado */
+/* Joypad: bits 0-3=D-pad(R,L,U,D), 4-7=botones(A,B,C,Start); 1=presionado */
 void bitemu_set_input(bitemu_t *emu, uint8_t state);
+
+/* Genesis 6-button: bits 0-7 como bitemu_set_input, 8-11=X,Y,Z,Mode. Solo aplica si consola=Genesis. */
+void bitemu_set_input_genesis(bitemu_t *emu, uint16_t state);
 
 /* Solo para CLI: lee teclado (stdin) y actualiza el joypad. La GUI usa bitemu_set_input. */
 void bitemu_poll_input(bitemu_t *emu);

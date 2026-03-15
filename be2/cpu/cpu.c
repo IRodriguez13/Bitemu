@@ -17,6 +17,8 @@
 int gen_op_nop(gen_cpu_t *, genesis_mem_t *);
 int gen_op_rts(gen_cpu_t *, genesis_mem_t *);
 int gen_op_rte(gen_cpu_t *, genesis_mem_t *);
+int gen_op_rtd(gen_cpu_t *, genesis_mem_t *);
+int gen_op_trapv(gen_cpu_t *, genesis_mem_t *);
 int gen_op_moveq(gen_cpu_t *, genesis_mem_t *, uint16_t);
 int gen_op_bra(gen_cpu_t *, genesis_mem_t *, uint16_t);
 int gen_op_bsr(gen_cpu_t *, genesis_mem_t *, uint16_t);
@@ -208,6 +210,10 @@ int gen_cpu_step(gen_cpu_t *cpu, genesis_mem_t *mem, int max_cycles)
             cycles = gen_op_rts(cpu, mem);
         else if (op == GEN_OP_RTE)
             cycles = gen_op_rte(cpu, mem);
+        else if (op == GEN_OP_RTD)
+            cycles = gen_op_rtd(cpu, mem);
+        else if (op == GEN_OP_TRAPV)
+            cycles = gen_op_trapv(cpu, mem);
         else if (op == GEN_OP_RTR)
             cycles = gen_op_rtr(cpu, mem, op);
         else if ((op & GEN_OP_MOVEM_MASK) == GEN_OP_MOVEM_STORE || (op & GEN_OP_MOVEM_MASK) == GEN_OP_MOVEM_LOAD)

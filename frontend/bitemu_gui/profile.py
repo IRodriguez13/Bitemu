@@ -15,6 +15,7 @@ Campos de branding:
     ansi_color    — código ANSI para colorear el banner de terminal
                     (ej: "32" = verde, "34" = azul, "35" = magenta)
 """
+import os
 from dataclasses import dataclass, field
 from .core import FB_WIDTH, FB_HEIGHT
 
@@ -26,6 +27,7 @@ class ConsoleProfile:
     fb_height: int
     rom_extensions: list[str]
     window_title: str
+    rom_subdir: str = "gb"  # subcarpeta en la ROM folder: gb, sega, gba
     thumbnail_system: str = "Nintendo - Game Boy"
     splash_bg: tuple[int, int, int] = (0x0F, 0x38, 0x0F)
     splash_fg: tuple[int, int, int] = (0x9B, 0xBC, 0x0F)
@@ -41,6 +43,7 @@ PROFILE_GB: ConsoleProfile = ConsoleProfile(
     fb_height=FB_HEIGHT,
     rom_extensions=["gb", "gbc"],
     window_title="Bitemu - Game Boy",
+    rom_subdir="gb",
     thumbnail_system="Nintendo - Game Boy",
     splash_bg=(0x0F, 0x38, 0x0F),
     splash_fg=(0x9B, 0xBC, 0x0F),
@@ -56,6 +59,7 @@ PROFILE_GENESIS: ConsoleProfile = ConsoleProfile(
     fb_height=224,
     rom_extensions=["md", "bin", "gen", "smd"],
     window_title="Bitemu — Sega Genesis",
+    rom_subdir="sega",
     thumbnail_system="Sega - Mega Drive - Genesis",
     splash_bg=(0x0C, 0x1A, 0x3C),
     splash_fg=(0x21, 0x76, 0xFF),
@@ -72,6 +76,7 @@ PROFILE_GBA: ConsoleProfile = ConsoleProfile(
     fb_height=160,
     rom_extensions=["gba"],
     window_title="Bitemu — GBA",
+    rom_subdir="gba",
     thumbnail_system="Nintendo - Game Boy Advance",
     splash_bg=(0x1B, 0x05, 0x33),
     splash_fg=(0x5B, 0x3E, 0x96),
@@ -86,3 +91,11 @@ AVAILABLE_EDITIONS: list[ConsoleProfile] = [PROFILE_GB, PROFILE_GENESIS, PROFILE
 EDITIONS_WITH_BACKEND: set[str] = {"Game Boy", "Sega Genesis / Mega Drive"}  # cores implementados
 
 DEFAULT_PROFILE = PROFILE_GB
+
+
+def ensure_rom_folder_structure(base_folder: str) -> None:
+    """Crea la estructura base_folder/{gb,sega,gba}/{saves} si no existe."""
+    for profile in AVAILABLE_EDITIONS:
+        subdir = os.path.join(base_folder, profile.rom_subdir)
+        saves_dir = os.path.join(subdir, "saves")
+        os.makedirs(saves_dir, exist_ok=True)

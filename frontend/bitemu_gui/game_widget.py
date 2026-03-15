@@ -8,7 +8,7 @@ from PySide6.QtGui import QImage, QPainter, QColor, QFont
 from PySide6.QtWidgets import QWidget, QSizePolicy
 
 from .core import Emu, FB_WIDTH, FB_HEIGHT
-from .keys import build_joypad_state
+from .keys import build_joypad_state, build_joypad_state_genesis
 from .profile import ConsoleProfile, DEFAULT_PROFILE
 from .input_config import InputConfig
 
@@ -63,7 +63,7 @@ class GameWidget(QWidget):
         self.update()
 
     def set_gamepad_state(self, state: int):
-        self._gamepad_state = state & 0xFF
+        self._gamepad_state = state & 0x0FFF
 
     def _on_tick(self):
         if not self._emu or not self._emu.is_valid or self._paused:
@@ -71,9 +71,15 @@ class GameWidget(QWidget):
         if self._loading_rom_name:
             return
         km = self._input_config.keyboard_map if self._input_config else None
-        kb_state = build_joypad_state(self._pressed_keys, km)
-        combined = (kb_state | self._gamepad_state) & 0xFF
-        self._emu.set_input(combined)
+        is_genesis = self._profile.fb_width == 320
+        if is_genesis:
+            kb_state = build_joypad_state_genesis(self._pressed_keys, km)
+            combined = (kb_state | (self._gamepad_state & 0x0FFF)) & 0x0FFF
+            self._emu.set_input_genesis(combined)
+        else:
+            kb_state = build_joypad_state(self._pressed_keys, km)
+            combined = (kb_state | self._gamepad_state) & 0xFF
+            self._emu.set_input(combined)
         self._emu.run_frame()
         self.update()
 

@@ -209,6 +209,7 @@ bool bitemu_load_rom(bitemu_t *emu, const char *path)
     if (is_genesis)
     {
         emu->console_type = CONSOLE_GENESIS;
+        memset(&emu->impl.genesis, 0, sizeof(emu->impl.genesis));
         engine_init(&emu->engine, &genesis_console_ops, &emu->impl.genesis);
     }
     else
@@ -281,7 +282,14 @@ void bitemu_set_input(bitemu_t *emu, uint8_t state)
     if (emu->console_type == CONSOLE_GB)
         emu->impl.gb.mem.joypad_state = state;
     else
-        emu->impl.genesis.joypad_state = state;
+        emu->impl.genesis.joypad_state = (emu->impl.genesis.joypad_state & 0xFF00) | (state & 0xFF);
+}
+
+void bitemu_set_input_genesis(bitemu_t *emu, uint16_t state)
+{
+    if (!emu || emu->console_type != CONSOLE_GENESIS)
+        return;
+    emu->impl.genesis.joypad_state = state & 0x0FFF;
 }
 
 void bitemu_poll_input(bitemu_t *emu)

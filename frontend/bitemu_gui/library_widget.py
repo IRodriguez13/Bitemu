@@ -20,7 +20,7 @@ from PySide6.QtWidgets import (
     QSizePolicy,
 )
 
-from .profile import ConsoleProfile, DEFAULT_PROFILE, PROFILE_GENESIS
+from .profile import ConsoleProfile, DEFAULT_PROFILE, PROFILE_GENESIS, ensure_rom_folder_structure
 from .rom_scanner import RomEntry, scan_folder
 from .metadata_service import MetadataService
 from .layout_components import AppHeader, AppFooter, ListWithPreviewPanel
@@ -289,7 +289,13 @@ class LibraryWidget(QWidget):
             self._list_panel.hide()
             return
 
+        ensure_rom_folder_structure(folder)
+        # Escanear carpeta raíz primero (compatibilidad); si está vacía, usar subcarpeta por consola
         entries = scan_folder(folder, self._profile.rom_extensions)
+        if not entries:
+            scan_folder_path = os.path.join(folder, self._profile.rom_subdir)
+            if os.path.isdir(scan_folder_path):
+                entries = scan_folder(scan_folder_path, self._profile.rom_extensions)
         self._all_entries = entries
 
         if not entries:
@@ -329,3 +335,7 @@ class LibraryWidget(QWidget):
         self._list_panel.set_items(filtered)
         if filtered:
             self._update_preview(filtered[0])
+
+    def current_entry(self) -> RomEntry | None:
+        """ROM actualmente seleccionada en la lista (para J=cargar)."""
+        return self._list_panel.current_item()

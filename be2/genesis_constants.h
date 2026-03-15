@@ -27,6 +27,14 @@ enum {
     GEN_CYCLES_PER_FRAME_STUB = 48868,
 };
 
+/* ===== Audio ===== */
+enum {
+    GEN_SAMPLE_RATE          = 44100,
+    GEN_CYCLES_PER_SAMPLE    = GEN_68000_HZ / GEN_SAMPLE_RATE,  /* ~174 */
+    GEN_PSG_HZ               = 3579545,   /* NTSC: master/15 */
+    GEN_PSG_CYCLES_PER_SAMPLE = GEN_PSG_HZ / GEN_SAMPLE_RATE,   /* ~81 */
+};
+
 /* VDP status register bits (read from 0xC00004) */
 enum {
     GEN_VDP_STATUS_PAL   = 0x01,
@@ -80,6 +88,17 @@ enum {
     GEN_ADDR_ROM_END     = 0x3FFFFF,
     GEN_ROM_MASK         = 0x3FFFFF,
 
+    /* SRAM (backup RAM, 0x200000-0x20FFFF). Enable: write 1 to 0xA130F1 */
+    GEN_ADDR_SRAM_START  = 0x200000,
+    GEN_ADDR_SRAM_END    = 0x20FFFF,
+    GEN_SRAM_SIZE        = 0x10000,   /* 64 KB */
+    GEN_SRAM_MASK        = 0xFFFF,
+    GEN_ADDR_SRAM_ENABLE = 0xA130F1,
+
+    /* Lock-on: S&K 2MB + locked 2MB. Patch (Sonic 2 & K) = 256KB extra. */
+    GEN_LOCKON_SIZE      = 4 * 1024 * 1024,
+    GEN_LOCKON_PATCH     = 256 * 1024,
+
     /* Z80 space: 68k accede cuando tiene el bus */
     GEN_ADDR_Z80_START   = 0xA00000,
     GEN_ADDR_Z80_END     = 0xA0FFFF,
@@ -89,13 +108,24 @@ enum {
     GEN_ADDR_IO_START    = 0xA10000,
     GEN_ADDR_IO_END      = 0xA1001F,
     GEN_IO_VERSION       = 0xA10000,
-    GEN_IO_JOYPAD1       = 0xA10002,
+    GEN_IO_VERSION_VAL   = 0x00,      /* Model 1: 0x00 = NTSC JP */
+    GEN_IO_JOYPAD1_DATA  = 0xA10002,
+    GEN_IO_JOYPAD1_CTRL  = 0xA10003,
+    GEN_IO_JOYPAD2_DATA  = 0xA10004,
+    GEN_IO_JOYPAD2_CTRL  = 0xA10005,
+    GEN_IO_JOYPAD1       = 0xA10002,  /* alias */
     GEN_IO_JOYPAD2       = 0xA10004,
     GEN_IO_EXPANSION     = 0xA10006,
+    GEN_JOYPAD_TH        = 0x40,
+    GEN_JOYPAD_TR        = 0x80,
 
-    /* Z80 bus request / reset */
+    /* Z80 bus request / reset (offset en 0xA1xxxx) */
     GEN_ADDR_Z80_BUSREQ  = 0xA11100,
     GEN_ADDR_Z80_RESET   = 0xA11200,
+    GEN_Z80_BUSREQ_OFF   = 0x1100,    /* (addr & GEN_ADDR_OFFSET_MASK) */
+    GEN_Z80_RESET_OFF    = 0x1200,
+    GEN_ADDR_OFFSET_MASK = 0xFFFF,    /* low 16 bits para Z80 bus decode */
+    GEN_IO_UNMAPPED_READ = 0xFF,      /* lectura en zona no mapeada */
 
     /* TMSS (licencia SEGA) */
     GEN_ADDR_TMSS        = 0xA14000,
@@ -123,6 +153,12 @@ enum {
     GEN_HEADER_MAGIC_LEN = 4,
 };
 #define GEN_HEADER_MAGIC "SEGA"
+
+/* ROM header: 0x1B0-0x1B1 "RA" = save RAM presente */
+enum {
+    GEN_HEADER_SRAM_OFF   = 0x1B0,
+    GEN_HEADER_SRAM_MAGIC = 0x5241,   /* "RA" big-endian */
+};
 
 /* SMD format: 512-byte header, 16KB blocks (8KB even + 8KB odd) */
 enum {
@@ -159,6 +195,8 @@ enum {
     GEN_OP_NOP           = 0x4E71,
     GEN_OP_RTS           = 0x4E75,
     GEN_OP_RTE           = 0x4E73,
+    GEN_OP_RTD           = 0x4E74,
+    GEN_OP_TRAPV         = 0x4E76,
     GEN_OP_RTR           = 0x4E77,
     GEN_OP_RESET         = 0x4E70,
     GEN_OP_STOP          = 0x4E72,
@@ -333,27 +371,191 @@ enum {
 
 enum {
     GEN_VDP_REG_COUNT    = 24,
+    GEN_VDP_REG_ADDR_INC = 15,        /* reg 0x0F: auto-increment */
     GEN_VDP_DATA_PORT    = 0,
     GEN_VDP_CTRL_PORT    = 1,
     GEN_VDP_VRAM_SIZE    = 0x10000,   /* 64 KB */
+    GEN_VDP_VRAM_WORDS   = GEN_VDP_VRAM_SIZE / 2,
+    GEN_VDP_ADDR_MASK    = 0x3FFF,    /* 14-bit address */
     GEN_VDP_CRAM_SIZE    = 64,        /* 64 colores (words) */
+    GEN_VDP_CRAM_MASK    = 0x3F,      /* index 0-63 */
+    GEN_VDP_CRAM_COLOR   = 0x0EEE,    /* 9-bit: BBBGGGRRR, low bit always 0 */
     GEN_VDP_VSRAM_SIZE   = 40,        /* 40 words */
+    GEN_VDP_VSRAM_MASK   = 0x3FF,     /* 10-bit scroll value */
     GEN_VDP_TILE_SIZE    = 8,
-    GEN_VDP_TILES_W      = 40,   /* 320/8 */
-    GEN_VDP_TILES_H      = 28,   /* 224/8 */
+    GEN_VDP_TILE_BYTES   = 32,        /* 8×8×4 bpp */
+    GEN_VDP_TILES_W      = 40,        /* 320/8 */
+    GEN_VDP_TILES_H      = 28,        /* 224/8 */
+    GEN_VDP_NAMETABLE_W  = 64,        /* words per map row */
+    GEN_VDP_PLANE_UNIT   = 0x2000,    /* reg 2: base × this */
+    GEN_VDP_PLANE_A_SHIFT = 3,        /* reg 2 bits 4-2 → shift 3 */
+    GEN_VDP_PLANE_B_SHIFT = 0,        /* reg 4 bits 2-0 = SB15-13 */
+    GEN_VDP_TILE_ROW_BYTES = 4,       /* 8 px × 4 bpp = 4 bytes/row */
+    GEN_VDP_TILE_HI_BYTE   = 8,       /* bit offset: high byte en word */
 };
 
-/* VDP command word: bits 31-30 = code, 23-16|14-3|1-0 = address */
+/* VDP command: bits 31-30 = type, 0x80 = register write */
 enum {
-    GEN_VDP_CMD_VRAM_READ   = 0x000000,
-    GEN_VDP_CMD_VRAM_WRITE  = 0x400000,
-    GEN_VDP_CMD_CRAM_WRITE  = 0xC00000,
-    GEN_VDP_CMD_VSRAM_WRITE = 0x400000,  /* 0x10 en bits 5-4 */
+    GEN_VDP_CMD_TYPE_MASK  = 0xC0000000,
+    GEN_VDP_CMD_REG_WRITE  = 0x80000000,
+    GEN_VDP_CMD_REG_SHIFT  = 24,
+    GEN_VDP_CMD_REG_NUM    = 0x1F,
+    GEN_VDP_CMD_DATA_MASK  = 0xFF,
+    GEN_VDP_CMD_ADDR_HI    = 0x3FFF,  /* bits 29-16 */
+    GEN_VDP_CMD_ADDR_LO    = 3,       /* bits 1-0 → addr 15-14 */
+    GEN_VDP_CMD_CODE_SHIFT = 28,
+    GEN_VDP_CMD_CODE_MASK  = 0x0F,
+};
+
+/* VDP access codes (code_reg) */
+enum {
+    GEN_VDP_CODE_VRAM_READ  = 0,
+    GEN_VDP_CODE_VRAM_WRITE = 1,
+    GEN_VDP_CODE_CRAM_WRITE = 3,
+    GEN_VDP_CODE_VSRAM_MASK = 0x0E,
+    GEN_VDP_CODE_VSRAM_BIT  = 4,
+    GEN_VDP_CODE_VSRAM_WRITE = 5,
+};
+
+/* DMA: CD5 = bit 5 del code (comando 32-bit, code = (cmd>>30)&3 | (cmd>>2)&0x3C) */
+enum {
+    GEN_VDP_CMD_CD5_BIT     = 5,
+    GEN_VDP_DMA_ENABLE_BIT  = 4,   /* reg 1 bit 4: DMA enable */
+};
+
+/* DMA regs: 19-20 length (bytes), 21-22 source low, 23 source high + type */
+enum {
+    GEN_VDP_REG_DMA_LEN_LO  = 19,
+    GEN_VDP_REG_DMA_LEN_HI  = 20,
+    GEN_VDP_REG_DMA_SRC_LO  = 21,
+    GEN_VDP_REG_DMA_SRC_HI  = 22,
+    GEN_VDP_REG_DMA_SRC_EXT = 23,
+};
+
+/* reg[23] >> 4: 0x8-0xB = Fill, 0xC-0xF = Copy, 0x0-0x7 = 68k bus */
+enum {
+    GEN_VDP_DMA_TYPE_68K    = 0,
+    GEN_VDP_DMA_TYPE_FILL   = 2,
+    GEN_VDP_DMA_TYPE_COPY   = 3,
+};
+
+/* VDP 16-bit register write: bits 15-14 = 10 */
+enum {
+    GEN_VDP_REG16_MASK  = 0xC000,
+    GEN_VDP_REG16_VAL   = 0x8000,
+    GEN_VDP_REG16_REG   = 8,
+    GEN_VDP_ADDR_INC_DEF = 2,
+    GEN_VDP_ADDR_INC_MASK = 0xFF,     /* reg 0x0F: 8-bit increment */
+};
+
+/* CRAM: Genesis color 0x0BBBGGGRRR → RGB 3 bits each */
+enum {
+    GEN_VDP_CRAM_R_BITS = 3,
+    GEN_VDP_CRAM_R_MAX  = 7,
+    GEN_VDP_CRAM_GRAY_MAX = 21,       /* 7+7+7 */
+};
+
+/* Tile map word: bits 10-0 = index, 11-12 = flip, 13-14 = palette, 15 = priority */
+enum {
+    GEN_VDP_TILE_IDX_MASK   = 0x7FF,
+    GEN_VDP_TILE_FLIP_X    = 11,
+    GEN_VDP_TILE_FLIP_Y    = 12,
+    GEN_VDP_TILE_PAL_SHIFT = 13,
+    GEN_VDP_TILE_PAL_MASK  = 7,
+    GEN_VDP_TILE_PRIO_BIT  = 15,
+    GEN_VDP_PALETTE_SIZE   = 16,
+};
+
+/* Sprite Attribute Table: reg 5 bits 6-1 = base / 0x200 */
+enum {
+    GEN_VDP_SAT_BASE_SHIFT = 9,       /* addr = (reg5 & 0x7E) << 9 */
+    GEN_VDP_SAT_BASE_MASK  = 0x7F,   /* bits 6-0 = AT15-9 */
+    GEN_VDP_SAT_ENTRY_BYTES = 8,
+    GEN_VDP_SAT_ENTRY_WORDS = 4,
+    GEN_VDP_SPRITE_MAX      = 80,
+};
+
+/* Sprite pattern base: reg 6 bits 5-0 = base bits 13-8 */
+enum {
+    GEN_VDP_SPR_PAT_BASE_SHIFT = 8,   /* (reg6 & 0x3F) << 8 */
+    GEN_VDP_SPR_PAT_BASE_MASK  = 0x3F,
+};
+
+/* Sprite size (word 1 bits 5-4): 00=8x8, 01=8x16, 10=16x16, 11=8x32 */
+enum {
+    GEN_VDP_SPR_SIZE_SHIFT = 4,
+    GEN_VDP_SPR_SIZE_MASK  = 3,
+    GEN_VDP_SPR_SIZE_8x8   = 0,
+    GEN_VDP_SPR_SIZE_8x16  = 1,
+    GEN_VDP_SPR_SIZE_16x16 = 2,
+    GEN_VDP_SPR_SIZE_8x32  = 3,
+};
+
+/* Sprite word 2: priority, palette, flip, tile index */
+enum {
+    GEN_VDP_SPR_PRIO_BIT  = 15,
+    GEN_VDP_SPR_PAL_SHIFT = 13,
+    GEN_VDP_SPR_PAL_MASK  = 3,
+    GEN_VDP_SPR_FLIP_V    = 12,
+    GEN_VDP_SPR_FLIP_H    = 11,
+    GEN_VDP_SPR_TILE_MASK = 0x7FF,
+};
+
+/* Reg 7: background color - bits 5-4 = palette, 3-0 = index */
+enum {
+    GEN_VDP_BG_PAL_SHIFT = 4,
+    GEN_VDP_BG_PAL_MASK  = 3,
+    GEN_VDP_BG_IDX_MASK  = 0x0F,
+};
+
+/* Reg 12 (0x8C): mode 4 - bits 1-0 = H32 (00) vs H40 (11) */
+enum {
+    GEN_VDP_REG_MODE4     = 12,
+    GEN_VDP_H40_MASK      = 3,    /* bits 1-0: 11=40 tiles, 00=32 tiles */
+    GEN_VDP_H40_VAL       = 3,    /* 40 tiles = 320 px */
+    GEN_DISPLAY_WIDTH_H32 = 256,
+};
+
+/* Reg 3: Window plane base - bits 6-4 = WA15-13, addr = ((reg>>4)&7) * 0x2000 */
+enum {
+    GEN_VDP_REG_WINDOW   = 3,
+    GEN_VDP_WINDOW_SHIFT = 4,
+    GEN_VDP_WINDOW_MASK  = 0x70,   /* bits 6-4 */
+};
+
+/* Reg 13 (0x8D): H scroll table base - (reg & 0x3F) * 0x400 bytes */
+enum {
+    GEN_VDP_REG_HSCROLL   = 13,
+    GEN_VDP_HSCROLL_BASE_MASK  = 0x3F,
+    GEN_VDP_HSCROLL_BASE_WORDS = 0x200,  /* 0x400 bytes / 2 */
+};
+
+/* Reg 18: Window H pos (WX) - bits 6-0, window from x=0 to (WX+1)*8. WX+1>=32/40 = hidden */
+/* Reg 19: Window V pos (WY) - bits 7-0, window from y=0 to (WY+1). WY+1>=224 = hidden */
+enum {
+    GEN_VDP_REG_WX = 18,
+    GEN_VDP_REG_WY = 19,
+    GEN_VDP_WX_MASK = 0x7F,
+    GEN_VDP_WY_MASK = 0xFF,
+};
+
+/* HBlank: ciclos desde fin de visible hasta fin de línea */
+enum {
+    GEN_VDP_HBLANK_CYCLES = 80,
+};
+
+/* HV counter: H visible 0-0x93, blank 0xE9-0xFF */
+enum {
+    GEN_VDP_H_VISIBLE_END = 0x93,
+    GEN_VDP_H_VISIBLE_N   = 0x94,
+    GEN_VDP_H_BLANK_START = 0xE9,
+    GEN_VDP_HV_V_MASK     = 0xFF,     /* V en byte bajo del HV word */
 };
 
 /* ===== Joypad ===== */
 
 enum {
+    GEN_JOYPAD_IDLE      = 0x3F,      /* sin botones: TH high */
     GEN_JOYPAD_BITS      = 12,        /* 6 botones × 2 puertos */
     GEN_JOYPAD_UP        = 0,
     GEN_JOYPAD_DOWN      = 1,

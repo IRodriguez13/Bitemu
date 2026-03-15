@@ -16,6 +16,7 @@
 #include "vdp/vdp.h"
 #include "ym2612/ym2612.h"
 #include "psg/psg.h"
+#include "z80/z80.h"
 #include <stddef.h>
 #include <stdint.h>
 
@@ -25,12 +26,14 @@ typedef struct {
     gen_vdp_t vdp;
     gen_ym2612_t ym2612;
     gen_psg_t psg;
+    gen_z80_t z80;
     uint8_t z80_ram[8192];  /* Z80 RAM 8KB */
     uint8_t z80_bus_req;    /* 0=68k tiene bus, 1=Z80 tiene bus */
     uint8_t z80_reset;      /* 0=Z80 en reset, 1=running */
-    uint8_t joypad_state;   /* 1=presionado, mapeado desde bitemu_set_input */
+    uint16_t joypad_state;  /* bits 0-11: R,L,D,U,Start,A,B,C,X,Y,Z,Mode; 1=presionado */
     char rom_path[GEN_ROM_PATH_MAX];
     void *audio_output;
+    int sample_clock;       /* ciclos 68k acumulados para sample rate */
 } genesis_impl_t;
 
 #endif /* BITEMU_GENESIS_IMPL_H */

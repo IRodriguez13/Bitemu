@@ -1,11 +1,17 @@
 """
 MetadataService centralizado: boxart, título, cartucho, etc.
 Backends: Libretro (actual), Screenscraper (futuro), LocalCache.
-Desacoplado para reutilizar en GB, Genesis, GBA.
+Metadata: cache JSON local para uso offline (parse filename + API futura).
 """
 from dataclasses import dataclass, field
 from typing import Protocol
 from PySide6.QtGui import QPixmap
+
+from .metadata_cache import (
+    get as cache_get,
+    put as cache_put,
+    parse_metadata_from_filename,
+)
 
 
 @dataclass
@@ -110,21 +116,64 @@ class MetadataService:
         self._backends[0].fetch_boxart(system, rom_name, on_ready)
 
     def fetch_metadata(self, system: str, rom_name: str, on_ready) -> None:
-        """Solicita metadata. on_ready(rom_name, MetadataResult). Por ahora local."""
+        """
+        Solicita metadata. on_ready(rom_name, MetadataResult).
+        Origen: cache JSON local (offline) -> parse filename -> API futura.
+        """
         from PySide6.QtCore import QTimer
+
         def _emit():
-            result = MetadataResult(
-                raw_name=rom_name,
-                title=rom_name,
-                from_api=False,
-            )
+            result = MetadataResult(raw_name=rom_name, title=rom_name, from_api=False)
             key = (system, rom_name)
             if key in self._cache:
                 result.boxart = self._cache[key].boxart
+
+            # 1. Cargar desde cache JSON (offline)
+            cached = cache_get(system, rom_name)
+            if cached:
+                result.title = cached.get("title", result.title) or rom_name
+                result.developer = cached.get("developer", "")
+                result.year = cached.get("year", "")
+                result.genre = cached.get("genre", "")
+                result.players = cached.get("players", "")
+                result.region = cached.get("region", "")
+                result.from_api = cached.get("from_api", False)
+
+            # 2. Si no hay region/title en cache, parsear del filename y guardar
+            if not result.region or not result.title or result.title == rom_name:
+                parsed = parse_metadata_from_filename(rom_name)
+                if parsed:
+                    if parsed.get("region") and not result.region:
+                        result.region = parsed["region"]
+                    if parsed.get("title") and (not result.title or result.title == rom_name):
+                        result.title = parsed["title"]
+                    cache_put(system, rom_name, {
+                        "title": result.title,
+                        "region": result.region or None,
+                        "from_api": False,
+                    })
+
             self._cache[key] = result
             if on_ready:
                 on_ready(rom_name, result)
+
         QTimer.singleShot(0, _emit)
 
     def add_backend(self, backend: MetadataBackend):
         self._backends.append(backend)
+
+    def save_metadata_to_cache(self, system: str, rom_name: str, result: "MetadataResult") -> None:
+        """
+        Persiste metadata en JSON para uso offline.
+        Llamar cuando se obtenga metadata de API (Screenscraper, etc.).
+        """
+        meta = {
+            "title": result.title or rom_name,
+            "developer": result.developer or None,
+            "year": result.year or None,
+            "genre": result.genre or None,
+            "players": result.players or None,
+            "region": result.region or None,
+            "from_api": result.from_api,
+        }
+        cache_put(system, rom_name, {k: v for k, v in meta.items() if v is not None})

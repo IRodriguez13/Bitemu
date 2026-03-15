@@ -5,7 +5,7 @@ Audio: core en C (ALSA en Linux). Sin PortAudio/sounddevice.
 import os
 import sys
 
-from PySide6.QtCore import Qt, QSettings, QUrl
+from PySide6.QtCore import Qt, QSettings, QUrl, QEvent
 from PySide6.QtGui import QAction, QKeySequence, QCloseEvent, QIcon, QPixmap
 from PySide6.QtWidgets import (
     QMainWindow,
@@ -26,8 +26,9 @@ from .game_widget import GameWidget
 from .splash_widget import SplashWidget
 from .lobby_widget import LobbyWidget
 from .library_widget import LibraryWidget
-from .profile import DEFAULT_PROFILE, ConsoleProfile
+from .profile import DEFAULT_PROFILE, ConsoleProfile, ensure_rom_folder_structure
 from .input_config import InputConfig
+from .keys import key_to_joypad
 from .gamepad import GamepadPoller
 from .input_dialog import InputSettingsDialog
 from .options_dialog import OptionsDialog
@@ -134,6 +135,32 @@ class MainWindow(QMainWindow):
         self._update_checker = UpdateChecker(get_version(), parent=self)
         self._update_checker.update_available.connect(self._on_update_available)
         self._update_checker.check()
+
+        QApplication.instance().installEventFilter(self)
+
+    def eventFilter(self, obj, event):
+        """Intercepta J/K en biblioteca para cargar ROM y volver."""
+        if event.type() == QEvent.Type.KeyPress and self._stack.currentIndex() == _PAGE_LIBRARY:
+            # Solo si el evento es para esta ventana o sus hijos (no diálogos)
+            w = obj
+            while w:
+                if w == self:
+                    break
+                w = w.parent() if hasattr(w, "parent") else None
+            else:
+                return super().eventFilter(obj, event)
+            key = event.key()
+            km = self._input_config.keyboard_map if self._input_config else None
+            bit = key_to_joypad(key, km)
+            if bit == 4:  # A = cargar ROM
+                entry = self._library.current_entry()
+                if entry:
+                    self._load_rom_path(entry.path)
+                return True
+            if bit == 5:  # B = volver
+                self._show_lobby()
+                return True
+        return super().eventFilter(obj, event)
 
     # ── Update notification ──────────────────────────────────
 
@@ -306,6 +333,7 @@ class MainWindow(QMainWindow):
         )
         if folder:
             QSettings().setValue(ROM_FOLDER_KEY, folder)
+            ensure_rom_folder_structure(folder)
             self._status.showMessage(f"Carpeta de ROMs: {folder}")
             if self._stack.currentIndex() == _PAGE_LIBRARY:
                 self._library.load_roms(folder)
@@ -351,14 +379,18 @@ class MainWindow(QMainWindow):
     def _state_path(self) -> str | None:
         if not self._rom_path:
             return None
-        base, _ = os.path.splitext(self._rom_path)
-        return base + ".bst"
+        rom_dir = os.path.dirname(self._rom_path)
+        base_name = os.path.splitext(os.path.basename(self._rom_path))[0]
+        saves_dir = os.path.join(rom_dir, "saves")
+        return os.path.join(saves_dir, base_name + ".bst")
 
     def _save_state(self):
         path = self._state_path()
         if not path or not self._emu.is_valid:
             self._status.showMessage("No se puede guardar: sin ROM cargada")
             return
+        saves_dir = os.path.dirname(path)
+        os.makedirs(saves_dir, exist_ok=True)
         ok = self._emu.save_state(path)
         if ok:
             size = os.path.getsize(path) if os.path.isfile(path) else 0

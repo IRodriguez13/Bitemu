@@ -7,6 +7,9 @@ from PySide6.QtGui import QKeySequence
 
 ACTION_NAMES = ["Derecha", "Izquierda", "Arriba", "Abajo", "A", "B", "Select", "Start"]
 
+# Genesis 6-button: bits 8=X, 9=Y, 10=Z, 11=Mode
+GENESIS_6_ACTION_NAMES = ["Derecha", "Izquierda", "Arriba", "Abajo", "A", "B", "C", "Start", "X", "Y", "Z", "Mode"]
+
 # Por defecto: WASD + flechas, J/Z=A, K/X=B, U=Select, I/Enter=Start
 DEFAULT_MAP = {
     Qt.Key.Key_W: 2,   # Up
@@ -25,6 +28,14 @@ DEFAULT_MAP = {
     Qt.Key.Key_I: 7,   # Start
     Qt.Key.Key_Return: 7,
     Qt.Key.Key_Enter: 7,
+}
+
+# Genesis 6-button: añade X=Q, Y=E, Z=R (bits 8,9,10)
+GENESIS_6_MAP = {
+    **DEFAULT_MAP,
+    Qt.Key.Key_Q: 8,
+    Qt.Key.Key_E: 9,
+    Qt.Key.Key_R: 10,
 }
 
 
@@ -49,3 +60,13 @@ def build_joypad_state(pressed_keys: set, key_map: dict | None = None) -> int:
         if key in pressed_keys:
             state |= 1 << bit
     return state & 0xFF
+
+
+def build_joypad_state_genesis(pressed_keys: set, key_map: dict | None = None) -> int:
+    """Estado joypad Genesis 6-button: bits 0-11."""
+    m = key_map or GENESIS_6_MAP
+    state = 0
+    for key, bit in m.items():
+        if key in pressed_keys:
+            state |= 1 << bit
+    return state & 0x0FFF

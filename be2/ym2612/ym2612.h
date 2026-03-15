@@ -20,6 +20,12 @@ struct gen_ym2612 {
     uint8_t regs[2][256];   /* parte 0 y 1, 256 registros cada una */
     uint8_t addr[2];        /* registro seleccionado por puerto */
     int cycle_counter;      /* para step/sample timing */
+    uint32_t phase[6][4];   /* contador fase 20-bit por canal/operador */
+    uint8_t key[6][4];     /* key on por canal/operador */
+    uint16_t fnum[6];      /* F-number latched (11-bit) */
+    uint8_t block[6];      /* Block latched (3-bit) */
+    uint8_t env_state[6][4];   /* ADSR state por canal/operador */
+    uint16_t env_level[6][4];   /* 0-1023, nivel de envolvente */
 };
 
 void gen_ym2612_init(gen_ym2612_t *ym);
@@ -31,7 +37,7 @@ void gen_ym2612_write_port(gen_ym2612_t *ym, int port, uint8_t val);
 /* Avanza ciclos; genera muestras si audio != NULL */
 void gen_ym2612_step(gen_ym2612_t *ym, int cycles, void *audio_output);
 
-/* Genera una muestra estéreo (L,R). Por ahora silencio. */
-void gen_ym2612_sample(gen_ym2612_t *ym, int16_t *left, int16_t *right);
+/* Ejecuta N ciclos YM y escribe muestra estéreo en left/right (escala int16) */
+void gen_ym2612_run_cycles(gen_ym2612_t *ym, int cycles, int16_t *left, int16_t *right);
 
 #endif /* BITEMU_YM2612_H */

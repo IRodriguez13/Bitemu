@@ -9,6 +9,8 @@
 #include "../genesis_constants.h"
 #include <string.h>
 
+static void gen_take_trap(gen_cpu_t *, genesis_mem_t *, int, uint32_t);
+
 static uint16_t fetch16(gen_cpu_t *cpu, genesis_mem_t *mem)
 {
     uint16_t w = genesis_mem_read16(mem, cpu->pc);
@@ -62,6 +64,22 @@ uint32_t gen_ea_read(gen_cpu_t *cpu, genesis_mem_t *mem, uint16_t ea, int size, 
         if (size == 1) return genesis_mem_read16(mem, addr);
         return genesis_mem_read32(mem, addr);
     }
+    case 6:  /* (d8,An,Xn) - indexed */
+    {
+        uint16_t ext = fetch16(cpu, mem);
+        int8_t disp = (int8_t)(ext & 0xFF);
+        int idx_reg = (ext >> 9) & 7;
+        int idx_is_a = (ext >> 15) & 1;
+        int idx_long = (ext >> 8) & 1;
+        uint32_t xn = idx_is_a ? cpu->a[idx_reg] : cpu->d[idx_reg];
+        if (!idx_long)
+            xn = (uint32_t)(int32_t)(int16_t)(xn & 0xFFFF);
+        addr = cpu->a[reg] + disp + xn;
+        if (out_addr) *out_addr = addr;
+        if (size == 0) return genesis_mem_read8(mem, addr);
+        if (size == 1) return genesis_mem_read16(mem, addr);
+        return genesis_mem_read32(mem, addr);
+    }
     case 7:
         if (reg == 0)  /* (d16) */
         {
@@ -75,6 +93,33 @@ uint32_t gen_ea_read(gen_cpu_t *cpu, genesis_mem_t *mem, uint16_t ea, int size, 
         {
             addr = genesis_mem_read32(mem, cpu->pc);
             cpu->pc += 4;
+            if (out_addr) *out_addr = addr;
+            if (size == 0) return genesis_mem_read8(mem, addr);
+            if (size == 1) return genesis_mem_read16(mem, addr);
+            return genesis_mem_read32(mem, addr);
+        }
+        if (reg == 2)  /* (d16,PC) */
+        {
+            uint32_t base = cpu->pc;
+            int16_t d = (int16_t)fetch16(cpu, mem);
+            addr = base + (int32_t)d;
+            if (out_addr) *out_addr = addr;
+            if (size == 0) return genesis_mem_read8(mem, addr);
+            if (size == 1) return genesis_mem_read16(mem, addr);
+            return genesis_mem_read32(mem, addr);
+        }
+        if (reg == 3)  /* (d8,PC,Xn) */
+        {
+            uint16_t ext = fetch16(cpu, mem);
+            int8_t disp = (int8_t)(ext & 0xFF);
+            int idx_reg = (ext >> 9) & 7;
+            int idx_is_a = (ext >> 15) & 1;
+            int idx_long = (ext >> 8) & 1;
+            uint32_t xn = idx_is_a ? cpu->a[idx_reg] : cpu->d[idx_reg];
+            if (!idx_long)
+                xn = (uint32_t)(int32_t)(int16_t)(xn & 0xFFFF);
+            uint32_t base = cpu->pc;
+            addr = base + disp + xn;
             if (out_addr) *out_addr = addr;
             if (size == 0) return genesis_mem_read8(mem, addr);
             if (size == 1) return genesis_mem_read16(mem, addr);
@@ -104,9 +149,34 @@ uint32_t gen_ea_addr(gen_cpu_t *cpu, genesis_mem_t *mem, uint16_t ea, int size)
     case 3: { uint32_t a = cpu->a[reg]; cpu->a[reg] += (size==0)?1:(size==1)?2:4; return a; }
     case 4: { cpu->a[reg] -= (size==0)?1:(size==1)?2:4; return cpu->a[reg]; }
     case 5: return cpu->a[reg] + (int32_t)(int16_t)fetch16(cpu, mem);
+    case 6:
+    {
+        uint16_t ext = fetch16(cpu, mem);
+        int8_t disp = (int8_t)(ext & 0xFF);
+        int idx_reg = (ext >> 9) & 7;
+        int idx_is_a = (ext >> 15) & 1;
+        int idx_long = (ext >> 8) & 1;
+        uint32_t xn = idx_is_a ? cpu->a[idx_reg] : cpu->d[idx_reg];
+        if (!idx_long)
+            xn = (uint32_t)(int32_t)(int16_t)(xn & 0xFFFF);
+        return cpu->a[reg] + disp + xn;
+    }
     case 7:
         if (reg == 0) return (uint32_t)(int32_t)(int16_t)fetch16(cpu, mem);
         if (reg == 1) { uint32_t a = genesis_mem_read32(mem, cpu->pc); cpu->pc += 4; return a; }
+        if (reg == 2) return cpu->pc + (int32_t)(int16_t)fetch16(cpu, mem);
+        if (reg == 3)
+        {
+            uint16_t ext = fetch16(cpu, mem);
+            int8_t disp = (int8_t)(ext & 0xFF);
+            int idx_reg = (ext >> 9) & 7;
+            int idx_is_a = (ext >> 15) & 1;
+            int idx_long = (ext >> 8) & 1;
+            uint32_t xn = idx_is_a ? cpu->a[idx_reg] : cpu->d[idx_reg];
+            if (!idx_long)
+                xn = (uint32_t)(int32_t)(int16_t)(xn & 0xFFFF);
+            return cpu->pc + disp + xn;
+        }
         break;
     }
     return 0;
@@ -161,6 +231,24 @@ int gen_op_rte(gen_cpu_t *cpu, genesis_mem_t *mem)
     cpu->pc = genesis_mem_read32(mem, cpu->a[7]);
     cpu->a[7] += 4;
     return 20;
+}
+
+/* RTD: pop PC, SP += imm (16-bit) */
+int gen_op_rtd(gen_cpu_t *cpu, genesis_mem_t *mem)
+{
+    int16_t imm = (int16_t)fetch16(cpu, mem);
+    cpu->pc = genesis_mem_read32(mem, cpu->a[7]);
+    cpu->a[7] += 4;
+    cpu->a[7] += (int32_t)imm;
+    return 16;
+}
+
+/* TRAPV: trap #7 if V=1 */
+int gen_op_trapv(gen_cpu_t *cpu, genesis_mem_t *mem)
+{
+    if (flag_v(cpu))
+        gen_take_trap(cpu, mem, 39, cpu->pc);
+    return 4;
 }
 
 int gen_op_moveq(gen_cpu_t *cpu, genesis_mem_t *mem, uint16_t op)

@@ -236,6 +236,7 @@ class ListWithPreviewPanel(QWidget, Generic[T]):
         splitter.addWidget(self._list)
 
         preview_container = QFrame()
+        preview_container.setMinimumWidth(280)
         bg = profile.splash_bg
         preview_container.setStyleSheet(
             f"QFrame {{ background: qlineargradient(x1: 0, y1: 0, x2: 0, y2: 1, "
@@ -246,7 +247,7 @@ class ListWithPreviewPanel(QWidget, Generic[T]):
         )
         preview_layout = QVBoxLayout(preview_container)
         preview_layout.setContentsMargins(16, 16, 16, 16)
-        preview_layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        preview_layout.setAlignment(Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignHCenter)
 
         if preview_widget_factory:
             self._preview_widget = preview_widget_factory(preview_container)

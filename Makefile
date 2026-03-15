@@ -36,10 +36,10 @@ BE1_DIR = be1
 BE2_DIR = be2
 SRC_DIR = src
 
-CORE_SRCS = $(CORE_DIR)/engine.c $(CORE_DIR)/timing.c $(CORE_DIR)/input.c
+CORE_SRCS = $(CORE_DIR)/engine.c $(CORE_DIR)/timing.c $(CORE_DIR)/input.c $(CORE_DIR)/savestate.c
 UTILS_SRCS = $(UTILS_DIR)/log.c $(UTILS_DIR)/helpers.c $(UTILS_DIR)/crc32.c
 BE1_SRCS = $(BE1_DIR)/console.c $(BE1_DIR)/cpu/cpu.c $(BE1_DIR)/cpu/cpu_handlers.c $(BE1_DIR)/ppu.c $(BE1_DIR)/apu.c $(BE1_DIR)/timer.c $(BE1_DIR)/memory.c $(BE1_DIR)/input.c $(BE1_AUDIO_SRCS)
-BE2_SRCS = $(BE2_DIR)/console.c $(BE2_DIR)/memory.c $(BE2_DIR)/vdp/vdp.c $(BE2_DIR)/ym2612/ym2612.c $(BE2_DIR)/psg/psg.c $(BE2_DIR)/cpu/cpu.c $(BE2_DIR)/cpu/cpu_handlers.c $(BE2_DIR)/input.c
+BE2_SRCS = $(BE2_DIR)/console.c $(BE2_DIR)/memory.c $(BE2_DIR)/vdp/vdp.c $(BE2_DIR)/ym2612/ym2612.c $(BE2_DIR)/psg/psg.c $(BE2_DIR)/z80/z80.c $(BE2_DIR)/cpu/cpu.c $(BE2_DIR)/cpu/cpu_handlers.c $(BE2_DIR)/input.c
 API_SRCS = $(SRC_DIR)/bitemu.c
 
 CLI_SRCS = main_cli.c $(API_SRCS) $(CORE_SRCS) $(UTILS_SRCS) $(BE1_SRCS) $(BE2_SRCS)
@@ -48,7 +48,7 @@ CLI_TARGET = bitemu-cli
 
 TEST_DIR   = tests/core
 TEST_BE2   = tests/be2
-TEST_SRCS  = $(TEST_DIR)/test_runner.c $(TEST_DIR)/test_memory.c $(TEST_DIR)/test_apu.c $(TEST_DIR)/test_timer.c $(TEST_DIR)/test_api.c $(TEST_DIR)/test_ppu.c $(TEST_DIR)/test_mbc2.c $(TEST_DIR)/test_abi_guard.c $(TEST_BE2)/test_abi_guard.c
+TEST_SRCS  = $(TEST_DIR)/test_runner.c $(TEST_DIR)/test_memory.c $(TEST_DIR)/test_apu.c $(TEST_DIR)/test_timer.c $(TEST_DIR)/test_api.c $(TEST_DIR)/test_ppu.c $(TEST_DIR)/test_mbc2.c $(TEST_DIR)/test_abi_guard.c $(TEST_BE2)/test_abi_guard.c $(TEST_BE2)/test_genesis_memory.c $(TEST_BE2)/test_genesis_full.c $(TEST_BE2)/test_genesis_cpu.c $(TEST_BE2)/test_genesis_ym2612.c
 TEST_BIN   = build/test_runner
 VENV       = frontend/venv/bin
 

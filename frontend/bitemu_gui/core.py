@@ -10,6 +10,7 @@ from ctypes import (
     c_bool,
     c_float,
     c_uint8,
+    c_uint16,
     c_int,
     c_short,
     c_char,
@@ -71,6 +72,7 @@ def _load_lib():
     lib.bitemu_get_video_size.argtypes = [c_void_p, POINTER(c_int), POINTER(c_int)]
     lib.bitemu_get_video_size.restype = None
     lib.bitemu_set_input.argtypes = [c_void_p, c_uint8]
+    lib.bitemu_set_input_genesis.argtypes = [c_void_p, c_uint16]
     lib.bitemu_reset.argtypes = [c_void_p]
     lib.bitemu_unload_rom.argtypes = [c_void_p]
     # Save state
@@ -153,6 +155,11 @@ class Emu:
     def set_input(self, state: int):
         if self._handle is not None:
             self._lib.bitemu_set_input(self._handle, state & 0xFF)
+
+    def set_input_genesis(self, state: int):
+        """Genesis 6-button: bits 0-7 = D-pad,A,B,C,Start; 8-11 = X,Y,Z,Mode."""
+        if self._handle is not None:
+            self._lib.bitemu_set_input_genesis(self._handle, state & 0x0FFF)
 
     def reset(self):
         if self._handle is not None:

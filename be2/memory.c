@@ -9,7 +9,10 @@
 #include "vdp/vdp.h"
 #include "ym2612/ym2612.h"
 #include "psg/psg.h"
+#include "core/utils/log.h"
 #include <string.h>
+#include <stdio.h>
+#include <sys/stat.h>
 
 void genesis_mem_init(genesis_mem_t *mem)
 {
@@ -19,8 +22,11 @@ void genesis_mem_init(genesis_mem_t *mem)
 void genesis_mem_reset(genesis_mem_t *mem)
 {
     memset(mem->ram, 0, GEN_RAM_SIZE);
-    mem->joypad[0] = 0x3F;
-    mem->joypad[1] = 0x3F;
+    mem->joypad[0] = GEN_JOYPAD_IDLE;
+    mem->joypad[1] = GEN_JOYPAD_IDLE;
+    mem->joypad_ctrl[0] = mem->joypad_ctrl[1] = 0;
+    mem->joypad_cycle[0] = mem->joypad_cycle[1] = 0;
+    /* sram no se borra; sram_enabled se setea en load_rom si header tiene "RA" */
 }
 
 void genesis_mem_set_vdp(genesis_mem_t *mem, struct gen_vdp *vdp)
@@ -50,16 +56,97 @@ static uint32_t rom_addr(uint32_t addr)
     return addr & GEN_ROM_MASK;
 }
 
+/* Lock-on: 0x000000-0x1FFFFF = S&K, 0x200000-0x3FFFFF = locked game.
+ * A130F1 bit 0 = 1: Sonic 3 & K → SRAM en 0x200000-0x20FFFF;
+ *                   Sonic 2 & K → patch ROM en 0x300000-0x3FFFFF. */
+static uint32_t lockon_rom_offset(genesis_mem_t *mem, uint32_t addr)
+{
+    if (addr < 0x200000)
+        return addr;
+    if (addr >= 0x300000 && mem->sram_enabled && mem->lockon_has_patch)
+        return GEN_LOCKON_SIZE + ((addr - 0x300000) & (GEN_LOCKON_PATCH - 1));
+    return addr;
+}
+
 static uint32_t ram_addr(uint32_t addr)
 {
     return addr & GEN_RAM_MASK;
 }
 
+static uint32_t sram_offset(uint32_t addr)
+{
+    return (addr - GEN_ADDR_SRAM_START) & GEN_SRAM_MASK;
+}
+
+/* Protocolo 6-button: ciclo 1=TH high (D-pad,B,C), 2=TH low (D-pad,A,Start), 7=TH high (Z,Y,X,Mode).
+ * Genesis: 0 = pressed (active low). raw: 1 = pressed. raw bits: 0=R,1=L,2=D,3=U,4=A,5=B,6=C,7=Start,8=X,9=Y,10=Z,11=Mode */
+static uint8_t joypad_read_byte(genesis_mem_t *mem, int port, int byte_sel)
+{
+    (void)byte_sel;
+    uint8_t ctrl = mem->joypad_ctrl[port];
+    uint8_t cycle = mem->joypad_cycle[port];
+    uint16_t raw = mem->joypad_raw[port];
+    uint8_t out = 0xFF;
+    if (cycle == 0)
+        return 0x3F;
+
+    if (cycle == 1 || cycle == 3 || cycle == 5)
+    {
+        if (ctrl & GEN_JOYPAD_TH)
+        {
+            uint8_t m = (uint8_t)(((raw>>3)&1) | ((raw>>2)&1)<<1 | ((raw>>1)&1)<<2 | ((raw>>0)&1)<<3
+                       | ((raw>>5)&1)<<4 | ((raw>>6)&1)<<5);
+            out = (uint8_t)(0xFF & ~m);
+        }
+    }
+    else if (cycle == 2 || cycle == 4 || cycle == 6 || cycle == 8)
+    {
+        if (!(ctrl & GEN_JOYPAD_TH))
+        {
+            uint8_t m = (uint8_t)(((raw>>3)&1) | ((raw>>2)&1)<<1 | ((raw>>1)&1)<<2 | ((raw>>0)&1)<<3
+                       | ((raw>>4)&1)<<4 | ((raw>>7)&1)<<5);
+            out = (uint8_t)(0xFF & ~m);
+        }
+    }
+    else if (cycle == 7 || cycle == 9)
+    {
+        if (ctrl & GEN_JOYPAD_TH)
+        {
+            uint8_t m = (uint8_t)(((raw>>8)&1) | ((raw>>9)&1)<<1 | ((raw>>10)&1)<<2 | ((raw>>11)&1)<<3);
+            out = (uint8_t)(0x0F & ~m);
+        }
+    }
+
+    return out;
+}
+
+void genesis_joypad_write_ctrl(genesis_mem_t *mem, int port, uint8_t val)
+{
+    uint8_t old_th = mem->joypad_ctrl[port] & GEN_JOYPAD_TH;
+    uint8_t new_th = val & GEN_JOYPAD_TH;
+    mem->joypad_ctrl[port] = val;
+    if (old_th != new_th)
+    {
+        mem->joypad_cycle[port]++;
+        if (mem->joypad_cycle[port] > 9)
+            mem->joypad_cycle[port] = 1;
+    }
+}
+
+uint8_t genesis_joypad_read_byte(genesis_mem_t *mem, int port, int byte_sel)
+{
+    uint8_t b = joypad_read_byte(mem, port, byte_sel);
+    return b;
+}
+
 uint8_t genesis_mem_read8(genesis_mem_t *mem, uint32_t addr)
 {
+    /* SRAM: 0x200000-0x20FFFF. Con lock-on Sonic 2 & K, A130F1=1 mapea patch en 0x300000, no SRAM. */
+    if (genesis_addr_in_sram(addr) && mem->sram_enabled && !mem->lockon_has_patch)
+        return mem->sram[sram_offset(addr)];
     if (genesis_addr_in_rom(addr) && mem->rom)
     {
-        uint32_t off = rom_addr(addr);
+        uint32_t off = mem->lockon ? lockon_rom_offset(mem, addr) : rom_addr(addr);
         if (off < mem->rom_size)
             return mem->rom[off];
         return 0xFF;
@@ -68,29 +155,33 @@ uint8_t genesis_mem_read8(genesis_mem_t *mem, uint32_t addr)
         return mem->ram[ram_addr(addr)];
     if (genesis_addr_in_io(addr))
     {
-        if (addr == GEN_IO_JOYPAD1)
-            return (uint8_t)(mem->joypad[0] & 0xFF);
-        if (addr == GEN_IO_JOYPAD1 + 1)
-            return (uint8_t)(mem->joypad[0] >> 8);
-        if (addr == GEN_IO_JOYPAD2)
-            return (uint8_t)(mem->joypad[1] & 0xFF);
+        if (addr == GEN_IO_JOYPAD1_DATA || addr == GEN_IO_JOYPAD1_DATA + 1)
+        {
+            uint8_t b = genesis_joypad_read_byte(mem, 0, (addr & 1));
+            return b;
+        }
+        if (addr == GEN_IO_JOYPAD2_DATA || addr == GEN_IO_JOYPAD2_DATA + 1)
+        {
+            uint8_t b = genesis_joypad_read_byte(mem, 1, (addr & 1));
+            return b;
+        }
         if (addr == GEN_IO_VERSION)
-            return 0x00;  /* Version register */
-        return 0xFF;
+            return GEN_IO_VERSION_VAL;
+        return GEN_IO_UNMAPPED_READ;
     }
     if (genesis_addr_in_ym(addr) && mem->ym2612)
-        return 0x00;
+        return GEN_IO_VERSION_VAL;
     if (genesis_addr_in_z80_ram(addr) && mem->z80_ram)
         return mem->z80_ram[addr & (GEN_Z80_RAM_SIZE - 1)];
     if (genesis_addr_in_z80_bus(addr) && mem->z80_bus_req && mem->z80_reset)
     {
-        if ((addr & 0xFFFF) == 0x1100)
+        if ((addr & GEN_ADDR_OFFSET_MASK) == GEN_Z80_BUSREQ_OFF)
             return *mem->z80_bus_req;
-        if ((addr & 0xFFFF) == 0x1200)
+        if ((addr & GEN_ADDR_OFFSET_MASK) == GEN_Z80_RESET_OFF)
             return *mem->z80_reset;
     }
     if (genesis_addr_in_psg(addr))
-        return 0xFF;  /* PSG es write-only */
+        return GEN_IO_UNMAPPED_READ;  /* PSG es write-only */
     if (genesis_addr_in_vdp(addr) && mem->vdp)
     {
         if (addr == GEN_ADDR_VDP_HV || addr == GEN_ADDR_VDP_HV + 1)
@@ -103,9 +194,9 @@ uint8_t genesis_mem_read8(genesis_mem_t *mem, uint32_t addr)
             int fetch = (addr == GEN_ADDR_VDP_CTRL);
             return gen_vdp_read_status_byte(mem->vdp, fetch);
         }
-        return 0x00;
+        return GEN_IO_VERSION_VAL;
     }
-    return 0xFF;
+    return GEN_IO_UNMAPPED_READ;
 }
 
 uint16_t genesis_mem_read16(genesis_mem_t *mem, uint32_t addr)
@@ -124,6 +215,16 @@ uint32_t genesis_mem_read32(genesis_mem_t *mem, uint32_t addr)
 
 void genesis_mem_write8(genesis_mem_t *mem, uint32_t addr, uint8_t val)
 {
+    if (addr == GEN_ADDR_SRAM_ENABLE)
+    {
+        mem->sram_enabled = (val & 1) ? 1 : 0;
+        return;
+    }
+    if (genesis_addr_in_sram(addr) && mem->sram_enabled && !mem->lockon_has_patch)
+    {
+        mem->sram[sram_offset(addr)] = val;
+        return;
+    }
     if (genesis_addr_in_ram(addr))
     {
         mem->ram[ram_addr(addr)] = val;
@@ -142,9 +243,9 @@ void genesis_mem_write8(genesis_mem_t *mem, uint32_t addr, uint8_t val)
     }
     if (genesis_addr_in_z80_bus(addr))
     {
-        if ((addr & 0xFFFF) == 0x1100 && mem->z80_bus_req)
+        if ((addr & GEN_ADDR_OFFSET_MASK) == GEN_Z80_BUSREQ_OFF && mem->z80_bus_req)
             *mem->z80_bus_req = val;
-        if ((addr & 0xFFFF) == 0x1200 && mem->z80_reset)
+        if ((addr & GEN_ADDR_OFFSET_MASK) == GEN_Z80_RESET_OFF && mem->z80_reset)
             *mem->z80_reset = val;
         return;
     }
@@ -153,7 +254,18 @@ void genesis_mem_write8(genesis_mem_t *mem, uint32_t addr, uint8_t val)
         gen_psg_write(mem->psg, val);
         return;
     }
-    /* TMSS (0xA14000): no-op en emulación */
+    if (addr == GEN_IO_JOYPAD1_CTRL)
+    {
+        genesis_joypad_write_ctrl(mem, 0, val);
+        return;
+    }
+    if (addr == GEN_IO_JOYPAD2_CTRL)
+    {
+        genesis_joypad_write_ctrl(mem, 1, val);
+        return;
+    }
+    if (genesis_addr_in_tmss(addr))
+        return;  /* TMSS: acepta writes; VDP siempre desbloqueado en emu */
     (void)addr;
     (void)val;
 }
@@ -194,9 +306,9 @@ void genesis_mem_write16(genesis_mem_t *mem, uint32_t addr, uint16_t val)
     }
     if (genesis_addr_in_z80_bus(addr))
     {
-        if ((addr & 0xFFFF) == 0x1100 && mem->z80_bus_req)
+        if ((addr & GEN_ADDR_OFFSET_MASK) == GEN_Z80_BUSREQ_OFF && mem->z80_bus_req)
             *mem->z80_bus_req = (uint8_t)(val & 0xFF);
-        if ((addr & 0xFFFF) == 0x1200 && mem->z80_reset)
+        if ((addr & GEN_ADDR_OFFSET_MASK) == GEN_Z80_RESET_OFF && mem->z80_reset)
             *mem->z80_reset = (uint8_t)(val & 0xFF);
         return;
     }
@@ -211,4 +323,69 @@ void genesis_mem_write32(genesis_mem_t *mem, uint32_t addr, uint32_t val)
 {
     genesis_mem_write16(mem, addr, (uint16_t)(val >> 16));
     genesis_mem_write16(mem, addr + 2, (uint16_t)(val & 0xFFFF));
+}
+
+/* Ruta ROM -> saves/base.sav (mismo esquema que GB) */
+static void rom_path_to_sav(char *out, size_t out_size, const char *rom_path)
+{
+    const char *last_slash = strrchr(rom_path, '/');
+#ifdef _WIN32
+    {
+        const char *bs = strrchr(rom_path, '\\');
+        if (bs && (!last_slash || bs > last_slash))
+            last_slash = bs;
+    }
+#endif
+    const char *base = last_slash ? last_slash + 1 : rom_path;
+    size_t dir_len = last_slash ? (size_t)(last_slash - rom_path) : 0;
+    const char *dot = strrchr(base, '.');
+    size_t base_len = dot ? (size_t)(dot - base) : strlen(base);
+    if (dir_len > 0)
+        snprintf(out, out_size, "%.*s/saves/%.*s.sav",
+                 (int)dir_len, rom_path, (int)base_len, base);
+    else
+        snprintf(out, out_size, "saves/%.*s.sav", (int)base_len, base);
+}
+
+void genesis_mem_load_sav(genesis_mem_t *mem, const char *rom_path)
+{
+    if (!mem || !rom_path || !mem->sram_present)
+        return;
+    char path[1024];
+    rom_path_to_sav(path, sizeof(path), rom_path);
+    FILE *f = fopen(path, "rb");
+    if (!f)
+        return;
+    size_t read = fread(mem->sram, 1, GEN_SRAM_SIZE, f);
+    fclose(f);
+    if (read > 0)
+        log_info("Genesis save loaded: %s (%zu bytes)", path, read);
+}
+
+void genesis_mem_save_sav(const genesis_mem_t *mem, const char *rom_path)
+{
+    if (!mem || !rom_path || !mem->sram_present)
+        return;
+    char path[1024];
+    rom_path_to_sav(path, sizeof(path), rom_path);
+    char *slash = strrchr(path, '/');
+#ifdef _WIN32
+    {
+        char *bs = strrchr(path, '\\');
+        if (bs && (!slash || bs > slash))
+            slash = bs;
+    }
+#endif
+    if (slash)
+    {
+        *slash = '\0';
+        mkdir(path, 0755);
+        *slash = '/';
+    }
+    FILE *f = fopen(path, "wb");
+    if (!f)
+        return;
+    fwrite(mem->sram, 1, GEN_SRAM_SIZE, f);
+    fclose(f);
+    log_info("Genesis save written: %s", path);
 }

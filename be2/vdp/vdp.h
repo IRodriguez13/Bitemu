@@ -16,6 +16,9 @@
 
 typedef struct gen_vdp gen_vdp_t;
 
+/* Callback para DMA 68k→VDP: lee word desde addr 68k. NULL = no DMA 68k. */
+typedef uint16_t (*gen_vdp_dma_read_fn)(void *ctx, uint32_t addr);
+
 struct gen_vdp {
     uint8_t framebuffer[GEN_FB_SIZE];
     uint8_t regs[GEN_VDP_REG_COUNT];
@@ -32,10 +35,20 @@ struct gen_vdp {
     int line_counter;       /* scanline actual (0-261) */
     uint8_t status_reg;     /* bits VBlank, HBlank, etc. */
     uint16_t status_cache;   /* cache para read byte-a-byte (evita doble clear) */
+
+    /* DMA: fill pendiente hasta próximo write a data port (no en savestate: se pierde) */
+    uint8_t dma_fill_pending;
+
+    /* DMA 68k: callback para leer memoria. ctx = genesis_mem_t*. No serializable. */
+    gen_vdp_dma_read_fn dma_read_16;
+    void *dma_read_ctx;
 };
 
 void gen_vdp_init(gen_vdp_t *vdp);
 void gen_vdp_reset(gen_vdp_t *vdp);
+
+/* Callback para DMA 68k→VDP. Llamar antes de run. */
+void gen_vdp_set_dma_read(gen_vdp_t *vdp, gen_vdp_dma_read_fn fn, void *ctx);
 
 /* Puerto control: escribe word (parte de comando 32-bit o registro) */
 void gen_vdp_write_ctrl(gen_vdp_t *vdp, uint16_t val);

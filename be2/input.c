@@ -60,7 +60,7 @@ void gen_input_poll(genesis_impl_t *impl)
         default: break;
         }
     }
-    impl->joypad_state = state;
+    impl->joypad_state = (impl->joypad_state & 0xFF00) | (uint8_t)(~state & 0xFF);
 }
 
 #else

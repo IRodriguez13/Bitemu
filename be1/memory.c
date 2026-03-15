@@ -18,6 +18,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
+#include <sys/stat.h>
 
 /* ---------------------------------------------------------------------------
  * Cartucho: detección de RAM con batería (para .sav)
@@ -458,19 +459,27 @@ void gb_mem_write16(gb_mem_t *mem, uint16_t addr, uint16_t val)
 }
 
 /* ---------------------------------------------------------------------------
- * Ruta ROM -> ruta .sav (misma base, extensión .sav)
+ * Ruta ROM -> ruta .sav en subcarpeta saves/ (dir/saves/base.sav)
  * --------------------------------------------------------------------------- */
 static void rom_path_to_sav(char *out, size_t out_size, const char *rom_path)
 {
-    size_t n = strlen(rom_path);
-    if (n >= out_size)
-        return;
-    memcpy(out, rom_path, n + 1);
-    char *dot = strrchr(out, '.');
-    if (dot)
-        strcpy(dot, ".sav");
+    const char *last_slash = strrchr(rom_path, '/');
+#ifdef _WIN32
+    {
+        const char *bs = strrchr(rom_path, '\\');
+        if (bs && (!last_slash || bs > last_slash))
+            last_slash = bs;
+    }
+#endif
+    const char *base = last_slash ? last_slash + 1 : rom_path;
+    size_t dir_len = last_slash ? (size_t)(last_slash - rom_path) : 0;
+    const char *dot = strrchr(base, '.');
+    size_t base_len = dot ? (size_t)(dot - base) : strlen(base);
+    if (dir_len > 0)
+        snprintf(out, out_size, "%.*s/saves/%.*s.sav",
+                 (int)dir_len, rom_path, (int)base_len, base);
     else
-        snprintf(out + n, out_size - n, ".sav");
+        snprintf(out, out_size, "saves/%.*s.sav", (int)base_len, base);
 }
 
 #define GB_MBC3_RTC_SAV_SIZE  (5 + 8)  /* rtc_s..dh + timestamp */
@@ -510,6 +519,23 @@ void gb_mem_save_sav(const gb_mem_t *mem, const char *rom_path)
         return;
     char path[1024];
     rom_path_to_sav(path, sizeof(path), rom_path);
+    /* Crear carpeta saves si no existe (p. ej. ROM abierta desde ruta externa) */
+    {
+        char *slash = strrchr(path, '/');
+#ifdef _WIN32
+        {
+            char *bs = strrchr(path, '\\');
+            if (bs && (!slash || bs > slash))
+                slash = bs;
+        }
+#endif
+        if (slash)
+        {
+            *slash = '\0';
+            mkdir(path, 0755);  /* ignora error si ya existe */
+            *slash = '/';
+        }
+    }
     FILE *f = fopen(path, "wb");
     if (!f)
         return;

@@ -19,6 +19,10 @@ extern void run_ppu_tests(void);
 extern void run_mbc2_tests(void);
 extern void run_abi_guard_tests(void);
 extern void run_genesis_abi_guard_tests(void);
+extern void run_genesis_memory_tests(void);
+extern void run_genesis_full_tests(void);
+extern void run_genesis_cpu_tests(void);
+extern void run_genesis_ym2612_tests(void);
 
 int main(void)
 {
@@ -32,6 +36,10 @@ int main(void)
     run_mbc2_tests();
     run_abi_guard_tests();
     run_genesis_abi_guard_tests();
+    run_genesis_memory_tests();
+    run_genesis_full_tests();
+    run_genesis_cpu_tests();
+    run_genesis_ym2612_tests();
 
     REPORT();
 }
