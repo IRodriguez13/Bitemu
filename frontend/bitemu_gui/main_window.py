@@ -63,7 +63,7 @@ class MainWindow(QMainWindow):
         self._rom_path: str | None = None
         self._paused = False
         self._input_config = InputConfig()
-        self._gamepad = GamepadPoller(self._input_config, parent=self)
+        self._gamepad = GamepadPoller(self._input_config, profile=self._profile, parent=self)
         self._input_dialog: InputSettingsDialog | None = None
         self.setWindowTitle(self._profile.window_title)
         icon_path = _asset_path("bitemu-web.png")
@@ -150,7 +150,7 @@ class MainWindow(QMainWindow):
             else:
                 return super().eventFilter(obj, event)
             key = event.key()
-            km = self._input_config.keyboard_map if self._input_config else None
+            km = self._input_config.get_keyboard_map(self._profile) if self._input_config else None
             bit = key_to_joypad(key, km)
             if bit == 4:  # A = cargar ROM
                 entry = self._library.current_entry()
@@ -193,6 +193,7 @@ class MainWindow(QMainWindow):
         self._profile = profile
         self._library.set_profile(profile)
         self._game.set_profile(profile)
+        self._gamepad.set_profile(profile)
         self._show_library()
 
     def _show_library(self):
@@ -449,7 +450,7 @@ class MainWindow(QMainWindow):
     def _on_gamepad_connected(self, name: str):
         self._status.showMessage(f"Gamepad detectado: {name}")
         if self._input_dialog is not None:
-            self._input_dialog.select_gamepad_tab()
+            self._input_dialog.select_tab_for_profile(self._profile)
             self._input_dialog.activateWindow()
             self._input_dialog.raise_()
             return
@@ -468,14 +469,14 @@ class MainWindow(QMainWindow):
     def _open_input_settings(self, gamepad_tab: bool = False):
         if self._input_dialog is not None:
             if gamepad_tab:
-                self._input_dialog.select_gamepad_tab()
+                self._input_dialog.select_tab_for_profile(self._profile)
             self._input_dialog.activateWindow()
             self._input_dialog.raise_()
             return
         dlg = InputSettingsDialog(self._input_config, self._gamepad, parent=self)
         self._input_dialog = dlg
         if gamepad_tab:
-            dlg.select_gamepad_tab()
+            dlg.select_tab_for_profile(self._profile)
         dlg.exec()
         self._input_dialog = None
         self._status.showMessage("Controles actualizados")

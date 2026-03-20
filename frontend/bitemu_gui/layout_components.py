@@ -137,9 +137,10 @@ class AppFooter(QFrame):
         """Actualiza las acciones. key puede ser str ("B") o int (joypad bit 5)."""
         resolved: list[tuple[str, str]] = []
         for k, label in actions:
-            if isinstance(k, int) and self._input_config:
+            if isinstance(k, int) and self._input_config and self._profile:
                 bit = k
-                key_str = _key_for_action(bit, self._input_config.keyboard_map)
+                km = self._input_config.get_keyboard_map(self._profile)
+                key_str = _key_for_action(bit, km)
                 btn_name = self._joypad_labels.get(bit, f"Btn{bit}")
                 resolved.append((key_str or btn_name, label))
             else:

@@ -70,7 +70,7 @@ class GameWidget(QWidget):
             return
         if self._loading_rom_name:
             return
-        km = self._input_config.keyboard_map if self._input_config else None
+        km = self._input_config.get_keyboard_map(self._profile) if self._input_config else None
         is_genesis = self._profile.fb_width == 320
         if is_genesis:
             kb_state = build_joypad_state_genesis(self._pressed_keys, km)

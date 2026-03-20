@@ -6,7 +6,16 @@ import os
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", "frontend"))
 
 from PySide6.QtCore import Qt
-from bitemu_gui.keys import key_to_joypad, build_joypad_state, DEFAULT_MAP, key_name, ACTION_NAMES
+from bitemu_gui.keys import (
+    key_to_joypad,
+    build_joypad_state,
+    build_joypad_state_genesis,
+    DEFAULT_MAP,
+    GENESIS_6_MAP,
+    GENESIS_6_ACTION_NAMES,
+    key_name,
+    ACTION_NAMES,
+)
 
 
 def test_wasd_mapped():
@@ -77,3 +86,39 @@ def test_key_name_readable():
     name = key_name(Qt.Key.Key_W)
     assert isinstance(name, str)
     assert len(name) > 0
+
+
+# --- Genesis 6-button ---
+
+
+def test_genesis_dpad_mapping():
+    """Genesis raw: 0=R,1=L,2=D,3=U. W=Up(3), S=Down(2)."""
+    state = build_joypad_state_genesis({Qt.Key.Key_W}, GENESIS_6_MAP)
+    assert state & (1 << 3)  # Up
+    state = build_joypad_state_genesis({Qt.Key.Key_S}, GENESIS_6_MAP)
+    assert state & (1 << 2)  # Down
+    state = build_joypad_state_genesis({Qt.Key.Key_D}, GENESIS_6_MAP)
+    assert state & (1 << 0)  # Right
+    state = build_joypad_state_genesis({Qt.Key.Key_A}, GENESIS_6_MAP)
+    assert state & (1 << 1)  # Left
+
+
+def test_genesis_xyz_buttons():
+    """Q=X(8), E=Y(9), R=Z(10), Tab=Mode(11)."""
+    state = build_joypad_state_genesis({Qt.Key.Key_Q}, GENESIS_6_MAP)
+    assert state & (1 << 8)
+    state = build_joypad_state_genesis({Qt.Key.Key_E}, GENESIS_6_MAP)
+    assert state & (1 << 9)
+    state = build_joypad_state_genesis({Qt.Key.Key_R}, GENESIS_6_MAP)
+    assert state & (1 << 10)
+    state = build_joypad_state_genesis({Qt.Key.Key_Tab}, GENESIS_6_MAP)
+    assert state & (1 << 11)
+
+
+def test_genesis_12bit_mask():
+    state = build_joypad_state_genesis(set(GENESIS_6_MAP.keys()), GENESIS_6_MAP)
+    assert 0 <= state <= 0x0FFF
+
+
+def test_genesis_action_names():
+    assert len(GENESIS_6_ACTION_NAMES) == 12

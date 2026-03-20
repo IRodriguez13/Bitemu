@@ -27,16 +27,18 @@ from .input_config import InputConfig, AXIS_DEADZONE
 
 
 class GamepadPoller(QObject):
-    """Polls the first connected gamepad at ~60 Hz and emits the joypad byte."""
+    """Polls the first connected gamepad at ~60 Hz and emits the joypad state.
+    Emits 8 bits para Game Boy, 12 bits para Genesis según el perfil activo."""
 
     state_changed = Signal(int)
     gamepad_connected = Signal(str)
     gamepad_disconnected = Signal()
     button_pressed = Signal(int)
 
-    def __init__(self, config: InputConfig, parent=None):
+    def __init__(self, config: InputConfig, profile=None, parent=None):
         super().__init__(parent)
         self._config = config
+        self._profile = profile
         self._joystick = None
         self._state: int = 0
         self._prev_buttons: set[int] = set()
@@ -82,6 +84,10 @@ class GamepadPoller(QObject):
             except Exception:
                 pass
         return ""
+
+    def set_profile(self, profile):
+        """Actualiza el perfil activo (Game Boy vs Genesis) para usar el mapeo correcto."""
+        self._profile = profile
 
     def refresh(self):
         if not self._initialized:
@@ -139,7 +145,7 @@ class GamepadPoller(QObject):
         self._prev_buttons = cur_buttons
 
         state = 0
-        btn_map = self._config.gamepad_buttons
+        btn_map = self._config.get_gamepad_buttons(self._profile)
         for btn_idx, bit in btn_map.items():
             if btn_idx in cur_buttons:
                 state |= 1 << bit
@@ -163,13 +169,21 @@ class GamepadPoller(QObject):
                 elif hx > 0:
                     state |= 1 << 0  # Right
                 if hy > 0:
-                    state |= 1 << 2  # Up
+                    state |= 1 << 2  # Up (GB format)
                 elif hy < 0:
-                    state |= 1 << 3  # Down
+                    state |= 1 << 3  # Down (GB format)
         except Exception:
             pass
 
-        state &= 0xFF
+        is_genesis = self._profile and getattr(self._profile, "fb_width", 0) == 320
+        if is_genesis:
+            # Genesis D-pad: 2=Down, 3=Up (inverted vs GB). Swap bits 2 and 3.
+            b2, b3 = (state >> 2) & 1, (state >> 3) & 1
+            state &= ~0x0C
+            state |= (b3 << 2) | (b2 << 3)
+
+        mask = 0x0FFF if self._profile and getattr(self._profile, "fb_width", 0) == 320 else 0xFF
+        state &= mask
         if state != self._state:
             self._state = state
             self.state_changed.emit(state)

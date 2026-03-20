@@ -1,5 +1,6 @@
 """
-Diálogo de configuración de controles: teclado y gamepad.
+Diálogo de configuración de controles: teclado y gamepad por consola.
+Cada consola (Game Boy, Genesis) tiene su propia pestaña con mapeo independiente.
 """
 from PySide6.QtCore import Qt, QTimer
 from PySide6.QtWidgets import (
@@ -16,8 +17,13 @@ from PySide6.QtWidgets import (
 )
 from PySide6.QtGui import QKeyEvent
 
-from .keys import ACTION_NAMES, key_name, DEFAULT_MAP
-from .input_config import InputConfig, DEFAULT_GAMEPAD_BUTTONS, DEFAULT_GAMEPAD_AXES
+from .keys import ACTION_NAMES, GENESIS_6_ACTION_NAMES, key_name, DEFAULT_MAP, GENESIS_6_MAP
+from .input_config import (
+    InputConfig,
+    DEFAULT_GAMEPAD_BUTTONS_GB,
+    DEFAULT_GAMEPAD_BUTTONS_GENESIS,
+    DEFAULT_GAMEPAD_AXES,
+)
 from .gamepad import GamepadPoller
 
 GP_BTN_NAMES = {
@@ -73,38 +79,71 @@ class InputSettingsDialog(QDialog):
     def __init__(self, config: InputConfig, gamepad: GamepadPoller | None = None, parent=None):
         super().__init__(parent)
         self.setWindowTitle("Configurar controles")
-        self.setMinimumWidth(420)
+        self.setMinimumWidth(460)
         self._config = config
         self._gamepad = gamepad
 
         layout = QVBoxLayout(self)
+
+        # Estado del gamepad (compartido, arriba de las pestañas)
+        status_layout = QHBoxLayout()
+        self._gp_status = QLabel()
+        self._update_gamepad_status()
+        status_layout.addWidget(self._gp_status)
+        detect_btn = QPushButton("Detectar")
+        detect_btn.clicked.connect(self._detect_gamepad)
+        status_layout.addWidget(detect_btn)
+        status_layout.addStretch()
+        layout.addLayout(status_layout)
+
         self._tabs = QTabWidget()
         layout.addWidget(self._tabs)
 
-        self._tabs.addTab(self._build_keyboard_tab(), "Teclado")
-        self._tabs.addTab(self._build_gamepad_tab(), "Gamepad")
+        self._tabs.addTab(self._build_console_tab("Game Boy", 8, ACTION_NAMES, DEFAULT_MAP,
+                                                   self._config.keyboard_map_gb,
+                                                   self._config.gamepad_buttons_gb,
+                                                   "gb"), "Game Boy")
+        self._tabs.addTab(self._build_console_tab("Genesis", 12, GENESIS_6_ACTION_NAMES, GENESIS_6_MAP,
+                                                 self._config.keyboard_map_genesis,
+                                                 self._config.gamepad_buttons_genesis,
+                                                 "genesis"), "Genesis")
 
         buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
         buttons.accepted.connect(self._apply_and_accept)
         buttons.rejected.connect(self.reject)
         layout.addWidget(buttons)
 
-    def select_gamepad_tab(self):
-        self._tabs.setCurrentIndex(1)
+    def select_tab_for_profile(self, profile=None):
+        """Selecciona la pestaña según el perfil (Genesis=1, Game Boy=0)."""
+        if profile and getattr(profile, "fb_width", 0) == 320:
+            self._tabs.setCurrentIndex(1)  # Genesis
+        else:
+            self._tabs.setCurrentIndex(0)  # Game Boy
 
-    def _build_keyboard_tab(self) -> QWidget:
+    def _build_console_tab(
+        self,
+        console_name: str,
+        num_bits: int,
+        action_names: list[str],
+        default_keyboard: dict,
+        keyboard_map: dict,
+        gamepad_buttons: dict,
+        console_key: str,
+    ) -> QWidget:
+        """Construye pestaña para una consola: teclado + gamepad."""
         widget = QWidget()
         outer = QVBoxLayout(widget)
 
-        group = QGroupBox("Asignación de teclas")
+        # Teclado
+        group = QGroupBox(f"Teclado — {console_name}")
         grid = QGridLayout(group)
         grid.setColumnStretch(1, 1)
 
-        self._key_buttons: dict[int, list[_KeyCaptureButton]] = {}
-        current_keys = self._keys_by_bit(self._config.keyboard_map)
+        key_buttons: dict[int, list[_KeyCaptureButton]] = {}
+        current_keys = self._keys_by_bit(keyboard_map)
 
-        for bit in range(8):
-            label = QLabel(f"{ACTION_NAMES[bit]}:")
+        for bit in range(num_bits):
+            label = QLabel(f"{action_names[bit]}:")
             label.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
             grid.addWidget(label, bit, 0)
 
@@ -124,64 +163,46 @@ class InputSettingsDialog(QDialog):
             add_btn = QPushButton("+")
             add_btn.setFixedWidth(30)
             add_btn.setToolTip("Agregar tecla alternativa")
-            bit_capture = bit
-            add_btn.clicked.connect(lambda checked=False, b=bit_capture, rl=row_layout, bl=btns: self._add_key_slot(b, rl, bl))
+            add_btn.clicked.connect(
+                lambda checked=False, b=bit, rl=row_layout, bl=btns, ck=console_key: self._add_key_slot(b, rl, bl, ck)
+            )
             row_layout.addWidget(add_btn)
 
             row_layout.addStretch()
             grid.addLayout(row_layout, bit, 1)
-            self._key_buttons[bit] = btns
+            key_buttons[(console_key, bit)] = btns
 
         outer.addWidget(group)
 
-        reset_btn = QPushButton("Restaurar teclas por defecto")
-        reset_btn.clicked.connect(self._reset_keyboard)
-        outer.addWidget(reset_btn)
-        outer.addStretch()
-        return widget
+        reset_kb = QPushButton("Restaurar teclas por defecto")
+        reset_kb.clicked.connect(lambda ck=console_key, dk=default_keyboard: self._reset_keyboard(ck, dk, key_buttons))
+        outer.addWidget(reset_kb)
 
-    def _add_key_slot(self, bit: int, row_layout: QHBoxLayout, btns: list):
-        btn = _KeyCaptureButton(0)
-        btn.setText("Presiona una tecla...")
-        btn._listening = True
-        insert_pos = row_layout.count() - 2
-        row_layout.insertWidget(insert_pos, btn)
-        btns.append(btn)
-        btn.setFocus()
+        # Gamepad
+        gp_group = QGroupBox(f"Gamepad — {console_name}")
+        gp_grid = QGridLayout(gp_group)
 
-    def _build_gamepad_tab(self) -> QWidget:
-        widget = QWidget()
-        outer = QVBoxLayout(widget)
+        gp_capture_buttons: dict[int, QPushButton] = {}
+        gp_pending_map = dict(gamepad_buttons)
 
-        status_layout = QHBoxLayout()
-        self._gp_status = QLabel()
-        self._update_gamepad_status()
-        status_layout.addWidget(self._gp_status)
-        detect_btn = QPushButton("Detectar")
-        detect_btn.clicked.connect(self._detect_gamepad)
-        status_layout.addWidget(detect_btn)
-        status_layout.addStretch()
-        outer.addLayout(status_layout)
-
-        group = QGroupBox("Botones del gamepad")
-        grid = QGridLayout(group)
-
-        self._gp_capture_buttons: dict[int, QPushButton] = {}
-        self._gp_pending_bit: int | None = None
-        self._gp_pending_map: dict[int, int] = dict(self._config.gamepad_buttons)
-
-        for bit in range(8):
-            label = QLabel(f"{ACTION_NAMES[bit]}:")
+        for bit in range(num_bits):
+            label = QLabel(f"{action_names[bit]}:")
             label.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
-            grid.addWidget(label, bit, 0)
+            gp_grid.addWidget(label, bit, 0)
 
-            btn = QPushButton(self._gp_current_label(bit))
+            def _label(b: int, pm: dict):
+                mapped = [bi for bi, v in pm.items() if v == b]
+                return ", ".join(_gp_btn_name(x) for x in mapped) if mapped else "(sin asignar) — clic para asignar"
+
+            btn = QPushButton(_label(bit, gp_pending_map))
             btn.setMinimumWidth(160)
-            btn.clicked.connect(lambda checked=False, b=bit: self._start_gp_capture(b))
-            grid.addWidget(btn, bit, 1)
-            self._gp_capture_buttons[bit] = btn
+            btn.clicked.connect(
+                lambda checked=False, b=bit, pm=gp_pending_map, ck=console_key: self._start_gp_capture(b, pm, ck)
+            )
+            gp_grid.addWidget(btn, bit, 1)
+            gp_capture_buttons[(console_key, bit)] = btn
 
-        outer.addWidget(group)
+        outer.addWidget(gp_group)
 
         axis_group = QGroupBox("Ejes analógicos")
         axis_info = QLabel(
@@ -192,30 +213,52 @@ class InputSettingsDialog(QDialog):
         axis_layout.addWidget(axis_info)
         outer.addWidget(axis_group)
 
-        reset_btn = QPushButton("Restaurar gamepad por defecto")
-        reset_btn.clicked.connect(self._reset_gamepad)
-        outer.addWidget(reset_btn)
+        default_gp = DEFAULT_GAMEPAD_BUTTONS_GB if console_key == "gb" else DEFAULT_GAMEPAD_BUTTONS_GENESIS
+        reset_gp = QPushButton("Restaurar gamepad por defecto")
+        reset_gp.clicked.connect(
+            lambda ck=console_key: self._reset_gamepad(ck, default_gp, gp_pending_map, gp_capture_buttons, num_bits)
+        )
+        outer.addWidget(reset_gp)
         outer.addStretch()
 
-        if self._gamepad:
+        # Guardar referencias para _apply_and_accept
+        if not hasattr(self, "_console_data"):
+            self._console_data = {}
+        self._console_data[console_key] = {
+            "key_buttons": key_buttons,
+            "gp_pending_map": gp_pending_map,
+            "gp_capture_buttons": gp_capture_buttons,
+            "num_bits": num_bits,
+        }
+
+        if self._gamepad and not hasattr(self, "_gp_connected"):
             self._gamepad.button_pressed.connect(self._on_gp_button_pressed)
+            self._gp_connected = True
 
         return widget
 
-    def _gp_current_label(self, bit: int) -> str:
-        mapped = [bi for bi, b in self._gp_pending_map.items() if b == bit]
-        if mapped:
-            return ", ".join(_gp_btn_name(b) for b in mapped)
-        return "(sin asignar) — clic para asignar"
+    def _add_key_slot(self, bit: int, row_layout: QHBoxLayout, btns: list, console_key: str):
+        btn = _KeyCaptureButton(0)
+        btn.setText("Presiona una tecla...")
+        btn._listening = True
+        insert_pos = row_layout.count() - 2
+        row_layout.insertWidget(insert_pos, btn)
+        btns.append(btn)
+        btn.setFocus()
 
-    def _start_gp_capture(self, bit: int):
-        if self._gp_pending_bit is not None:
-            old_btn = self._gp_capture_buttons.get(self._gp_pending_bit)
+    def _start_gp_capture(self, bit: int, pending_map: dict, console_key: str):
+        data = self._console_data.get(console_key, {})
+        capture_buttons = data.get("gp_capture_buttons", {})
+        if hasattr(self, "_gp_pending_bit") and self._gp_pending_bit is not None:
+            old_ck, old_bit = self._gp_pending_console, self._gp_pending_bit
+            old_btn = self._console_data.get(old_ck, {}).get("gp_capture_buttons", {}).get((old_ck, old_bit))
             if old_btn:
-                old_btn.setText(self._gp_current_label(self._gp_pending_bit))
+                mapped = [bi for bi, v in self._console_data[old_ck]["gp_pending_map"].items() if v == old_bit]
+                old_btn.setText(", ".join(_gp_btn_name(x) for x in mapped) if mapped else "(sin asignar) — clic para asignar")
 
         self._gp_pending_bit = bit
-        self._gp_capture_buttons[bit].setText("Presiona un botón del gamepad...")
+        self._gp_pending_console = console_key
+        capture_buttons[(console_key, bit)].setText("Presiona un botón del gamepad...")
 
         self._gp_capture_timer = QTimer(self)
         self._gp_capture_timer.setSingleShot(True)
@@ -223,26 +266,73 @@ class InputSettingsDialog(QDialog):
         self._gp_capture_timer.start(5000)
 
     def _on_gp_button_pressed(self, btn_idx: int):
-        if self._gp_pending_bit is None:
+        if not hasattr(self, "_gp_pending_bit") or self._gp_pending_bit is None:
             return
 
         bit = self._gp_pending_bit
+        console_key = getattr(self, "_gp_pending_console", "gb")
         self._gp_pending_bit = None
+
         if hasattr(self, "_gp_capture_timer"):
             self._gp_capture_timer.stop()
 
-        self._gp_pending_map = {k: v for k, v in self._gp_pending_map.items() if v != bit}
-        self._gp_pending_map[btn_idx] = bit
+        data = self._console_data.get(console_key, {})
+        pending_map = data.get("gp_pending_map", {})
+        for k in list(pending_map.keys()):
+            if pending_map[k] == bit:
+                del pending_map[k]
+        pending_map[btn_idx] = bit
 
-        for b in range(8):
-            self._gp_capture_buttons[b].setText(self._gp_current_label(b))
+        num_bits = data.get("num_bits", 8)
+        capture_buttons = data.get("gp_capture_buttons", {})
+        for b in range(num_bits):
+            mapped = [bi for bi, v in pending_map.items() if v == b]
+            capture_buttons[(console_key, b)].setText(
+                ", ".join(_gp_btn_name(x) for x in mapped) if mapped else "(sin asignar) — clic para asignar"
+            )
 
     def _gp_capture_timeout(self):
-        if self._gp_pending_bit is not None:
-            btn = self._gp_capture_buttons.get(self._gp_pending_bit)
-            if btn:
-                btn.setText(self._gp_current_label(self._gp_pending_bit))
+        if hasattr(self, "_gp_pending_bit") and self._gp_pending_bit is not None:
+            console_key = getattr(self, "_gp_pending_console", "gb")
+            data = self._console_data.get(console_key, {})
+            pending_map = data.get("gp_pending_map", {})
+            capture_buttons = data.get("gp_capture_buttons", {})
+            bit = self._gp_pending_bit
+            mapped = [bi for bi, v in pending_map.items() if v == bit]
+            capture_buttons[(console_key, bit)].setText(
+                ", ".join(_gp_btn_name(x) for x in mapped) if mapped else "(sin asignar) — clic para asignar"
+            )
             self._gp_pending_bit = None
+
+    def _reset_keyboard(self, console_key: str, default_map: dict, key_buttons: dict):
+        current_keys = self._keys_by_bit(default_map)
+        for (ck, bit), btns in key_buttons.items():
+            if ck != console_key:
+                continue
+            assigned = current_keys.get(bit, [])
+            for i, btn in enumerate(btns):
+                if i < len(assigned):
+                    btn.qt_key = assigned[i]
+                    btn.setText(key_name(assigned[i]))
+                else:
+                    btn.qt_key = 0
+                    btn.setText("(sin asignar)")
+
+    def _reset_gamepad(
+        self,
+        console_key: str,
+        default_buttons: dict,
+        pending_map: dict,
+        capture_buttons: dict,
+        num_bits: int,
+    ):
+        pending_map.clear()
+        pending_map.update(default_buttons)
+        for b in range(num_bits):
+            mapped = [bi for bi, v in pending_map.items() if v == b]
+            capture_buttons[(console_key, b)].setText(
+                ", ".join(_gp_btn_name(x) for x in mapped) if mapped else "(sin asignar) — clic para asignar"
+            )
 
     def _update_gamepad_status(self):
         if self._gamepad and self._gamepad.available:
@@ -259,32 +349,26 @@ class InputSettingsDialog(QDialog):
             self._gamepad.refresh()
         self._update_gamepad_status()
 
-    def _reset_keyboard(self):
-        current_keys = self._keys_by_bit(DEFAULT_MAP)
-        for bit, btns in self._key_buttons.items():
-            assigned = current_keys.get(bit, [])
-            for i, btn in enumerate(btns):
-                if i < len(assigned):
-                    btn.qt_key = assigned[i]
-                    btn.setText(key_name(assigned[i]))
-                else:
-                    btn.qt_key = 0
-                    btn.setText("(sin asignar)")
-
-    def _reset_gamepad(self):
-        self._gp_pending_map = dict(DEFAULT_GAMEPAD_BUTTONS)
-        self._gp_pending_bit = None
-        for bit in range(8):
-            self._gp_capture_buttons[bit].setText(self._gp_current_label(bit))
-
     def _apply_and_accept(self):
-        new_map = {}
-        for bit, btns in self._key_buttons.items():
-            for btn in btns:
-                if btn.qt_key and btn.qt_key != 0:
-                    new_map[btn.qt_key] = bit
-        self._config.keyboard_map = new_map
-        self._config.gamepad_buttons = dict(self._gp_pending_map)
+        for console_key, data in self._console_data.items():
+            key_buttons = data.get("key_buttons", {})
+            gp_pending_map = data.get("gp_pending_map", {})
+
+            new_kb_map = {}
+            for (ck, bit), btns in key_buttons.items():
+                if ck != console_key:
+                    continue
+                for btn in btns:
+                    if btn.qt_key and btn.qt_key != 0:
+                        new_kb_map[btn.qt_key] = bit
+
+            if console_key == "gb":
+                self._config.keyboard_map_gb = new_kb_map
+                self._config.gamepad_buttons_gb = dict(gp_pending_map)
+            else:
+                self._config.keyboard_map_genesis = new_kb_map
+                self._config.gamepad_buttons_genesis = dict(gp_pending_map)
+
         self._config.save()
         self.accept()
 

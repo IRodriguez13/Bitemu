@@ -104,6 +104,19 @@ TEST(gen_mem_joypad_custom)
     ASSERT_EQ(lo, 0xF0);
 }
 
+/* 6-button: ciclos 7/9 leen X,Y,Z,Mode (raw bits 8-11) */
+TEST(gen_mem_joypad_6button_xyz_mode)
+{
+    setup();
+    impl.mem.joypad_raw[0] = (1u << 8) | (1u << 10);  /* X y Z presionados */
+    /* Avanzar a ciclo 7: TH toggle 7 veces (0->1, 1->0, ... hasta cycle=7, TH=1) */
+    for (int i = 0; i < 7; i++)
+        genesis_mem_write8(&impl.mem, GEN_IO_JOYPAD1_CTRL, (i & 1) ? 0 : GEN_JOYPAD_TH);
+    uint8_t lo = genesis_mem_read8(&impl.mem, GEN_IO_JOYPAD1_DATA);
+    /* Ciclo 7 TH high: bits 0=X, 1=Y, 2=Z, 3=Mode. X y Z → 0x0F & ~0x05 = 0x0A */
+    ASSERT_EQ(lo, 0x0A);
+}
+
 /* --- Version register --- */
 
 TEST(gen_mem_version_register)
@@ -308,6 +321,7 @@ void run_genesis_memory_tests(void)
     RUN(gen_mem_rom_with_rom);
     RUN(gen_mem_joypad_default);
     RUN(gen_mem_joypad_custom);
+    RUN(gen_mem_joypad_6button_xyz_mode);
     RUN(gen_mem_version_register);
     RUN(gen_mem_vdp_status_read);
     RUN(gen_mem_vdp_hv_read);

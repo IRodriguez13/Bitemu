@@ -74,3 +74,4 @@ _internal/
 *.msi
 *.exe
 installer/Output/
+Documentation/genesis-progress.md

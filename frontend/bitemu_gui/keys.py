@@ -7,8 +7,8 @@ from PySide6.QtGui import QKeySequence
 
 ACTION_NAMES = ["Derecha", "Izquierda", "Arriba", "Abajo", "A", "B", "Select", "Start"]
 
-# Genesis 6-button: bits 8=X, 9=Y, 10=Z, 11=Mode
-GENESIS_6_ACTION_NAMES = ["Derecha", "Izquierda", "Arriba", "Abajo", "A", "B", "C", "Start", "X", "Y", "Z", "Mode"]
+# Genesis 6-button: raw bits 0=R,1=L,2=D,3=U,4=A,5=B,6=C,7=Start,8=X,9=Y,10=Z,11=Mode
+GENESIS_6_ACTION_NAMES = ["Derecha", "Izquierda", "Abajo", "Arriba", "A", "B", "C", "Start", "X", "Y", "Z", "Mode"]
 
 # Por defecto: WASD + flechas, J/Z=A, K/X=B, U=Select, I/Enter=Start
 DEFAULT_MAP = {
@@ -30,12 +30,20 @@ DEFAULT_MAP = {
     Qt.Key.Key_Enter: 7,
 }
 
-# Genesis 6-button: añade X=Q, Y=E, Z=R (bits 8,9,10)
+# Genesis 6-button: D-pad 0=R,1=L,2=D,3=U; A,B,C,Start; X,Y,Z,Mode
+# Sobrescribe D-pad (W=Up bit 3, S=Down bit 2), X=C, Q/E/R=X/Y/Z, Tab=Mode
 GENESIS_6_MAP = {
     **DEFAULT_MAP,
-    Qt.Key.Key_Q: 8,
-    Qt.Key.Key_E: 9,
-    Qt.Key.Key_R: 10,
+    Qt.Key.Key_W: 3,      # Up (override)
+    Qt.Key.Key_S: 2,      # Down (override)
+    Qt.Key.Key_Up: 3,
+    Qt.Key.Key_Down: 2,
+    Qt.Key.Key_X: 6,      # C (override; K sigue siendo B)
+    Qt.Key.Key_U: 6,      # C (alternativa)
+    Qt.Key.Key_Q: 8,      # X
+    Qt.Key.Key_E: 9,      # Y
+    Qt.Key.Key_R: 10,     # Z
+    Qt.Key.Key_Tab: 11,   # Mode
 }
 
 
