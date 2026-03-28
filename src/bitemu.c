@@ -6,7 +6,12 @@
  * SPDX-License-Identifier: LGPL-3.0-or-later
  */
 
+#define BITEMU_AUDIO_DEFAULT_RATE    44100
+#define BITEMU_AUDIO_DEFAULT_CHANS   1
+#define BITEMU_AUDIO_DEFAULT_SAMPLES 32768
+
 #include "bitemu.h"
+#include "core/simd/simd.h"
 #include "core/engine.h"
 #include <math.h>
 #include "core/console.h"
@@ -32,10 +37,6 @@
 
 extern const console_ops_t gb_console_ops;
 extern const console_ops_t genesis_console_ops;
-
-#define BITEMU_AUDIO_DEFAULT_RATE   44100
-#define BITEMU_AUDIO_DEFAULT_CHANS  1
-#define BITEMU_AUDIO_DEFAULT_SAMPLES 32768
 
 typedef enum { CONSOLE_GB, CONSOLE_GENESIS } console_type_t;
 
@@ -127,6 +128,7 @@ bitemu_t *bitemu_create(void)
     bitemu_t *emu = calloc(1, sizeof(bitemu_t));
     if (!emu)
         return NULL;
+    bitemu_simd_init();
     emu->console_type = CONSOLE_GB;
     engine_init(&emu->engine, &gb_console_ops, &emu->impl.gb);
     emu->running = 1;
@@ -273,6 +275,26 @@ void bitemu_get_video_size(const bitemu_t *emu, int *width, int *height)
     if (!emu)
         return;
     console_get_video_info(&emu->engine.console, width, height);
+}
+
+double bitemu_get_frame_hz(const bitemu_t *emu)
+{
+    if (!emu)
+        return 60.0;
+    if (emu->console_type == CONSOLE_GENESIS)
+        return emu->impl.genesis.is_pal ? (double)GEN_FPS_PAL : (double)GEN_FPS;
+    return (double)GB_FPS;
+}
+
+int bitemu_genesis_get_core_stats(const bitemu_t *emu, uint64_t *out_cpu_cyc, uint64_t *out_z80_cyc,
+                                  uint64_t *out_dma_stall_cyc)
+{
+    if (!emu || emu->console_type != CONSOLE_GENESIS || !out_cpu_cyc || !out_z80_cyc || !out_dma_stall_cyc)
+        return -1;
+    *out_cpu_cyc = emu->impl.genesis.stat_cpu_cyc;
+    *out_z80_cyc = emu->impl.genesis.stat_z80_cyc;
+    *out_dma_stall_cyc = emu->impl.genesis.stat_dma_stall_consumed;
+    return 0;
 }
 
 void bitemu_set_input(bitemu_t *emu, uint8_t state)
@@ -426,9 +448,7 @@ static int audio_inject_square_decay(bitemu_audio_t *a, double freq, double dur_
         double wave = (phase < 0.5) ? 1.0 : -1.0;
         double env = exp(-t * decay);
         int32_t v = (int32_t)(wave * env * amp);
-        if (v > 32767) v = 32767;
-        if (v < -32768) v = -32768;
-        a->buffer[wr] = (int16_t)v;
+        a->buffer[wr] = bitemu_sat_i16_i32(v);
         wr = (wr + 1) % size;
     }
     a->write_pos = wr;
@@ -502,8 +522,10 @@ void bitemu_audio_shutdown(bitemu_t *emu)
     emu->audio.write_pos = 0;
     emu->audio.read_pos = 0;
     emu->audio.userdata = NULL;
-    emu->impl.gb.audio_output = NULL;
-    emu->impl.genesis.audio_output = NULL;
+    if (emu->console_type == CONSOLE_GENESIS)
+        emu->impl.genesis.audio_output = NULL;
+    else
+        emu->impl.gb.audio_output = NULL;
 }
 
 int bitemu_read_audio(bitemu_t *emu, int16_t *buf, int max_samples)
@@ -523,16 +545,8 @@ int bitemu_read_audio(bitemu_t *emu, int16_t *buf, int max_samples)
     if (avail == 0)
         return 0;
     
-    float vol = a->volume;
-    for (size_t i = 0; i < avail; i++)
-    {
-        int32_t v = (int32_t)(a->buffer[rd] * vol);
-        if (v > 32767) v = 32767;
-        if (v < -32768) v = -32768;
-        buf[i] = (int16_t)v;
-        rd = (rd + 1) % size;
-    }
-    a->read_pos = rd;
+    a->read_pos = bitemu_audio_ring_pull_scaled_clip_i16(
+        a->buffer, size, rd, a->volume, avail, buf);
     return (int)avail;
 }
 

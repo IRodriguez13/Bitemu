@@ -70,11 +70,21 @@ void bitemu_unload_rom(bitemu_t *emu);
 /* Ejecutar un frame (70224 ciclos). Retorna false si debe parar */
 bool bitemu_run_frame(bitemu_t *emu);
 
-/* Framebuffer: 1 byte por pixel (0=blanco, 0xFF=negro). Tamaño: bitemu_get_video_size(). */
+/* Framebuffer: Game Boy = 1 byte/píxel (luma). Genesis = RGB888 (3 bytes/píxel), stride = ancho×3. Tamaño en bytes = ancho×alto o ×3 según consola (usar bitemu_get_video_size). */
 const uint8_t *bitemu_get_framebuffer(const bitemu_t *emu);
 
 /* Resolución actual (160x144 GB, 320x224 Genesis, etc.). NULL = ignorar. */
 void bitemu_get_video_size(const bitemu_t *emu, int *width, int *height);
+
+/* Hz objetivo por frame (~59.7275 GB; Genesis NTSC 60 o PAL 50 según cartucho). Para sincronizar timers en GUIs. */
+double bitemu_get_frame_hz(const bitemu_t *emu);
+
+/**
+ * Solo consola Genesis: devuelve contadores acumulados desde el último gen_reset (herramientas).
+ * Retorna 0 si OK; -1 si emu es NULL, no es Genesis o algún puntero de salida es NULL.
+ */
+int bitemu_genesis_get_core_stats(const bitemu_t *emu, uint64_t *out_cpu_cyc, uint64_t *out_z80_cyc,
+                                  uint64_t *out_dma_stall_cyc);
 
 /* Joypad: bits 0-3=D-pad(R,L,U,D), 4-7=botones(A,B,C,Start); 1=presionado */
 void bitemu_set_input(bitemu_t *emu, uint8_t state);
@@ -82,7 +92,11 @@ void bitemu_set_input(bitemu_t *emu, uint8_t state);
 /* Genesis 6-button: bits 0-7 como bitemu_set_input, 8-11=X,Y,Z,Mode. Solo aplica si consola=Genesis. */
 void bitemu_set_input_genesis(bitemu_t *emu, uint16_t state);
 
-/* Solo para CLI: lee teclado (stdin) y actualiza el joypad. La GUI usa bitemu_set_input. */
+/*
+ * Solo para el bucle por consola (CLI): lee teclado (stdin) y actualiza el joypad dentro del core.
+ * En GUI no llamar en el mismo tick que bitemu_run_frame si ya aplicás teclas/gamepad vía
+ * bitemu_set_input / bitemu_set_input_genesis (evita doble lectura o inputs contradictorios).
+ */
 void bitemu_poll_input(bitemu_t *emu);
 
 /* Reset de la consola (estado post-carga, sin recargar la ROM) */
