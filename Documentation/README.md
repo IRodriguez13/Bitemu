@@ -37,6 +37,7 @@ Game Boy–specific implementation details.
 
 | Feature | Description |
 |---------|-------------|
+| [Profiling (GNU gprof)](07-gprof.md) | Flujo `profile-cli` / `profile-report`, lectura de flat profile y call graph |
 | [Audio Implementation](audio-implementation.md) | APU architecture, buffer circular, frontend playback |
 | [Audio Improvements](audio-improvements.md) | Known issues and fixes applied |
 | [Branding System](05-branding.md) | Adaptive visual identity per console edition |
