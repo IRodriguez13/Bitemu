@@ -1,0 +1,25 @@
+%language=ANSI-C
+%define hash-function-name gen_be2_line_cycles_hash
+%define lookup-function-name gen_be2_line_cycles_lookup
+%readonly-tables
+%null-strings
+%global-table
+%struct-type
+struct gen_be2_line_sym { const char *name; int cycles_ref; };
+%%
+"L0", 8
+"L1", 8
+"L2", 8
+"L3", 8
+"L4", 4
+"L5", 4
+"L6", 10
+"L7", 4
+"L8", 8
+"L9", 8
+"LA", 34
+"LB", 8
+"LC", 8
+"LD", 8
+"LE", 6
+"LF", 34

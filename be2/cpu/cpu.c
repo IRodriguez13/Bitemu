@@ -238,8 +238,10 @@ int gen_cpu_step(gen_cpu_t *cpu, genesis_mem_t *mem, int max_cycles)
         else
             cycles = GEN_CYCLES_NOP;
         break;
-    case 5:  /* ADDQ, SUBQ */
-        if ((op & GEN_OP_ADDQ_SUBQ_MASK) == GEN_OP_ADDQ || (op & GEN_OP_ADDQ_SUBQ_MASK) == GEN_OP_SUBQ)
+    case 5:  /* DBcc (0101 .... 11001nnn) comparte prefijo 0101 con SUBQ; probar DBcc antes */
+        if ((op & 0xF0C0) == GEN_OP_DBCC && (op & 0x00F8) == 0x00C8)
+            cycles = gen_op_dbcc(cpu, mem, op);
+        else if ((op & GEN_OP_ADDQ_SUBQ_MASK) == GEN_OP_ADDQ || (op & GEN_OP_ADDQ_SUBQ_MASK) == GEN_OP_SUBQ)
             cycles = gen_op_addq_subq(cpu, mem, op);
         else
             cycles = GEN_CYCLES_NOP;
@@ -332,6 +334,12 @@ int gen_cpu_step(gen_cpu_t *cpu, genesis_mem_t *mem, int max_cycles)
             cycles = gen_op_roxl(cpu, mem, op);
         else
             cycles = GEN_CYCLES_NOP;
+        break;
+    case 10:  /* LINE A (0xAxxx): no instrucción válida en 68000 base → excepción */
+        cycles = gen_op_illegal(cpu, mem);
+        break;
+    case 15:  /* LINE F (0xFxxx): reservado / coprocesador → ilegal en 68000 */
+        cycles = gen_op_illegal(cpu, mem);
         break;
     default:
         cycles = GEN_CYCLES_NOP;

@@ -1,7 +1,7 @@
 /**
  * BE2 - Sega Genesis: CPU 68000
  *
- * Registros y step. Stub: consume ciclos sin ejecutar.
+ * Registros y step (68000: fetch/decode/ejecutar; IRQ desde VDP).
  * Sin magic numbers: usa genesis_constants.h
  *
  * Copyright (c) 2026 Iván Ezequiel Rodriguez
