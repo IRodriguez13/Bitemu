@@ -13,6 +13,12 @@ rust/rust/
 
 # ROMs and user data (never commit)
 roms/
+tools/gentest_game.bin
+tools/gentest_game.bin.xz
+
+# gprof (local profiling)
+gmon.out
+gprof.out
 *.sav
 *.bst
 
@@ -75,3 +81,5 @@ _internal/
 *.exe
 installer/Output/
 Documentation/genesis-progress.md
+a.out
+gmon.sum
