@@ -25,6 +25,7 @@ struct genesis_mem {
     size_t rom_size;
     uint8_t ram[GEN_RAM_SIZE];
     uint8_t sram[GEN_SRAM_SIZE];  /* Backup RAM (batería) */
+    uint32_t sram_bytes;          /* tamaño útil (header 0x1B4-0x1BB o GEN_SRAM_SIZE) */
     uint8_t sram_enabled;         /* 1 = SRAM mapeada en 0x200000 (A130F1 bit 0) */
     uint8_t sram_present;         /* 1 = header "RA", para load/save .sav */
     uint8_t lockon;               /* 1 = ROM lock-on (S&K + locked game) */
@@ -33,7 +34,8 @@ struct genesis_mem {
     struct gen_ym2612 *ym2612;
     struct gen_psg *psg;
     uint8_t *z80_ram;       /* 8KB, NULL si no init */
-    uint8_t *z80_bus_req;   /* 0=68k tiene bus */
+    uint8_t *z80_bus_req;   /* ref. cpu_sync: acceso 68k a RAM Z80 si *!=0 */
+    uint32_t *z80_bus_ack_cycles; /* ref.: >0 bloquea acceso (BUSACK modelado) */
     uint8_t *z80_reset;
     uint16_t joypad[2];     /* puertos 1 y 2 (3-button compat) */
     uint16_t joypad_raw[2]; /* estado crudo: bits 0-11 = R,L,D,U,Start,A,B,C,X,Y,Z,Mode; 1=presionado */
@@ -46,13 +48,17 @@ uint8_t genesis_joypad_read_byte(genesis_mem_t *mem, int port, int byte_sel);
 void genesis_mem_init(genesis_mem_t *mem);
 void genesis_mem_reset(genesis_mem_t *mem);
 
+/* range_be32: 8 bytes (start BE32, end BE32 en espacio cartucho). NULL o !sram_present → sram_bytes=64K. */
+void genesis_mem_apply_sram_header_ie32(genesis_mem_t *mem, const uint8_t *range_be32);
+
 /* Battery save: load/save SRAM to .sav. path = ROM path. */
 void genesis_mem_load_sav(genesis_mem_t *mem, const char *rom_path);
 void genesis_mem_save_sav(const genesis_mem_t *mem, const char *rom_path);
 void genesis_mem_set_vdp(genesis_mem_t *mem, struct gen_vdp *vdp);
 void genesis_mem_set_ym(genesis_mem_t *mem, struct gen_ym2612 *ym);
 void genesis_mem_set_psg(genesis_mem_t *mem, struct gen_psg *psg);
-void genesis_mem_set_z80(genesis_mem_t *mem, uint8_t *z80_ram, uint8_t *bus_req, uint8_t *reset);
+void genesis_mem_set_z80(genesis_mem_t *mem, uint8_t *z80_ram, uint8_t *bus_req, uint8_t *reset,
+                         uint32_t *bus_ack_cycles);
 
 /* Lectura/escritura byte, word, long (big-endian). Retornan valor leído o 0. */
 uint8_t genesis_mem_read8(genesis_mem_t *mem, uint32_t addr);

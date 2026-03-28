@@ -1,0 +1,43 @@
+/**
+ * BE2 — Sincronización 68000 ↔ Z80 (Mega Drive)
+ *
+ * Centraliza:
+ *   - proporción de ciclos Z80 por ciclos de bus 68k (NTSC/PAL);
+ *   - cuándo el core avanza el Z80;
+ *   - cuándo el 68k puede acceder a la work RAM del Z80 (0xA00000…).
+ *
+ * Ver Documentation/08-cpu-sync-genesis.md para el modelo y límites.
+ *
+ * SPDX-License-Identifier: LGPL-3.0-or-later
+ */
+
+#ifndef BITEMU_GEN_CPU_SYNC_H
+#define BITEMU_GEN_CPU_SYNC_H
+
+#include <stdint.h>
+
+/**
+ * Ciclos Z80 a ejecutar en lockstep con `cycles_68k` ciclos de bus del 68000.
+ * Reloj Z80 ≈ GEN_PSG_HZ (/ PAL); 68000 ≈ GEN_68000_HZ (/ PAL).
+ */
+int gen_cpu_sync_z80_cycles_from_68k(int cycles_68k, int is_pal);
+
+/** 1 si el Z80 debe ejecutar instrucciones en este slice; 0 si está congelado. */
+int gen_cpu_sync_z80_should_run(uint8_t z80_bus_req, uint8_t z80_reset);
+
+/**
+ * 1 si el 68k puede leer/escribir la RAM de trabajo del Z80 (mirror 0xA00000–0xA0FFFF)
+ * en el modelo actual.
+ *
+ * Requiere BUS_REQ ≠ 0 y, si `bus_ack_rem` no es NULL, *bus_ack_rem == 0 (BUSACK modelado).
+ * Mientras no se cumple, lecturas usan contención (`gen_cpu_sync_z80_ram_contention_read`).
+ */
+int gen_cpu_sync_m68k_may_access_z80_work_ram(const uint8_t *z80_bus_req, const uint32_t *bus_ack_rem);
+
+/** Lectura 68k a RAM Z80 cuando el acceso está vetado (contención aproximada; no flat 0xFF). */
+uint8_t gen_cpu_sync_z80_ram_contention_read(uint32_t addr);
+
+/** Convención histórica en tests; preferir gen_cpu_sync_z80_ram_contention_read(addr). */
+#define GEN_CPU_SYNC_Z80_RAM_DENIED_READ 0xFFu
+
+#endif /* BITEMU_GEN_CPU_SYNC_H */

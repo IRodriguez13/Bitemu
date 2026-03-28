@@ -22,7 +22,30 @@ enum {
     GEN_CYCLES_PER_FRAME = GEN_SCANLINES_TOTAL * GEN_CYCLES_PER_LINE,  /* 127856 */
 };
 
-/* Simplificado para stub: menos ciclos por frame para tests rápidos */
+/* PAL (Mega Drive EU): ~7.61 MHz 68000, 313 líneas activas de scan, 50 Hz */
+enum {
+    GEN_68000_HZ_PAL         = 7609488,
+    GEN_SCANLINES_TOTAL_PAL  = 313,
+    GEN_SCANLINES_VISIBLE_PAL = 224, /* activas en modo 240/224; V-blank empieza tras la última línea visible */
+    GEN_FPS_PAL              = 50,
+    GEN_CYCLES_PER_LINE_PAL  = 488,
+    GEN_CYCLES_PER_FRAME_PAL = GEN_SCANLINES_TOTAL_PAL * GEN_CYCLES_PER_LINE_PAL,
+};
+
+/* Aproximación: 68k ocupado por palabra DMA (slot timing no modelado; fill/copy/68k distintos). */
+enum {
+    GEN_VDP_DMA_STALL_FILL_PER_WORD = 5,
+    GEN_VDP_DMA_STALL_COPY_PER_WORD = 9,
+    GEN_VDP_DMA_STALL_68K_PER_WORD = 8,
+    GEN_VDP_DMA_STALL_CYCLES_PER_WORD = GEN_VDP_DMA_STALL_68K_PER_WORD, /* alias histórico */
+};
+
+/* Retraso mínimo 68k tras escribir BUSREQ (A11100 bit0=1) antes de acceso estable a RAM Z80. */
+enum {
+    GEN_Z80_BUSACK_CYCLES_68K = 48,
+};
+
+/* Opcional: menos ciclos por frame solo para pruebas locales rápidas (no usado en `cycles_per_frame`). */
 enum {
     GEN_CYCLES_PER_FRAME_STUB = 48868,
 };
@@ -31,8 +54,11 @@ enum {
 enum {
     GEN_SAMPLE_RATE          = 44100,
     GEN_CYCLES_PER_SAMPLE    = GEN_68000_HZ / GEN_SAMPLE_RATE,  /* ~174 */
+    GEN_CYCLES_PER_SAMPLE_PAL = GEN_68000_HZ_PAL / GEN_SAMPLE_RATE,
     GEN_PSG_HZ               = 3579545,   /* NTSC: master/15 */
+    GEN_PSG_HZ_PAL           = 3546894,   /* PAL subcarrier-derived clock */
     GEN_PSG_CYCLES_PER_SAMPLE = GEN_PSG_HZ / GEN_SAMPLE_RATE,   /* ~81 */
+    GEN_PSG_CYCLES_PER_SAMPLE_PAL = GEN_PSG_HZ_PAL / GEN_SAMPLE_RATE,
 };
 
 /* VDP status register bits (read from 0xC00004) */
@@ -49,9 +75,11 @@ enum {
 
 /* VDP reg 0: IE1=HBlank IRQ enable (bit 5) */
 /* VDP reg 1: IE0=VBlank IRQ enable (bit 5), display enable (bit 6) */
+/* VDP reg 10 (0x0A): contador de líneas entre H-interrupts (0 = 256 líneas) */
 enum {
     GEN_VDP_REG0_IE1 = 0x20,
     GEN_VDP_REG1_IE0 = 0x20,
+    GEN_VDP_REG_HINT = 10,
 };
 
 /* Interrupt levels and vectors (68000) */
@@ -65,10 +93,14 @@ enum {
 /* ===== Display (VDP Mode 5: 320×224) ===== */
 
 enum {
-    GEN_DISPLAY_WIDTH    = 320,
-    GEN_DISPLAY_HEIGHT   = 224,
-    GEN_FB_SIZE          = GEN_DISPLAY_WIDTH * GEN_DISPLAY_HEIGHT,
-    GEN_PIXELS_PER_LINE  = GEN_DISPLAY_WIDTH,
+    GEN_DISPLAY_WIDTH       = 320,
+    GEN_DISPLAY_HEIGHT      = 224,
+    GEN_DISPLAY_PIXELS      = GEN_DISPLAY_WIDTH * GEN_DISPLAY_HEIGHT,
+    /* Framebuffer Host RGB888 (3 bytes/píxel); la API `bitemu_get_framebuffer` devuelve este layout en Genesis. */
+    GEN_FB_BYTES_PER_PIXEL  = 3,
+    GEN_FB_STRIDE           = GEN_DISPLAY_WIDTH * GEN_FB_BYTES_PER_PIXEL,
+    GEN_FB_SIZE             = GEN_DISPLAY_PIXELS * GEN_FB_BYTES_PER_PIXEL,
+    GEN_PIXELS_PER_LINE     = GEN_DISPLAY_WIDTH,
 };
 
 /* ===== Memory: tamaños ===== */
@@ -154,10 +186,13 @@ enum {
 };
 #define GEN_HEADER_MAGIC "SEGA"
 
-/* ROM header: 0x1B0-0x1B1 "RA" = save RAM presente */
+/* ROM header: 0x1B0-0x1B1 "RA" = save RAM presente; 0x1B4-0x1BB rango SRAM (BE32) */
 enum {
     GEN_HEADER_SRAM_OFF   = 0x1B0,
     GEN_HEADER_SRAM_MAGIC = 0x5241,   /* "RA" big-endian */
+    GEN_HEADER_SRAM_START_OFF = 0x1B4, /* inicio backup RAM en espacio cartucho */
+    GEN_HEADER_SRAM_END_OFF   = 0x1B8, /* fin (inclusive) */
+    GEN_HEADER_REGION_OFF = 0x1F0,      /* 4 chars región cartucho; PAL si solo 'E' (sin J/U) */
 };
 
 /* SMD format: 512-byte header, 16KB blocks (8KB even + 8KB odd) */
@@ -473,6 +508,7 @@ enum {
     GEN_VDP_SAT_ENTRY_BYTES = 8,
     GEN_VDP_SAT_ENTRY_WORDS = 4,
     GEN_VDP_SPRITE_MAX      = 80,
+    GEN_VDP_MAX_SPRITES_PER_LINE = 20,   /* límite efectivo NTSC modo 5 (SAT) */
 };
 
 /* Sprite pattern base: reg 6 bits 5-0 = base bits 13-8 */
@@ -530,9 +566,12 @@ enum {
     GEN_VDP_HSCROLL_BASE_WORDS = 0x200,  /* 0x400 bytes / 2 */
 };
 
+/* Reg 17 (0x11): bit 7 = ventana alineada a la derecha (resto reservado en hardware) */
 /* Reg 18: Window H pos (WX) - bits 6-0, window from x=0 to (WX+1)*8. WX+1>=32/40 = hidden */
 /* Reg 19: Window V pos (WY) - bits 7-0, window from y=0 to (WY+1). WY+1>=224 = hidden */
 enum {
+    GEN_VDP_REG_WH = 17,
+    GEN_VDP_WH_RIGHT_MASK = 0x80,
     GEN_VDP_REG_WX = 18,
     GEN_VDP_REG_WY = 19,
     GEN_VDP_WX_MASK = 0x7F,

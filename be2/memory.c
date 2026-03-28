@@ -6,6 +6,7 @@
  */
 
 #include "memory.h"
+#include "cpu_sync/cpu_sync.h"
 #include "vdp/vdp.h"
 #include "ym2612/ym2612.h"
 #include "psg/psg.h"
@@ -17,6 +18,26 @@
 void genesis_mem_init(genesis_mem_t *mem)
 {
     memset(mem, 0, sizeof(*mem));
+    mem->sram_bytes = GEN_SRAM_SIZE;
+}
+
+void genesis_mem_apply_sram_header_ie32(genesis_mem_t *mem, const uint8_t *range_be32)
+{
+    mem->sram_bytes = GEN_SRAM_SIZE;
+    if (!mem->sram_present || !range_be32)
+        return;
+    uint32_t s = ((uint32_t)range_be32[0] << 24) | ((uint32_t)range_be32[1] << 16)
+               | ((uint32_t)range_be32[2] << 8) | range_be32[3];
+    uint32_t e = ((uint32_t)range_be32[4] << 24) | ((uint32_t)range_be32[5] << 16)
+               | ((uint32_t)range_be32[6] << 8) | range_be32[7];
+    if (s == 0 && e == 0)
+        return;
+    if (e < s)
+        return;
+    uint64_t n = (uint64_t)e - (uint64_t)s + 1u;
+    if (n == 0 || n > GEN_SRAM_SIZE)
+        return;
+    mem->sram_bytes = (uint32_t)n;
 }
 
 void genesis_mem_reset(genesis_mem_t *mem)
@@ -44,11 +65,13 @@ void genesis_mem_set_psg(genesis_mem_t *mem, struct gen_psg *psg)
     mem->psg = psg;
 }
 
-void genesis_mem_set_z80(genesis_mem_t *mem, uint8_t *z80_ram, uint8_t *bus_req, uint8_t *reset)
+void genesis_mem_set_z80(genesis_mem_t *mem, uint8_t *z80_ram, uint8_t *bus_req, uint8_t *reset,
+                         uint32_t *bus_ack_cycles)
 {
     mem->z80_ram = z80_ram;
     mem->z80_bus_req = bus_req;
     mem->z80_reset = reset;
+    mem->z80_bus_ack_cycles = bus_ack_cycles;
 }
 
 static uint32_t rom_addr(uint32_t addr)
@@ -73,9 +96,12 @@ static uint32_t ram_addr(uint32_t addr)
     return addr & GEN_RAM_MASK;
 }
 
-static uint32_t sram_offset(uint32_t addr)
+/* SRAM: ventana 0x200000–0x20FFFF; dirección física = offset mod sram_bytes (header). */
+static uint32_t sram_offset(genesis_mem_t *mem, uint32_t addr)
 {
-    return (addr - GEN_ADDR_SRAM_START) & GEN_SRAM_MASK;
+    uint32_t off = (uint32_t)(addr - GEN_ADDR_SRAM_START);
+    uint32_t sz = mem->sram_bytes ? mem->sram_bytes : GEN_SRAM_SIZE;
+    return off % sz;
 }
 
 /* Protocolo 6-button: ciclo 1=TH high (D-pad,B,C), 2=TH low (D-pad,A,Start), 7=TH high (Z,Y,X,Mode).
@@ -142,8 +168,13 @@ uint8_t genesis_joypad_read_byte(genesis_mem_t *mem, int port, int byte_sel)
 uint8_t genesis_mem_read8(genesis_mem_t *mem, uint32_t addr)
 {
     /* SRAM: 0x200000-0x20FFFF. Con lock-on Sonic 2 & K, A130F1=1 mapea patch en 0x300000, no SRAM. */
-    if (genesis_addr_in_sram(addr) && mem->sram_enabled && !mem->lockon_has_patch)
-        return mem->sram[sram_offset(addr)];
+    if (genesis_addr_in_sram(addr) && !mem->lockon_has_patch)
+    {
+        if (mem->sram_present && mem->sram_enabled)
+            return mem->sram[sram_offset(mem, addr)];
+        if (mem->sram_present && !mem->sram_enabled)
+            return GEN_IO_UNMAPPED_READ;
+    }
     if (genesis_addr_in_rom(addr) && mem->rom)
     {
         uint32_t off = mem->lockon ? lockon_rom_offset(mem, addr) : rom_addr(addr);
@@ -170,9 +201,13 @@ uint8_t genesis_mem_read8(genesis_mem_t *mem, uint32_t addr)
         return GEN_IO_UNMAPPED_READ;
     }
     if (genesis_addr_in_ym(addr) && mem->ym2612)
-        return GEN_IO_VERSION_VAL;
+        return gen_ym2612_read_port(mem->ym2612, (int)(addr - GEN_ADDR_YM_START));
     if (genesis_addr_in_z80_ram(addr) && mem->z80_ram)
+    {
+        if (!gen_cpu_sync_m68k_may_access_z80_work_ram(mem->z80_bus_req, mem->z80_bus_ack_cycles))
+            return gen_cpu_sync_z80_ram_contention_read(addr);
         return mem->z80_ram[addr & (GEN_Z80_RAM_SIZE - 1)];
+    }
     if (genesis_addr_in_z80_bus(addr) && mem->z80_bus_req && mem->z80_reset)
     {
         if ((addr & GEN_ADDR_OFFSET_MASK) == GEN_Z80_BUSREQ_OFF)
@@ -220,10 +255,15 @@ void genesis_mem_write8(genesis_mem_t *mem, uint32_t addr, uint8_t val)
         mem->sram_enabled = (val & 1) ? 1 : 0;
         return;
     }
-    if (genesis_addr_in_sram(addr) && mem->sram_enabled && !mem->lockon_has_patch)
+    if (genesis_addr_in_sram(addr) && !mem->lockon_has_patch)
     {
-        mem->sram[sram_offset(addr)] = val;
-        return;
+        if (mem->sram_present && mem->sram_enabled)
+        {
+            mem->sram[sram_offset(mem, addr)] = val;
+            return;
+        }
+        if (mem->sram_present && !mem->sram_enabled)
+            return;
     }
     if (genesis_addr_in_ram(addr))
     {
@@ -238,13 +278,24 @@ void genesis_mem_write8(genesis_mem_t *mem, uint32_t addr, uint8_t val)
     }
     if (genesis_addr_in_z80_ram(addr) && mem->z80_ram)
     {
+        if (!gen_cpu_sync_m68k_may_access_z80_work_ram(mem->z80_bus_req, mem->z80_bus_ack_cycles))
+            return;
         mem->z80_ram[addr & (GEN_Z80_RAM_SIZE - 1)] = val;
         return;
     }
     if (genesis_addr_in_z80_bus(addr))
     {
         if ((addr & GEN_ADDR_OFFSET_MASK) == GEN_Z80_BUSREQ_OFF && mem->z80_bus_req)
+        {
             *mem->z80_bus_req = val;
+            if (mem->z80_bus_ack_cycles)
+            {
+                if ((val & 1) != 0)
+                    *mem->z80_bus_ack_cycles = GEN_Z80_BUSACK_CYCLES_68K;
+                else
+                    *mem->z80_bus_ack_cycles = 0;
+            }
+        }
         if ((addr & GEN_ADDR_OFFSET_MASK) == GEN_Z80_RESET_OFF && mem->z80_reset)
             *mem->z80_reset = val;
         return;
@@ -300,6 +351,8 @@ void genesis_mem_write16(genesis_mem_t *mem, uint32_t addr, uint16_t val)
     }
     if (genesis_addr_in_z80_ram(addr) && mem->z80_ram)
     {
+        if (!gen_cpu_sync_m68k_may_access_z80_work_ram(mem->z80_bus_req, mem->z80_bus_ack_cycles))
+            return;
         mem->z80_ram[addr & (GEN_Z80_RAM_SIZE - 1)] = (uint8_t)(val >> 8);
         mem->z80_ram[(addr + 1) & (GEN_Z80_RAM_SIZE - 1)] = (uint8_t)(val & 0xFF);
         return;
@@ -307,7 +360,17 @@ void genesis_mem_write16(genesis_mem_t *mem, uint32_t addr, uint16_t val)
     if (genesis_addr_in_z80_bus(addr))
     {
         if ((addr & GEN_ADDR_OFFSET_MASK) == GEN_Z80_BUSREQ_OFF && mem->z80_bus_req)
-            *mem->z80_bus_req = (uint8_t)(val & 0xFF);
+        {
+            uint8_t b = (uint8_t)(val & 0xFF);
+            *mem->z80_bus_req = b;
+            if (mem->z80_bus_ack_cycles)
+            {
+                if ((b & 1) != 0)
+                    *mem->z80_bus_ack_cycles = GEN_Z80_BUSACK_CYCLES_68K;
+                else
+                    *mem->z80_bus_ack_cycles = 0;
+            }
+        }
         if ((addr & GEN_ADDR_OFFSET_MASK) == GEN_Z80_RESET_OFF && mem->z80_reset)
             *mem->z80_reset = (uint8_t)(val & 0xFF);
         return;
@@ -356,7 +419,8 @@ void genesis_mem_load_sav(genesis_mem_t *mem, const char *rom_path)
     FILE *f = fopen(path, "rb");
     if (!f)
         return;
-    size_t read = fread(mem->sram, 1, GEN_SRAM_SIZE, f);
+    uint32_t sz = mem->sram_bytes ? mem->sram_bytes : GEN_SRAM_SIZE;
+    size_t read = fread(mem->sram, 1, sz, f);
     fclose(f);
     if (read > 0)
         log_info("Genesis save loaded: %s (%zu bytes)", path, read);
@@ -385,7 +449,8 @@ void genesis_mem_save_sav(const genesis_mem_t *mem, const char *rom_path)
     FILE *f = fopen(path, "wb");
     if (!f)
         return;
-    fwrite(mem->sram, 1, GEN_SRAM_SIZE, f);
+    uint32_t sz = mem->sram_bytes ? mem->sram_bytes : GEN_SRAM_SIZE;
+    fwrite(mem->sram, 1, sz, f);
     fclose(f);
     log_info("Genesis save written: %s", path);
 }
