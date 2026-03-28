@@ -8,6 +8,7 @@
 #if defined(_WIN32) || defined(__MINGW32__)
 
 #define WIN32_LEAN_AND_MEAN
+
 #include "audio.h"
 #include <windows.h>
 #include <mmdeviceapi.h>
@@ -31,6 +32,7 @@ const IID IID_IAudioRenderClient = {
 #include <pthread.h>
 #include <stdlib.h>
 #include <string.h>
+#include "core/simd/simd.h"
 
 typedef struct
 {
@@ -73,16 +75,8 @@ static void *wasapi_thread(void *arg)
                 size_t avail = (wr >= rd) ? (wr - rd) : (size - rd + wr);
                 if (avail > (size_t)to_write)
                     avail = (size_t)to_write;
-                float vol = a->volume;
-                for (size_t i = 0; i < avail; i++)
-                {
-                    int32_t v = (int32_t)(a->buffer[rd] * vol);
-                    if (v > 32767) v = 32767;
-                    if (v < -32768) v = -32768;
-                    buf[i] = (int16_t)v;
-                    rd = (rd + 1) % size;
-                }
-                a->read_pos = rd;
+                a->read_pos = bitemu_audio_ring_pull_scaled_clip_i16(
+                    a->buffer, size, rd, a->volume, avail, buf);
                 got = (int)avail;
             }
             pthread_mutex_unlock(&ctx->mutex);

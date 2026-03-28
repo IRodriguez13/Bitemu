@@ -7,14 +7,15 @@
  */
 #ifdef __APPLE__
 
+#define NUM_BUFFERS 3
+#define BUFFER_FRAMES 1024
+
 #include "audio.h"
 #include <AudioToolbox/AudioToolbox.h>
 #include <pthread.h>
 #include <stdlib.h>
 #include <string.h>
-
-#define NUM_BUFFERS 3
-#define BUFFER_FRAMES 1024
+#include "core/simd/simd.h"
 
 typedef struct
 {
@@ -48,16 +49,8 @@ static void coreaudio_callback(void *userdata, AudioQueueRef queue, AudioQueueBu
         size_t avail = (wr >= rd) ? (wr - rd) : (size - rd + wr);
         if (avail > (size_t)max_frames)
             avail = (size_t)max_frames;
-        float vol = a->volume;
-        for (size_t i = 0; i < avail; i++)
-        {
-            int32_t v = (int32_t)(a->buffer[rd] * vol);
-            if (v > 32767) v = 32767;
-            if (v < -32768) v = -32768;
-            out[i] = (int16_t)v;
-            rd = (rd + 1) % size;
-        }
-        a->read_pos = rd;
+        a->read_pos = bitemu_audio_ring_pull_scaled_clip_i16(
+            a->buffer, size, rd, a->volume, avail, out);
         got = (int)avail;
     }
     pthread_mutex_unlock(&ctx->mutex);

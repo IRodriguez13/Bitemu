@@ -12,18 +12,21 @@
  * SPDX-License-Identifier: LGPL-3.0-or-later
  */
 
-#include "apu.h"
-#include "memory.h"
+#include <stdint.h>
 #include "gb_constants.h"
-#include "audio/audio.h"
 
-static const uint8_t gb_duty[APU_DUTY_PATTERNS][APU_DUTY_STEPS] = 
+static const uint8_t gb_duty[APU_DUTY_PATTERNS][APU_DUTY_STEPS] =
 {
     {0, 0, 0, 0, 0, 0, 0, 1},
     {1, 0, 0, 0, 0, 0, 0, 1},
     {1, 0, 0, 0, 0, 1, 1, 1},
     {0, 1, 1, 1, 1, 1, 1, 0},
 };
+
+#include "apu.h"
+#include "memory.h"
+#include "audio/audio.h"
+#include "core/simd/simd.h"
 
 void gb_apu_init(gb_apu_t *apu)
 {
@@ -122,18 +125,17 @@ static void clock_envelope_ch(uint8_t *vol, uint8_t *timer, uint8_t nrx2)
         return;
     if (*timer > 0)
         (*timer)--;
-    if (*timer == 0)
+    if (*timer != 0)
+        return;
+    *timer = (uint8_t)period;
+    if (nrx2 & APU_ENV_DIR_BIT)
     {
-        *timer = (uint8_t)period;
-        if (nrx2 & APU_ENV_DIR_BIT)
-        {
-            if (*vol < APU_DAC_MAX) (*vol)++;
-        }
-        else
-        {
-            if (*vol > 0) (*vol)--;
-        }
+        if (*vol < APU_DAC_MAX)
+            (*vol)++;
+        return;
     }
+    if (*vol > 0)
+        (*vol)--;
 }
 
 static void clock_envelope(gb_apu_t *apu, gb_mem_t *m)
@@ -380,9 +382,7 @@ static int16_t apply_volume_and_pan(int ch1, int ch2, int ch3, int ch4,
 
     int centered = sum * 2 - active * APU_DAC_MAX;
     int32_t s = (int32_t)centered * vol * APU_MIX_SCALE;
-    if (s > APU_SAMPLE_MAX)  s = APU_SAMPLE_MAX;
-    if (s < APU_SAMPLE_MIN)  s = APU_SAMPLE_MIN;
-    return (int16_t)s;
+    return bitemu_sat_i16_i32(s);
 }
 
 void apu_mix_sample(gb_apu_t *apu, struct gb_mem *mem, bitemu_audio_t *audio)

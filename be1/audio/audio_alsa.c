@@ -9,15 +9,17 @@
 
 #define _DEFAULT_SOURCE
 #define _POSIX_C_SOURCE 200809L
+#define ALSA_DEVICE "default"
+#define ALSA_PERIOD_US 20000  /* ~20ms latency */
+
+#include <stdlib.h>
 #include <time.h>
 #include <unistd.h>
 #include "audio.h"
 #include <alsa/asoundlib.h>
 #include <pthread.h>
 #include <string.h>
-
-#define ALSA_DEVICE "default"
-#define ALSA_PERIOD_US 20000  /* ~20ms latency */
+#include "core/simd/simd.h"
 
 typedef struct
 {
@@ -46,16 +48,8 @@ static void *alsa_thread(void *arg)
             size_t avail = (wr >= rd) ? (wr - rd) : (size - rd + wr);
             if (avail > (size_t)max)
                 avail = (size_t)max;
-            float vol = a->volume;
-            for (size_t i = 0; i < avail; i++)
-            {
-                int32_t v = (int32_t)(a->buffer[rd] * vol);
-                if (v > 32767) v = 32767;
-                if (v < -32768) v = -32768;
-                buf[i] = (int16_t)v;
-                rd = (rd + 1) % size;
-            }
-            a->read_pos = rd;
+            a->read_pos = bitemu_audio_ring_pull_scaled_clip_i16(
+                a->buffer, size, rd, a->volume, avail, buf);
             got = (int)avail;
         }
         pthread_mutex_unlock(&ctx->mutex);
@@ -72,7 +66,17 @@ static void *alsa_thread(void *arg)
                 snd_pcm_recover(ctx->pcm, (int)n, 0);
             }
         }
-        usleep(2000);  /* 2ms poll */
+        {
+            useconds_t poll_us = 2000;
+            const char *e = getenv("BITEMU_ALSA_POLL_US");
+            if (e && e[0] != '\0')
+            {
+                long v = strtol(e, NULL, 10);
+                if (v >= 100L && v <= 50000L)
+                    poll_us = (useconds_t)v;
+            }
+            usleep(poll_us);
+        }
     }
     return NULL;
 }
