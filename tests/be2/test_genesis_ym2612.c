@@ -14,6 +14,19 @@
 
 /* env_state: 0=ATTACK, 1=DECAY1, 2=DECAY2, 3=RELEASE, 4=OFF */
 
+TEST(gen_ym2612_read_port_mvp)
+{
+    gen_ym2612_t ym;
+    gen_ym2612_init(&ym);
+    gen_ym2612_reset(&ym);
+    ASSERT_EQ(gen_ym2612_read_port(&ym, 0), 0);
+    gen_ym2612_write_port(&ym, 0, 0x30);
+    gen_ym2612_write_port(&ym, 1, 0);
+    ASSERT_EQ(gen_ym2612_read_port(&ym, 0), 0x80);
+    gen_ym2612_step(&ym, 200, NULL);
+    ASSERT_EQ(gen_ym2612_read_port(&ym, 3), 0);
+}
+
 TEST(gen_ym2612_key_on_attack)
 {
     gen_ym2612_t ym;
@@ -67,6 +80,7 @@ TEST(gen_ym2612_run_produces_output)
 void run_genesis_ym2612_tests(void)
 {
     SUITE("Genesis YM2612");
+    RUN(gen_ym2612_read_port_mvp);
     RUN(gen_ym2612_key_on_attack);
     RUN(gen_ym2612_key_off_release);
     RUN(gen_ym2612_run_produces_output);
