@@ -35,7 +35,22 @@ class GameWidget(QWidget):
         )
         self._timer = QTimer(self)
         self._timer.timeout.connect(self._on_tick)
-        self._timer.start(int(1000 / 59.73))
+        self._timer.start(self._default_timer_interval_ms())
+
+    @staticmethod
+    def _default_timer_interval_ms() -> int:
+        return max(8, int(1000.0 / 59.7275 + 0.5))
+
+    def sync_frame_timer_from_emu(self):
+        """Alinear QTimer con bitemu_get_frame_hz (PAL/NTSC, Game Boy)."""
+        if not self._emu or not self._emu.is_valid:
+            self._timer.setInterval(self._default_timer_interval_ms())
+            return
+        hz = self._emu.get_frame_hz()
+        if hz <= 0:
+            self._timer.setInterval(self._default_timer_interval_ms())
+            return
+        self._timer.setInterval(max(8, int(1000.0 / hz + 0.5)))
 
     def set_emu(self, emu: Emu | None):
         self._emu = emu
@@ -115,7 +130,11 @@ class GameWidget(QWidget):
             return
 
         raw = bytes(fb)
-        img = QImage(raw, w, h, w, QImage.Format.Format_Grayscale8)
+        if w == 320:
+            stride = w * 3
+            img = QImage(raw, w, h, stride, QImage.Format.Format_RGB888)
+        else:
+            img = QImage(raw, w, h, w, QImage.Format.Format_Grayscale8)
 
         scale = min(rw / w, rh / h) if rw and rh else 1
         sw, sh = int(w * scale), int(h * scale)

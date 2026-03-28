@@ -138,6 +138,18 @@ class MainWindow(QMainWindow):
 
         QApplication.instance().installEventFilter(self)
 
+    def changeEvent(self, event):
+        super().changeEvent(event)
+        if event.type() == QEvent.Type.ApplicationStateChange:
+            self._gamepad.refresh()
+
+    def _sync_emulation_timers(self):
+        self._game.sync_frame_timer_from_emu()
+        if self._emu.is_valid:
+            hz = self._emu.get_frame_hz()
+            if hz > 0:
+                self._gamepad.set_poll_interval_ms(max(8, int(1000.0 / hz + 0.5)))
+
     def eventFilter(self, obj, event):
         """Intercepta J/K en biblioteca para cargar ROM y volver."""
         if event.type() == QEvent.Type.KeyPress and self._stack.currentIndex() == _PAGE_LIBRARY:
@@ -324,6 +336,7 @@ class MainWindow(QMainWindow):
         self._status.showMessage(f"Cargando {name}...")
         self._show_game()
         self._game.show_loading(name)
+        self._sync_emulation_timers()
 
     # ── ROM folder ─────────────────────────────────────────
 
@@ -373,6 +386,8 @@ class MainWindow(QMainWindow):
         self._paused = False
         self._game.set_paused(False)
         self._pause_act.setText("Pausar")
+        self._gamepad.set_poll_interval_ms(16)
+        self._game.sync_frame_timer_from_emu()
         self._show_library()
 
     # ── Save states ────────────────────────────────────────
@@ -410,6 +425,7 @@ class MainWindow(QMainWindow):
         size = os.path.getsize(path)
         ok = self._emu.load_state(path)
         if ok:
+            self._sync_emulation_timers()
             self._game.update()
             self._status.showMessage(f"Estado cargado: {os.path.basename(path)} ({size} bytes)")
         else:

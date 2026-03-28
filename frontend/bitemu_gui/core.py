@@ -9,6 +9,7 @@ from ctypes import (
     c_void_p,
     c_bool,
     c_float,
+    c_double,
     c_uint8,
     c_uint16,
     c_int,
@@ -71,6 +72,8 @@ def _load_lib():
     lib.bitemu_get_framebuffer.restype = POINTER(c_uint8)
     lib.bitemu_get_video_size.argtypes = [c_void_p, POINTER(c_int), POINTER(c_int)]
     lib.bitemu_get_video_size.restype = None
+    lib.bitemu_get_frame_hz.argtypes = [c_void_p]
+    lib.bitemu_get_frame_hz.restype = c_double
     lib.bitemu_set_input.argtypes = [c_void_p, c_uint8]
     lib.bitemu_set_input_genesis.argtypes = [c_void_p, c_uint16]
     lib.bitemu_reset.argtypes = [c_void_p]
@@ -141,6 +144,12 @@ class Emu:
         self._lib.bitemu_get_video_size(self._handle, byref(w), byref(h))
         return w.value or FB_WIDTH, h.value or FB_HEIGHT
 
+    def get_frame_hz(self) -> float:
+        """Frecuencia de frame del core (~59.73 GB; 60/50 Genesis según PAL)."""
+        if self._handle is None:
+            return 59.73
+        return float(self._lib.bitemu_get_frame_hz(self._handle))
+
     def get_framebuffer(self):
         if self._handle is None:
             return None
@@ -148,7 +157,8 @@ class Emu:
         if not ptr:
             return None
         w, h = self.get_video_size()
-        size = w * h
+        bpp = 3 if w == 320 else 1
+        size = w * h * bpp
         addr = cast(ptr, c_void_p).value
         return (c_uint8 * size).from_address(addr)
 

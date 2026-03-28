@@ -68,6 +68,13 @@ class GamepadPoller(QObject):
         self._timer.timeout.connect(self._poll)
         self._timer.start(16)
 
+    def set_poll_interval_ms(self, ms: int):
+        if ms < 4:
+            ms = 4
+        t = getattr(self, "_timer", None)
+        if t is not None:
+            t.setInterval(ms)
+
     @property
     def available(self) -> bool:
         return _PYGAME_AVAILABLE
@@ -92,6 +99,10 @@ class GamepadPoller(QObject):
     def refresh(self):
         if not self._initialized:
             return
+        try:
+            pygame.event.pump()
+        except Exception:
+            pass
         self._try_connect()
 
     def _try_connect(self):
@@ -115,6 +126,9 @@ class GamepadPoller(QObject):
             return
 
         pygame.event.pump()
+        for _evt in pygame.event.get((pygame.JOYDEVICEADDED, pygame.JOYDEVICEREMOVED)):
+            pass
+        self._try_connect()
 
         prev_connected = self._joystick is not None
         cur_count = pygame.joystick.get_count()
