@@ -18,6 +18,12 @@
  * SPDX-License-Identifier: LGPL-3.0-or-later
  */
 
+#define ASSERT_OFFSET(type, field, expected_off) \
+    ASSERT_EQ((long long)offsetof(type, field), (long long)(expected_off))
+
+#define ASSERT_MIN_SIZE(type, min_sz) \
+    ASSERT_TRUE(sizeof(type) >= (min_sz))
+
 #include "test_harness.h"
 #include "be2/cpu/cpu.h"
 #include "be2/vdp/vdp.h"
@@ -26,12 +32,6 @@
 #include "be2/z80/z80.h"
 #include "be2/genesis_constants.h"
 #include <stddef.h>
-
-#define ASSERT_OFFSET(type, field, expected_off) \
-    ASSERT_EQ((long long)offsetof(type, field), (long long)(expected_off))
-
-#define ASSERT_MIN_SIZE(type, min_sz) \
-    ASSERT_TRUE(sizeof(type) >= (min_sz))
 
 /* ── CPU 68000 layout (frozen at BST v3) ── */
 
@@ -50,17 +50,17 @@ TEST(abi_gen_cpu_layout)
 
 TEST(abi_gen_vdp_layout)
 {
-    ASSERT_MIN_SIZE(gen_vdp_t, 137456);
+    ASSERT_MIN_SIZE(gen_vdp_t, 280864);
 
     ASSERT_OFFSET(gen_vdp_t, framebuffer, 0);
-    ASSERT_OFFSET(gen_vdp_t, regs,        71680);
-    ASSERT_OFFSET(gen_vdp_t, vram,         71704);
-    ASSERT_OFFSET(gen_vdp_t, cram,         137240);
-    ASSERT_OFFSET(gen_vdp_t, vsram,        137368);
-    ASSERT_OFFSET(gen_vdp_t, addr_reg,     137448);
-    ASSERT_OFFSET(gen_vdp_t, code_reg,     137450);
-    ASSERT_OFFSET(gen_vdp_t, pending_hi,   137451);
-    ASSERT_OFFSET(gen_vdp_t, addr_inc,     137452);
+    ASSERT_OFFSET(gen_vdp_t, regs,        215040);
+    ASSERT_OFFSET(gen_vdp_t, vram,         215064);
+    ASSERT_OFFSET(gen_vdp_t, cram,         280600);
+    ASSERT_OFFSET(gen_vdp_t, vsram,        280728);
+    ASSERT_OFFSET(gen_vdp_t, addr_reg,     280808);
+    ASSERT_OFFSET(gen_vdp_t, code_reg,     280810);
+    ASSERT_OFFSET(gen_vdp_t, pending_hi,   280811);
+    ASSERT_OFFSET(gen_vdp_t, addr_inc,     280812);
 }
 
 /* ── PSG layout (frozen at BST v3) ── */
@@ -85,7 +85,7 @@ TEST(abi_gen_psg_layout)
 
 TEST(abi_gen_ym2612_layout)
 {
-    ASSERT_MIN_SIZE(gen_ym2612_t, 730);
+    ASSERT_MIN_SIZE(gen_ym2612_t, 748);
 
     ASSERT_OFFSET(gen_ym2612_t, regs,        0);
     ASSERT_OFFSET(gen_ym2612_t, addr,       512);
@@ -96,6 +96,11 @@ TEST(abi_gen_ym2612_layout)
     ASSERT_OFFSET(gen_ym2612_t, block,      652);
     ASSERT_OFFSET(gen_ym2612_t, env_state,  658);
     ASSERT_OFFSET(gen_ym2612_t, env_level,  682);
+    ASSERT_OFFSET(gen_ym2612_t, busy_cycles, 732);
+    ASSERT_OFFSET(gen_ym2612_t, timer_a_counter, 736);
+    ASSERT_OFFSET(gen_ym2612_t, timer_b_counter, 738);
+    ASSERT_OFFSET(gen_ym2612_t, timer_tick_acc, 740);
+    ASSERT_OFFSET(gen_ym2612_t, timer_overflow, 744);
 }
 
 /* ── Z80 layout (frozen at BST v3) ── */

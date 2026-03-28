@@ -100,6 +100,14 @@ def test_framebuffer_not_none():
     emu.destroy()
 
 
+def test_frame_hz_gb_default():
+    emu = Emu()
+    emu.create()
+    hz = emu.get_frame_hz()
+    assert 59.0 < hz < 60.0
+    emu.destroy()
+
+
 def test_set_input():
     emu = Emu()
     emu.create()
@@ -158,7 +166,7 @@ def test_load_genesis_rom():
     assert h == 224
     fb = emu.get_framebuffer()
     assert fb is not None
-    assert len(fb) == 320 * 224
+    assert len(fb) == 320 * 224 * 3
     emu.destroy()
 
     os.remove(rom_path)

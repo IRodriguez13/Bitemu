@@ -37,6 +37,7 @@ class TestCoreLibrary:
         assert hasattr(lib, "bitemu_create")
         assert hasattr(lib, "bitemu_destroy")
         assert hasattr(lib, "bitemu_run_frame")
+        assert hasattr(lib, "bitemu_get_frame_hz")
         assert hasattr(lib, "bitemu_audio_init")
 
 

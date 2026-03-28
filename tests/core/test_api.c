@@ -8,6 +8,11 @@
 
 #include "test_harness.h"
 #include "bitemu.h"
+#include "be1/gb_constants.h"
+#include "be1/cpu/cycle_sym.h"
+#include "be2/cpu/cycle_sym.h"
+#include "be2/genesis_constants.h"
+#include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -245,6 +250,14 @@ TEST(api_get_video_size)
     bitemu_destroy(emu);
 }
 
+TEST(api_frame_hz)
+{
+    ASSERT_TRUE(fabs(bitemu_get_frame_hz(NULL) - 60.0) < 1e-9);
+    bitemu_t *emu = bitemu_create();
+    ASSERT_TRUE(fabs(bitemu_get_frame_hz(emu) - GB_FPS) < 0.02);
+    bitemu_destroy(emu);
+}
+
 /* --- Save state without ROM fails --- */
 
 TEST(api_save_state_no_rom)
@@ -310,18 +323,28 @@ static void write_fake_rom(const char *path, uint8_t fill, size_t size)
     fclose(f);
 }
 
-/* Genesis: "SEGA" at 0x100 (min 0x104 bytes) */
-static void write_fake_genesis_rom(const char *path, size_t size)
+/* Genesis: "SEGA" @ GEN_HEADER_OFFSET; región opcional @ GEN_HEADER_REGION_OFF (PAL heurística) */
+static void write_fake_genesis_rom_ex(const char *path, size_t size, const char *region4)
 {
     FILE *f = fopen(path, "wb");
     if (!f) return;
-    size_t n = size < 0x104 ? 0x104 : size;
+    size_t min_n = (size_t)GEN_HEADER_OFFSET + (size_t)GEN_HEADER_MAGIC_LEN;
+    if (region4)
+        min_n = (size_t)GEN_HEADER_REGION_OFF + 4u;
+    size_t n = size < min_n ? min_n : size;
     uint8_t *buf = calloc(1, n);
     if (!buf) { fclose(f); return; }
-    memcpy(buf + 0x100, "SEGA", 4);
+    memcpy(buf + GEN_HEADER_OFFSET, GEN_HEADER_MAGIC, (size_t)GEN_HEADER_MAGIC_LEN);
+    if (region4 && n >= (size_t)GEN_HEADER_REGION_OFF + 4u)
+        memcpy(buf + GEN_HEADER_REGION_OFF, region4, 4);
     fwrite(buf, 1, n, f);
     free(buf);
     fclose(f);
+}
+
+static void write_fake_genesis_rom(const char *path, size_t size)
+{
+    write_fake_genesis_rom_ex(path, size, NULL);
 }
 
 static bitemu_t *create_with_rom(const char *rom_path)
@@ -433,6 +456,23 @@ TEST(api_load_state_future_rejected)
     remove(FAKE_ROM_PATH);
 }
 
+TEST(api_genesis_frame_hz_regions)
+{
+    write_fake_genesis_rom_ex(FAKE_GENESIS_ROM_PATH, 0x200, "JUE ");
+    bitemu_t *emu = bitemu_create();
+    ASSERT_TRUE(bitemu_load_rom(emu, FAKE_GENESIS_ROM_PATH));
+    ASSERT_TRUE(fabs(bitemu_get_frame_hz(emu) - 60.0) < 0.1);
+    bitemu_destroy(emu);
+    remove(FAKE_GENESIS_ROM_PATH);
+
+    write_fake_genesis_rom_ex(FAKE_GENESIS_ROM_PATH, 0x200, "E   ");
+    emu = bitemu_create();
+    ASSERT_TRUE(bitemu_load_rom(emu, FAKE_GENESIS_ROM_PATH));
+    ASSERT_TRUE(fabs(bitemu_get_frame_hz(emu) - 50.0) < 0.1);
+    bitemu_destroy(emu);
+    remove(FAKE_GENESIS_ROM_PATH);
+}
+
 /* --- Load Genesis ROM: validates multi-console architecture --- */
 
 TEST(api_load_genesis_rom)
@@ -473,6 +513,16 @@ TEST(api_save_load_genesis_roundtrip)
     remove(FAKE_GENESIS_ROM_PATH);
 }
 
+TEST(api_cpu_cycle_sym_tables)
+{
+    ASSERT_TRUE(strcmp(gb_cpu_cycle_symbol_main(0x00), "NOP") == 0);
+    ASSERT_EQ(gb_cpu_cycle_tdots_ref_main(0x00), 4);
+    ASSERT_TRUE(strcmp(gb_cpu_cycle_symbol_cb(0x00), "CB_RLC_R0") == 0);
+    ASSERT_EQ(gb_cpu_cycle_tdots_ref_cb(0x06), 16);
+    ASSERT_TRUE(strcmp(gen_cpu_line_cycle_symbol(0), "line0_quick_dbcc_imm_bit") == 0);
+    ASSERT_EQ(gen_cpu_line_cycles_ref(6), 10);
+}
+
 void run_api_tests(void)
 {
     init_test_paths();
@@ -497,6 +547,8 @@ void run_api_tests(void)
     RUN(api_is_running);
     RUN(api_framebuffer);
     RUN(api_get_video_size);
+    RUN(api_frame_hz);
+    RUN(api_cpu_cycle_sym_tables);
     RUN(api_save_state_no_rom);
     RUN(api_save_state_null);
     RUN(api_load_state_null);
@@ -506,5 +558,6 @@ void run_api_tests(void)
     RUN(api_load_state_v1_rejected);
     RUN(api_load_state_future_rejected);
     RUN(api_load_genesis_rom);
+    RUN(api_genesis_frame_hz_regions);
     RUN(api_save_load_genesis_roundtrip);
 }
