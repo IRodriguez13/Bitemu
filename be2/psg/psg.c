@@ -6,6 +6,8 @@
  * SPDX-License-Identifier: LGPL-3.0-or-later
  */
 
+#define PSG_NOISE_TAP_MASK 0x0009u  /* Genesis: bits LFSR 0 y 3 */
+
 #include "psg.h"
 #include "../genesis_constants.h"
 #include <string.h>
@@ -53,35 +55,30 @@ void gen_psg_write(gen_psg_t *psg, uint8_t val)
         if (psg->latch & 4)
         {
             psg->vol[r] = val & 0x0F;
+            return;
         }
-        else
+        if (r < 3)
         {
-            if (r < 3)
-            {
-                psg->tone[r] = (psg->tone[r] & 0x3F0) | (val & 0x0F);
-            }
-            else
-            {
-                psg->noise_type = val & 0x07;
-                psg->noise_lfsr = 0x8000;  /* Reset LFSR al escribir noise */
-            }
+            psg->tone[r] = (psg->tone[r] & 0x3F0) | (val & 0x0F);
+            return;
         }
+        psg->noise_type = val & 0x07;
+        psg->noise_lfsr = 0x8000;  /* Reset LFSR al escribir noise */
+        return;
     }
-    else
+
+    int r = psg->latch & 3;
+    if (!(psg->latch & 4) && r < 3)
     {
-        int r = psg->latch & 3;
-        if (!(psg->latch & 4) && r < 3)
-        {
-            psg->tone[r] = (psg->tone[r] & 0x00F) | ((val & 0x3F) << 4);
-            if (psg->tone[r] == 0)
-                psg->tone[r] = 0x400;
-        }
-        else if (r == 3)
-        {
-            psg->noise_type = (psg->noise_type & 4) | (val & 0x07);
-            psg->noise_lfsr = 0x8000;
-        }
+        psg->tone[r] = (psg->tone[r] & 0x00F) | ((val & 0x3F) << 4);
+        if (psg->tone[r] == 0)
+            psg->tone[r] = 0x400;
+        return;
     }
+    if (r != 3)
+        return;
+    psg->noise_type = (psg->noise_type & 4) | (val & 0x07);
+    psg->noise_lfsr = 0x8000;
 }
 
 void gen_psg_step(gen_psg_t *psg, int cycles, void *audio_output)
@@ -114,7 +111,6 @@ int gen_psg_run_cycles(gen_psg_t *psg, int cycles)
 
     uint16_t noise_per = noise_counter_reset(psg);
     int white = (psg->noise_type >> 2) & 1;
-    const uint16_t tapped = 0x0009;  /* Genesis: bits 0 y 3 */
 
     for (int i = 0; i < n; i++)
     {
@@ -147,7 +143,7 @@ int gen_psg_run_cycles(gen_psg_t *psg, int cycles)
                 psg->noise_counter = noise_per;
                 if (white)
                 {
-                    uint16_t fb = parity16(psg->noise_lfsr & tapped);
+                    uint16_t fb = parity16(psg->noise_lfsr & PSG_NOISE_TAP_MASK);
                     psg->noise_lfsr = (psg->noise_lfsr >> 1) | (fb << 15);
                 }
                 else

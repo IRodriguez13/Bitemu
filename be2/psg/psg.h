@@ -1,7 +1,7 @@
 /**
  * BE2 - SN76489 PSG (Genesis)
  * 4 canales: 3 tono (square) + 1 ruido.
- * Stub: acepta escrituras; síntesis pendiente.
+ * SN76489: tono + ruido; salida mezclada con YM2612.
  *
  * Copyright (c) 2026 Iván Ezequiel Rodriguez
  * SPDX-License-Identifier: LGPL-3.0-or-later
