@@ -11,6 +11,9 @@
  * SPDX-License-Identifier: LGPL-3.0-or-later
  */
 
+#define GB_READ_UNMAPPED        0xFF
+#define GB_MBC3_RTC_SAV_SIZE    (5 + 8)  /* rtc_s..dh + timestamp */
+
 #include "memory.h"
 #include "gb_constants.h"
 #include "core/utils/log.h"
@@ -141,8 +144,6 @@ void gb_mem_reset(gb_mem_t *mem)
     mem->io[GB_IO_OBP1] = 0xFF;
     mem->io[GB_IO_NR52] = 0xF1;
 }
-
-#define GB_READ_UNMAPPED 0xFF
 
 /* ---------------------------------------------------------------------------
  * Lectura por direcciones (incluye I/O y casos especiales)
@@ -432,6 +433,12 @@ void gb_mem_write(gb_mem_t *mem, uint16_t addr, uint8_t val)
                 mem->apu_trigger_flags |= ch_bit;
             }
         }
+        else if (off == GB_IO_LYC)
+        {
+            mem->io[GB_IO_LYC] = val;
+            uint8_t *stat = &mem->io[GB_IO_STAT];
+            *stat = (*stat & ~GB_STAT_LYC_EQ) | ((mem->io[GB_IO_LY] == val) ? GB_STAT_LYC_EQ : 0);
+        }
         else
             mem->io[off] = val;
         return;
@@ -481,8 +488,6 @@ static void rom_path_to_sav(char *out, size_t out_size, const char *rom_path)
     else
         snprintf(out, out_size, "saves/%.*s.sav", (int)base_len, base);
 }
-
-#define GB_MBC3_RTC_SAV_SIZE  (5 + 8)  /* rtc_s..dh + timestamp */
 
 void gb_mem_load_sav(gb_mem_t *mem, const char *rom_path)
 {

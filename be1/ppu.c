@@ -11,13 +11,15 @@
  * SPDX-License-Identifier: LGPL-3.0-or-later
  */
 
+#include <stdint.h>
+
+/* Paleta DMG: índice de color 0-3 -> nivel de gris (255, 170, 85, 0) */
+static const uint8_t gb_dmg_palette[4] = {0xFF, 0xAA, 0x55, 0x00};
+
 #include "ppu.h"
 #include "memory.h"
 #include "gb_constants.h"
 #include <string.h>
-
-/* Paleta DMG: índice de color 0-3 -> nivel de gris (255, 170, 85, 0) */
-static const uint8_t gb_dmg_palette[4] = {0xFF, 0xAA, 0x55, 0x00};
 
 /* STAT IRQ uses a combined OR line; interrupt fires on rising edge only */
 static void update_stat_irq(gb_ppu_t *ppu, gb_mem_t *mem)

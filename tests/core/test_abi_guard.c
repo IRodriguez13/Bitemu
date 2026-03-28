@@ -18,17 +18,17 @@
  * SPDX-License-Identifier: LGPL-3.0-or-later
  */
 
-#include "test_harness.h"
-#include "be1/cpu/cpu.h"
-#include "be1/ppu.h"
-#include "be1/apu.h"
-#include <stddef.h>
-
 #define ASSERT_OFFSET(type, field, expected_off) \
     ASSERT_EQ((long long)offsetof(type, field), (long long)(expected_off))
 
 #define ASSERT_MIN_SIZE(type, min_sz) \
     ASSERT_TRUE(sizeof(type) >= (min_sz))
+
+#include "test_harness.h"
+#include "be1/cpu/cpu.h"
+#include "be1/ppu.h"
+#include "be1/apu.h"
+#include <stddef.h>
 
 /* ── CPU layout (frozen at BST v2) ── */
 

@@ -9,12 +9,12 @@
  * SPDX-License-Identifier: LGPL-3.0-or-later
  */
 
+/* Divisores para TIMA según TAC bits 0-1: 1024, 16, 64, 256 ciclos entre pasos */
+static const int gb_tima_div[] = {1024, 16, 64, 256};
+
 #include "timer.h"
 #include "memory.h"
 #include "gb_constants.h"
-
-/* Divisores para TIMA según TAC bits 0-1: 1024, 16, 64, 256 ciclos entre pasos */
-static const int gb_tima_div[] = {1024, 16, 64, 256};
 
 void gb_timer_step(struct gb_mem *mem, int cycles)
 {

@@ -145,6 +145,18 @@ TEST(mem16_readwrite)
     ASSERT_EQ(gb_mem_read(&mem, GB_WRAM_START + 1), 0xBE);
 }
 
+/* LYC escrito actualiza STAT LYC=LY sin esperar al próximo paso de PPU */
+TEST(lyc_write_updates_stat_eq)
+{
+    setup();
+    mem.io[GB_IO_LY] = 72;
+    mem.io[GB_IO_STAT] = 0;
+    gb_mem_write(&mem, 0xFF00 + GB_IO_LYC, 72);
+    ASSERT_TRUE(mem.io[GB_IO_STAT] & GB_STAT_LYC_EQ);
+    gb_mem_write(&mem, 0xFF00 + GB_IO_LYC, 71);
+    ASSERT_EQ(mem.io[GB_IO_STAT] & GB_STAT_LYC_EQ, 0);
+}
+
 void run_memory_tests(void)
 {
     SUITE("Memory");
@@ -158,4 +170,5 @@ void run_memory_tests(void)
     RUN(nr52_power_off_clears_apu);
     RUN(apu_trigger_flags);
     RUN(mem16_readwrite);
+    RUN(lyc_write_updates_stat_eq);
 }
