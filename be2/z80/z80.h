@@ -3,6 +3,7 @@
  *
  * Driver de sonido. Ejecuta cuando tiene el bus (bus_req=0).
  * Mapa: 0x0000-0x1FFF RAM, 0x4000 YM2612, 0x6000 bank, 0x7F11 PSG, 0x8000-0xFFFF ROM bank.
+ * Instrucciones típicas de drivers + AND/OR/XOR/SUB/CP (HL), CB, parcial IX/IY/ED.
  *
  * Copyright (c) 2026 Iván Ezequiel Rodriguez
  * SPDX-License-Identifier: LGPL-3.0-or-later

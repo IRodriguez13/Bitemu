@@ -8,13 +8,32 @@
  * SPDX-License-Identifier: LGPL-3.0-or-later
  */
 
+#define R8() (z80_mem_read(ctx, z80->pc++))
+#define R16() R16_(z80, ctx)
+#define W8(addr, v) z80_mem_write(ctx, addr, v)
+#define W16(addr, v) do { W8(addr, (v)&0xFF); W8((addr)+1, (v)>>8); } while (0)
+
+#define HI(x) (((x) >> 8) & 0xFF)
+#define LO(x) ((x)&0xFF)
+
+#define S 0x80
+#define Z 0x40
+#define H 0x10
+#define P 0x04
+#define N 0x02
+#define C 0x01
+
 #include "z80.h"
 #include "../genesis_impl.h"
 #include "../genesis_constants.h"
+#include "../cpu_sync/cpu_sync.h"
 #include "../memory.h"
 #include "../ym2612/ym2612.h"
 #include "../psg/psg.h"
 #include <string.h>
+
+static uint8_t z80_mem_read(void *ctx, uint16_t addr);
+static void z80_mem_write(void *ctx, uint16_t addr, uint8_t val);
 
 /* Z80 mem read: usa espacio Genesis Z80 */
 static uint8_t z80_mem_read(void *ctx, uint16_t addr)
@@ -73,6 +92,13 @@ static void z80_mem_write(void *ctx, uint16_t addr, uint8_t val)
     /* 0x8000-0xFFFF: ROM, no write */
 }
 
+static inline uint16_t R16_(gen_z80_t *z, void *c)
+{
+    uint16_t lo = z80_mem_read(c, z->pc++);
+    uint16_t hi = z80_mem_read(c, z->pc++);
+    return lo | (hi << 8);
+}
+
 static uint8_t z80_port_in(void *ctx, uint8_t port)
 {
     (void)ctx;
@@ -92,27 +118,6 @@ static void z80_port_out(void *ctx, uint8_t port, uint8_t val)
         genesis_mem_write8(&impl->mem, m68k, val);
     }
 }
-
-#define R8() (z80_mem_read(ctx, z80->pc++))
-static inline uint16_t R16_(gen_z80_t *z, void *c)
-{
-    uint16_t lo = z80_mem_read(c, z->pc++);
-    uint16_t hi = z80_mem_read(c, z->pc++);
-    return lo | (hi << 8);
-}
-#define R16() R16_(z80, ctx)
-#define W8(addr, v) z80_mem_write(ctx, addr, v)
-#define W16(addr, v) do { W8(addr, (v)&0xFF); W8((addr)+1, (v)>>8); } while(0)
-
-#define HI(x) (((x)>>8)&0xFF)
-#define LO(x) ((x)&0xFF)
-
-#define S 0x80
-#define Z 0x40
-#define H 0x10
-#define P 0x04
-#define N 0x02
-#define C 0x01
 
 static inline int parity(uint8_t x)
 {
@@ -141,7 +146,7 @@ void gen_z80_reset(gen_z80_t *z80)
 int gen_z80_step(gen_z80_t *z80, void *ctx, int cycles)
 {
     genesis_impl_t *impl = (genesis_impl_t *)ctx;
-    if (impl->z80_bus_req != 0 || impl->z80_reset == 0)
+    if (!gen_cpu_sync_z80_should_run(impl->z80_bus_req, impl->z80_reset))
         return 0;
     if (z80->halted)
         return cycles;
@@ -257,6 +262,58 @@ int gen_z80_step(gen_z80_t *z80, void *ctx, int cycles)
         case 0x25: hl[1]--; af[0] = (af[0] & C) | N | (hl[1] ? 0 : Z) | ((hl[1] & 0x0F) == 0x0F ? H : 0); executed += 4; break;
         case 0x2D: hl[0]--; af[0] = (af[0] & C) | N | (hl[0] ? 0 : Z) | ((hl[0] & 0x0F) == 0x0F ? H : 0); executed += 4; break;
         case 0x35: { uint8_t v = z80_mem_read(ctx, z80->hl) - 1; W8(z80->hl, v); af[0] = (af[0] & C) | N | (v ? 0 : Z) | ((v & 0x0F) == 0x0F ? H : 0); } executed += 11; break;
+        case 0xA6: /* AND (HL) */
+            {
+                uint8_t v = z80_mem_read(ctx, z80->hl);
+                af[1] &= v;
+                uint8_t r = af[1];
+                af[0] = H | (r & S) | (r ? 0 : Z) | parity(r);
+                executed += 7;
+            }
+            break;
+        case 0xB6: /* OR (HL) */
+            {
+                uint8_t v = z80_mem_read(ctx, z80->hl);
+                af[1] |= v;
+                uint8_t r = af[1];
+                af[0] = (r & S) | (r ? 0 : Z) | parity(r);
+                executed += 7;
+            }
+            break;
+        case 0xAE: /* XOR (HL) */
+            {
+                uint8_t v = z80_mem_read(ctx, z80->hl);
+                af[1] ^= v;
+                uint8_t r = af[1];
+                af[0] = (r & S) | (r ? 0 : Z) | parity(r);
+                executed += 7;
+            }
+            break;
+        case 0x96: /* SUB (HL) */
+            {
+                uint8_t v = z80_mem_read(ctx, z80->hl);
+                uint8_t a = af[1];
+                int res = (int)a - (int)v;
+                uint8_t res8 = (uint8_t)res;
+                af[1] = res8;
+                int ov = ((a ^ v) & (a ^ res8)) & 0x80;
+                af[0] = N | (res8 ? 0 : Z) | (res8 & S) | (((a & 0x0F) < (v & 0x0F)) ? H : 0) |
+                    (ov ? P : 0) | ((res & 0x100) ? C : 0);
+                executed += 7;
+            }
+            break;
+        case 0xBE: /* CP (HL) */
+            {
+                uint8_t v = z80_mem_read(ctx, z80->hl);
+                uint8_t a = af[1];
+                int res = (int)a - (int)v;
+                uint8_t res8 = (uint8_t)res;
+                int ov = ((a ^ v) & (a ^ res8)) & 0x80;
+                af[0] = N | (res8 ? 0 : Z) | (res8 & S) | (((a & 0x0F) < (v & 0x0F)) ? H : 0) |
+                    (ov ? P : 0) | ((res & 0x100) ? C : 0);
+                executed += 7;
+            }
+            break;
         case 0x86: { uint8_t v = z80_mem_read(ctx, z80->hl); uint16_t r = HI(z80->af) + v; af[0] = (r >> 8) | ((r & 0xFF) ? 0 : Z) | (((HI(z80->af) & 0x0F) + (v & 0x0F)) & 0x10) | parity((uint8_t)r); af[1] = (uint8_t)r; } executed += 7; break;  /* ADD A,(HL) */
         case 0x80: { uint16_t r = HI(z80->af) + bc[1]; af[0] = (r >> 8) | ((r & 0xFF) ? 0 : Z) | (((HI(z80->af) & 0x0F) + (bc[1] & 0x0F)) & 0x10) | parity((uint8_t)r); af[1] = (uint8_t)r; } executed += 4; break;  /* ADD A,B */
         case 0x81: { uint16_t r = HI(z80->af) + bc[0]; af[0] = (r >> 8) | ((r & 0xFF) ? 0 : Z) | (((HI(z80->af) & 0x0F) + (bc[0] & 0x0F)) & 0x10) | parity((uint8_t)r); af[1] = (uint8_t)r; } executed += 4; break;
