@@ -7,6 +7,10 @@
 
 #include "vdp.h"
 #include <string.h>
+#include <stddef.h>
+
+/* Cobertura sprite/píxel (H40 máx.): COL vs sprites superpuestos no transparentes */
+static uint8_t g_spr_occ[GEN_DISPLAY_WIDTH * GEN_DISPLAY_HEIGHT];
 
 void gen_vdp_init(gen_vdp_t *vdp)
 {
@@ -17,6 +21,22 @@ void gen_vdp_set_dma_read(gen_vdp_t *vdp, gen_vdp_dma_read_fn fn, void *ctx)
 {
     vdp->dma_read_16 = fn;
     vdp->dma_read_ctx = ctx;
+}
+
+static int vdp_hint_reload(const gen_vdp_t *vdp)
+{
+    int r = vdp->regs[GEN_VDP_REG_HINT] & 0xFF;
+    return r ? r : 256;
+}
+
+void gen_vdp_set_pal(gen_vdp_t *vdp, int is_pal)
+{
+    vdp->is_pal = is_pal ? 1u : 0;
+}
+
+void gen_vdp_reload_hint_counter(gen_vdp_t *vdp)
+{
+    vdp->hint_counter = vdp_hint_reload(vdp);
 }
 
 void gen_vdp_reset(gen_vdp_t *vdp)
@@ -30,11 +50,20 @@ void gen_vdp_reset(gen_vdp_t *vdp)
     vdp->pending_hi = 0;
     vdp->addr_inc = GEN_VDP_ADDR_INC_DEF;
     vdp->dma_fill_pending = 0;
+    vdp->dma_stall_68k = 0;
     vdp->cycle_counter = 0;
     vdp->line_counter = 0;
     vdp->status_reg = 0;
     vdp->status_cache = 0;
+    vdp->hint_counter = vdp_hint_reload(vdp);
     gen_vdp_render_test_pattern(vdp);
+}
+
+uint32_t gen_vdp_take_dma_stall(gen_vdp_t *vdp)
+{
+    uint32_t s = vdp->dma_stall_68k;
+    vdp->dma_stall_68k = 0;
+    return s;
 }
 
 static void set_access_mode(gen_vdp_t *vdp, uint8_t code, uint16_t addr)
@@ -103,8 +132,7 @@ void gen_vdp_write_ctrl(gen_vdp_t *vdp, uint16_t val)
                 vdp->regs[GEN_VDP_REG_DMA_SRC_LO] = (uint8_t)(src & 0xFF);
                 vdp->regs[GEN_VDP_REG_DMA_SRC_HI] = (uint8_t)(src >> 8);
                 vdp->addr_reg = addr;
-                vdp->regs[GEN_VDP_REG_DMA_SRC_LO] = (uint8_t)(src & 0xFF);
-                vdp->regs[GEN_VDP_REG_DMA_SRC_HI] = (uint8_t)(src >> 8);
+                vdp->dma_stall_68k += (len / 2u) * (uint32_t)GEN_VDP_DMA_STALL_COPY_PER_WORD;
             }
             else if (vdp->dma_read_16 && vdp->dma_read_ctx)
             {
@@ -136,6 +164,7 @@ void gen_vdp_write_ctrl(gen_vdp_t *vdp, uint16_t val)
                 vdp->regs[GEN_VDP_REG_DMA_SRC_LO] = (uint8_t)((src >> 1) & 0xFF);
                 vdp->regs[GEN_VDP_REG_DMA_SRC_HI] = (uint8_t)((src >> 9) & 0xFF);
                 vdp->status_reg &= ~GEN_VDP_STATUS_DMA;
+                vdp->dma_stall_68k += (len / 2u) * (uint32_t)GEN_VDP_DMA_STALL_CYCLES_PER_WORD;
             }
             return;
         }
@@ -187,6 +216,7 @@ void gen_vdp_write_data(gen_vdp_t *vdp, uint16_t val)
             addr = (addr + (vdp->addr_inc & GEN_VDP_ADDR_INC_MASK)) & GEN_VDP_ADDR_MASK;
         }
         vdp->addr_reg = addr;
+        vdp->dma_stall_68k += (len / 2u) * (uint32_t)GEN_VDP_DMA_STALL_FILL_PER_WORD;
         return;
     }
 
@@ -222,23 +252,74 @@ void gen_vdp_render_test_pattern(gen_vdp_t *vdp)
         {
             int idx = (x / GEN_TEST_BAR_WIDTH) % GEN_TEST_PALETTE_MAX;
             uint8_t c = (uint8_t)(idx * 255 / (GEN_TEST_PALETTE_MAX - 1));
-            vdp->framebuffer[y * GEN_DISPLAY_WIDTH + x] = c;
+            uint8_t *p = &vdp->framebuffer[y * GEN_FB_STRIDE + x * GEN_FB_BYTES_PER_PIXEL];
+            p[0] = p[1] = p[2] = c;
         }
     }
 }
 
-/* Convierte color Genesis (0x0BBBGGGRRR) a grayscale 0-255 para display */
-static uint8_t cram_to_grayscale(uint16_t c)
+/* CRAM word (9-bit BGR en bits típicos del VDP) → RGB888 en framebuffer */
+static void cram_to_rgb888(uint16_t c, uint8_t *out)
 {
     int r = (c >> 1) & GEN_VDP_CRAM_R_MAX;
     int g = (c >> 5) & GEN_VDP_CRAM_R_MAX;
     int b = (c >> 9) & GEN_VDP_CRAM_R_MAX;
-    int gray = (r + g + b) * 255 / GEN_VDP_CRAM_GRAY_MAX;
-    return (uint8_t)(gray > 255 ? 255 : gray);
+    out[0] = (uint8_t)((r * 255 + 3) / 7);
+    out[1] = (uint8_t)((g * 255 + 3) / 7);
+    out[2] = (uint8_t)((b * 255 + 3) / 7);
 }
 
-/* Dibuja un sprite. priority_filter: 0=low, 1=high. display_w: 256 o 320. */
-static void render_sprite(gen_vdp_t *vdp, int spr_idx, uint32_t sat_base, int priority_filter, int display_w)
+static void vdp_plot_cram(gen_vdp_t *vdp, int x, int y, uint16_t cram_word)
+{
+    uint8_t *p = &vdp->framebuffer[y * GEN_FB_STRIDE + x * GEN_FB_BYTES_PER_PIXEL];
+    cram_to_rgb888(cram_word, p);
+}
+
+static int vdp_sprite_height_pixels(int size_bits)
+{
+    switch (size_bits)
+    {
+    case GEN_VDP_SPR_SIZE_8x8:   return 8;
+    case GEN_VDP_SPR_SIZE_8x16:  return 16;
+    case GEN_VDP_SPR_SIZE_16x16: return 16;
+    case GEN_VDP_SPR_SIZE_8x32:  return 32;
+    default: return 8;
+    }
+}
+
+static int vdp_sprite_intersects_line(gen_vdp_t *vdp, uint32_t sat_base, int s, int line)
+{
+    uint32_t off = sat_base + (uint32_t)(s * GEN_VDP_SAT_ENTRY_WORDS);
+    if (off + 4 > GEN_VDP_VRAM_WORDS)
+        return 0;
+    int y_pos = (int)(vdp->vram[off + 0] & 0x3FF);
+    uint16_t w1 = vdp->vram[off + 1];
+    int size_bits = (w1 >> GEN_VDP_SPR_SIZE_SHIFT) & GEN_VDP_SPR_SIZE_MASK;
+    int h = vdp_sprite_height_pixels(size_bits);
+    return (line >= y_pos && line < y_pos + h);
+}
+
+/** Orden SAT (0…spr_idx) en esta línea; -1 si spr_idx no cruza la línea. */
+static int vdp_sprite_line_slot(gen_vdp_t *vdp, uint32_t sat_base, int line, int spr_idx)
+{
+    if (!vdp_sprite_intersects_line(vdp, sat_base, spr_idx, line))
+        return -1;
+    int cnt = 0;
+    for (int s = 0; s <= spr_idx; s++)
+    {
+        if (vdp_sprite_intersects_line(vdp, sat_base, s, line))
+        {
+            cnt++;
+            if (s == spr_idx)
+                return cnt;
+        }
+    }
+    return -1;
+}
+
+/* Dibuja un sprite. priority_filter: 0=low, 1=high. display_w: 256 o 320. spr_occ: NULL o stride display_w×224 para COL. */
+static void render_sprite(gen_vdp_t *vdp, int spr_idx, uint32_t sat_base, int priority_filter, int display_w,
+                          uint8_t *spr_occ)
 {
     uint32_t off = sat_base + (uint32_t)(spr_idx * GEN_VDP_SAT_ENTRY_WORDS);
     if (off + 4 > GEN_VDP_VRAM_WORDS)
@@ -296,6 +377,11 @@ static void render_sprite(gen_vdp_t *vdp, int spr_idx, uint32_t sat_base, int pr
                 int dy = y_pos + ty * GEN_VDP_TILE_SIZE + py;
                 if (dy < 0 || dy >= GEN_DISPLAY_HEIGHT)
                     continue;
+                {
+                    int slot = vdp_sprite_line_slot(vdp, sat_base, dy, spr_idx);
+                    if (slot < 0 || slot > GEN_VDP_MAX_SPRITES_PER_LINE)
+                        continue;
+                }
 
                 uint16_t w0 = vdp->vram[(cur_addr + sy * GEN_VDP_TILE_ROW_BYTES) / 2];
                 uint16_t w1_t = vdp->vram[(cur_addr + sy * GEN_VDP_TILE_ROW_BYTES + 2) / 2];
@@ -316,19 +402,25 @@ static void render_sprite(gen_vdp_t *vdp, int spr_idx, uint32_t sat_base, int pr
                     if (pix == 0)
                         continue;
 
+                    if (spr_occ)
+                    {
+                        size_t o = (size_t)dy * (size_t)display_w + (size_t)dx;
+                        if (spr_occ[o])
+                            vdp->status_reg |= GEN_VDP_STATUS_COL;
+                        spr_occ[o] = 1;
+                    }
                     int color_idx = pal * GEN_VDP_PALETTE_SIZE + pix;
                     if (color_idx < GEN_VDP_CRAM_SIZE)
-                        vdp->framebuffer[dy * GEN_DISPLAY_WIDTH + dx] =
-                            cram_to_grayscale(vdp->cram[color_idx]);
+                        vdp_plot_cram(vdp, dx, dy, vdp->cram[color_idx]);
                 }
             }
         }
     }
 }
 
-/* Dibuja el window plane (sin scroll). Región: (0,0) a (win_w, win_h). */
+/* Dibuja el window plane (sin scroll). win_x0: borde izquierdo en pantalla (reg 17 bit7 = derecha). */
 static void render_window(gen_vdp_t *vdp, uint32_t window_addr, int priority_filter,
-                          int win_w, int win_h, int map_width_tiles)
+                          int win_x0, int win_w, int win_h, int map_width_tiles, int display_w)
 {
     if (win_w <= 0 || win_h <= 0)
         return;
@@ -336,8 +428,11 @@ static void render_window(gen_vdp_t *vdp, uint32_t window_addr, int priority_fil
     {
         int tile_row = y / GEN_VDP_TILE_SIZE;
         int py = y % GEN_VDP_TILE_SIZE;
-        for (int x = 0; x < win_w && x < GEN_DISPLAY_WIDTH; x++)
+        for (int x = 0; x < win_w; x++)
         {
+            int sx = win_x0 + x;
+            if (sx < 0 || sx >= display_w)
+                continue;
             int tile_col = x / GEN_VDP_TILE_SIZE;
             if (tile_col >= map_width_tiles)
                 continue;
@@ -355,7 +450,7 @@ static void render_window(gen_vdp_t *vdp, uint32_t window_addr, int priority_fil
             int flip_y = (tile_word >> GEN_VDP_TILE_FLIP_Y) & 1;
 
             int sy = flip_y ? (GEN_VDP_TILE_SIZE - 1 - py) : py;
-            int sx = flip_x ? (GEN_VDP_TILE_SIZE - 1 - px) : px;
+            int sx2 = flip_x ? (GEN_VDP_TILE_SIZE - 1 - px) : px;
 
             uint32_t tile_addr = (uint32_t)(tile_idx * GEN_VDP_TILE_BYTES);
             if (tile_addr + GEN_VDP_TILE_BYTES > GEN_VDP_VRAM_SIZE)
@@ -363,7 +458,7 @@ static void render_window(gen_vdp_t *vdp, uint32_t window_addr, int priority_fil
 
             uint16_t w0 = vdp->vram[(tile_addr + sy * GEN_VDP_TILE_ROW_BYTES) / 2];
             uint16_t w1 = vdp->vram[(tile_addr + sy * GEN_VDP_TILE_ROW_BYTES + 2) / 2];
-            int shift = (GEN_VDP_TILE_SIZE - 1) - sx;
+            int shift = (GEN_VDP_TILE_SIZE - 1) - sx2;
             int b0 = (w0 >> shift) & 1;
             int b1 = (w0 >> (GEN_VDP_TILE_HI_BYTE + shift)) & 1;
             int b2 = (w1 >> shift) & 1;
@@ -373,8 +468,7 @@ static void render_window(gen_vdp_t *vdp, uint32_t window_addr, int priority_fil
                 continue;
             int color_idx = pal * GEN_VDP_PALETTE_SIZE + pix;
             if (color_idx < GEN_VDP_CRAM_SIZE)
-                vdp->framebuffer[y * GEN_DISPLAY_WIDTH + x] =
-                    cram_to_grayscale(vdp->cram[color_idx]);
+                vdp_plot_cram(vdp, sx, y, vdp->cram[color_idx]);
         }
     }
 }
@@ -428,22 +522,55 @@ static void render_plane(gen_vdp_t *vdp, uint32_t plane_addr, int vscroll, uint3
                 continue;
             int color_idx = pal * GEN_VDP_PALETTE_SIZE + pix;
             if (color_idx < GEN_VDP_CRAM_SIZE)
-                vdp->framebuffer[y * GEN_DISPLAY_WIDTH + x] =
-                    cram_to_grayscale(vdp->cram[color_idx]);
+                vdp_plot_cram(vdp, x, y, vdp->cram[color_idx]);
+        }
+    }
+}
+
+/* Más de GEN_VDP_MAX_SPRITES_PER_LINE sprites intersectando una línea → bit SOVR en status */
+static void vdp_detect_sprite_overflow(gen_vdp_t *vdp)
+{
+    uint32_t sat_base = (uint32_t)((vdp->regs[5] & GEN_VDP_SAT_BASE_MASK) * 0x100);
+    for (int line = 0; line < GEN_DISPLAY_HEIGHT; line++)
+    {
+        int cnt = 0;
+        for (int s = 0; s < GEN_VDP_SPRITE_MAX; s++)
+        {
+            uint32_t off = sat_base + (uint32_t)(s * GEN_VDP_SAT_ENTRY_WORDS);
+            if (off + 4 > GEN_VDP_VRAM_WORDS)
+                break;
+            int y_pos = (int)(vdp->vram[off + 0] & 0x3FF);
+            uint16_t w1 = vdp->vram[off + 1];
+            int size_bits = (w1 >> GEN_VDP_SPR_SIZE_SHIFT) & GEN_VDP_SPR_SIZE_MASK;
+            int h = vdp_sprite_height_pixels(size_bits);
+            if (line >= y_pos && line < y_pos + h)
+                cnt++;
+        }
+        if (cnt > GEN_VDP_MAX_SPRITES_PER_LINE)
+        {
+            vdp->status_reg |= GEN_VDP_STATUS_SOVR;
+            return;
         }
     }
 }
 
 void gen_vdp_render(gen_vdp_t *vdp)
 {
+    vdp->status_reg &= (uint8_t)~(GEN_VDP_STATUS_SOVR | GEN_VDP_STATUS_COL);
+
     /* Fondo: reg 7 (palette + index) */
     int bg_pal = (vdp->regs[7] >> GEN_VDP_BG_PAL_SHIFT) & GEN_VDP_BG_PAL_MASK;
     int bg_idx = vdp->regs[7] & GEN_VDP_BG_IDX_MASK;
     int bg_color = bg_pal * GEN_VDP_PALETTE_SIZE + bg_idx;
-    uint8_t bg_gray = bg_color < GEN_VDP_CRAM_SIZE ?
-        cram_to_grayscale(vdp->cram[bg_color]) : 0;
-    for (int i = 0; i < GEN_FB_SIZE; i++)
-        vdp->framebuffer[i] = bg_gray;
+    uint8_t bg_rgb[3] = {0, 0, 0};
+    if (bg_color < GEN_VDP_CRAM_SIZE)
+        cram_to_rgb888(vdp->cram[bg_color], bg_rgb);
+    for (int i = 0; i < GEN_FB_SIZE; i += GEN_FB_BYTES_PER_PIXEL)
+    {
+        vdp->framebuffer[i]     = bg_rgb[0];
+        vdp->framebuffer[i + 1] = bg_rgb[1];
+        vdp->framebuffer[i + 2] = bg_rgb[2];
+    }
 
     int vscroll = vdp->vsram[0] & GEN_VDP_VSRAM_MASK;
     uint32_t hscroll_base = (uint32_t)((vdp->regs[GEN_VDP_REG_HSCROLL] & GEN_VDP_HSCROLL_BASE_MASK) * GEN_VDP_HSCROLL_BASE_WORDS);
@@ -472,49 +599,70 @@ void gen_vdp_render(gen_vdp_t *vdp)
     if (win_h > GEN_DISPLAY_HEIGHT)
         win_h = GEN_DISPLAY_HEIGHT;
 
+    int win_x0 = 0;
+    if ((vdp->regs[GEN_VDP_REG_WH] & GEN_VDP_WH_RIGHT_MASK) != 0)
+        win_x0 = display_w - win_w;
+    if (win_x0 < 0)
+        win_x0 = 0;
+
+    memset(g_spr_occ, 0, (size_t)display_w * GEN_DISPLAY_HEIGHT);
+
     /* Orden: B(lo), Window(lo), A(lo), sprites(lo), B(hi), Window(hi), A(hi), sprites(hi) */
     render_plane(vdp, plane_b_addr, vscroll, hscroll_base, 0, width_tiles);
-    render_window(vdp, window_addr, 0, win_w, win_h, width_tiles);
+    render_window(vdp, window_addr, 0, win_x0, win_w, win_h, width_tiles, display_w);
     render_plane(vdp, plane_a_addr, vscroll, hscroll_base, 0, width_tiles);
     for (int s = GEN_VDP_SPRITE_MAX - 1; s >= 0; s--)
-        render_sprite(vdp, s, sat_base, 0, display_w);
+        render_sprite(vdp, s, sat_base, 0, display_w, g_spr_occ);
 
     render_plane(vdp, plane_b_addr, vscroll, hscroll_base, 1, width_tiles);
-    render_window(vdp, window_addr, 1, win_w, win_h, width_tiles);
+    render_window(vdp, window_addr, 1, win_x0, win_w, win_h, width_tiles, display_w);
     render_plane(vdp, plane_a_addr, vscroll, hscroll_base, 1, width_tiles);
     for (int s = GEN_VDP_SPRITE_MAX - 1; s >= 0; s--)
-        render_sprite(vdp, s, sat_base, 1, display_w);
+        render_sprite(vdp, s, sat_base, 1, display_w, g_spr_occ);
+
+    vdp_detect_sprite_overflow(vdp);
 }
 
 void gen_vdp_step(gen_vdp_t *vdp, int cycles)
 {
+    int lines_total = vdp->is_pal ? GEN_SCANLINES_TOTAL_PAL : GEN_SCANLINES_TOTAL;
+    int lines_vis = vdp->is_pal ? GEN_SCANLINES_VISIBLE_PAL : GEN_SCANLINES_VISIBLE;
+    int cycles_line = vdp->is_pal ? GEN_CYCLES_PER_LINE_PAL : GEN_CYCLES_PER_LINE;
+
     vdp->cycle_counter += cycles;
 
-    while (vdp->cycle_counter >= GEN_CYCLES_PER_LINE)
+    while (vdp->cycle_counter >= cycles_line)
     {
-        vdp->cycle_counter -= GEN_CYCLES_PER_LINE;
+        vdp->cycle_counter -= cycles_line;
         vdp->line_counter++;
 
-        /* Nueva línea: clear HB (visible part) */
         vdp->status_reg &= ~GEN_VDP_STATUS_HB;
 
-        if (vdp->line_counter >= GEN_SCANLINES_TOTAL)
+        if (vdp->line_counter >= lines_total)
         {
             vdp->line_counter = 0;
             vdp->status_reg &= ~GEN_VDP_STATUS_VB;
+            vdp->hint_counter = vdp_hint_reload(vdp);
         }
-        else if (vdp->line_counter == GEN_SCANLINES_VISIBLE)
+        else if (vdp->line_counter == lines_vis)
         {
-            /* VBlank: al inicio de la línea 224 */
             vdp->status_reg |= GEN_VDP_STATUS_VB | GEN_VDP_STATUS_F;
             if (vdp->regs[1] & GEN_VDP_REG1_IE0)
-                vdp->status_reg |= GEN_VDP_STATUS_F;  /* VBlank IRQ (F ya puesto) */
+                vdp->status_reg |= GEN_VDP_STATUS_F;
         }
 
-        /* HBlank al final de línea + IRQ si habilitado */
         vdp->status_reg |= GEN_VDP_STATUS_HB;
+
+        /* H-int: reg 10 = líneas entre IRQ; 0 cuenta como 256 */
         if (vdp->regs[0] & GEN_VDP_REG0_IE1)
-            vdp->status_reg |= GEN_VDP_STATUS_F;
+        {
+            vdp->hint_counter--;
+            if (vdp->hint_counter < 0)
+            {
+                vdp->status_reg |= GEN_VDP_STATUS_F;
+                vdp->hint_counter = vdp_hint_reload(vdp);
+            }
+        }
 
         if (vdp->line_counter & 1)
             vdp->status_reg |= GEN_VDP_STATUS_ODD;
@@ -522,15 +670,22 @@ void gen_vdp_step(gen_vdp_t *vdp, int cycles)
             vdp->status_reg &= ~GEN_VDP_STATUS_ODD;
     }
 
-    /* Visible part: clear HB (solo set durante transición de línea) */
-    if (vdp->cycle_counter < GEN_CYCLES_PER_LINE - GEN_VDP_HBLANK_CYCLES)
+    if (vdp->cycle_counter < cycles_line - GEN_VDP_HBLANK_CYCLES)
         vdp->status_reg &= ~GEN_VDP_STATUS_HB;
+}
+
+static uint8_t vdp_status_byte_for_read(const gen_vdp_t *vdp)
+{
+    uint8_t b = (uint8_t)(vdp->status_reg & GEN_VDP_CMD_DATA_MASK);
+    b = (uint8_t)((b & (uint8_t)~GEN_VDP_STATUS_PAL) | (vdp->is_pal ? GEN_VDP_STATUS_PAL : 0));
+    return b;
 }
 
 uint16_t gen_vdp_read_status(gen_vdp_t *vdp)
 {
-    vdp->status_cache = (uint16_t)(vdp->status_reg & GEN_VDP_CMD_DATA_MASK);
-    vdp->status_reg &= ~GEN_VDP_STATUS_F;  /* Clear F on read */
+    uint8_t merged = vdp_status_byte_for_read(vdp);
+    vdp->status_cache = (uint16_t)(((uint16_t)merged << 8) | (uint16_t)merged);
+    vdp->status_reg &= (uint8_t)~(GEN_VDP_STATUS_F | GEN_VDP_STATUS_SOVR | GEN_VDP_STATUS_COL);
     return vdp->status_cache;
 }
 
@@ -539,15 +694,17 @@ uint8_t gen_vdp_read_status_byte(gen_vdp_t *vdp, int fetch)
 {
     if (fetch)
     {
-        vdp->status_cache = (uint16_t)(vdp->status_reg & GEN_VDP_CMD_DATA_MASK);
-        vdp->status_reg &= ~GEN_VDP_STATUS_F;
+        uint8_t merged = vdp_status_byte_for_read(vdp);
+        vdp->status_cache = (uint16_t)(((uint16_t)merged << 8) | (uint16_t)merged);
+        vdp->status_reg &= (uint8_t)~(GEN_VDP_STATUS_F | GEN_VDP_STATUS_SOVR | GEN_VDP_STATUS_COL);
     }
     return fetch ? (uint8_t)(vdp->status_cache >> 8) : (uint8_t)(vdp->status_cache & GEN_VDP_CMD_DATA_MASK);
 }
 
 uint16_t gen_vdp_read_hv(gen_vdp_t *vdp)
 {
-    int h = (vdp->cycle_counter * GEN_VDP_H_VISIBLE_N) / GEN_CYCLES_PER_LINE;
+    int cycles_line = vdp->is_pal ? GEN_CYCLES_PER_LINE_PAL : GEN_CYCLES_PER_LINE;
+    int h = (vdp->cycle_counter * GEN_VDP_H_VISIBLE_N) / cycles_line;
     if (h > GEN_VDP_H_VISIBLE_END)
         h = GEN_VDP_H_BLANK_START + (h - GEN_VDP_H_VISIBLE_N);
     int v = vdp->line_counter & GEN_VDP_HV_V_MASK;
@@ -561,6 +718,10 @@ int gen_vdp_pending_irq_level(gen_vdp_t *vdp)
     if ((vdp->regs[1] & GEN_VDP_REG1_IE0) && (vdp->status_reg & GEN_VDP_STATUS_VB))
         return GEN_IRQ_LEVEL_VBLANK;
     if ((vdp->regs[0] & GEN_VDP_REG0_IE1) && (vdp->status_reg & GEN_VDP_STATUS_HB))
-        return GEN_IRQ_LEVEL_HBLANK;
+    {
+        int lines_vis = vdp->is_pal ? GEN_SCANLINES_VISIBLE_PAL : GEN_SCANLINES_VISIBLE;
+        if (vdp->line_counter < lines_vis)
+            return GEN_IRQ_LEVEL_HBLANK;
+    }
     return 0;
 }

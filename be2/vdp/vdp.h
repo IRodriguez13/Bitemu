@@ -36,8 +36,17 @@ struct gen_vdp {
     uint8_t status_reg;     /* bits VBlank, HBlank, etc. */
     uint16_t status_cache;   /* cache para read byte-a-byte (evita doble clear) */
 
-    /* DMA: fill pendiente hasta próximo write a data port (no en savestate: se pierde) */
+    /* DMA: fill pendiente hasta próximo write a data port (GEN1 savestate lo persiste). */
     uint8_t dma_fill_pending;
+
+    /* DMA 68k: ciclos 68k a “consumir” sin ejecutar opcodes (aprox.; ver gen_vdp_take_dma_stall). */
+    uint32_t dma_stall_68k;
+
+    /* Video: NTSC vs PAL (líneas totales / V-int línea visible). Sincronizar con impl->is_pal. */
+    uint8_t is_pal;
+
+    /* Reg 10: H-int cada N líneas; -1 = recargar en próximo inicio de frame */
+    int hint_counter;
 
     /* DMA 68k: callback para leer memoria. ctx = genesis_mem_t*. No serializable. */
     gen_vdp_dma_read_fn dma_read_16;
@@ -46,6 +55,12 @@ struct gen_vdp {
 
 void gen_vdp_init(gen_vdp_t *vdp);
 void gen_vdp_reset(gen_vdp_t *vdp);
+
+/* NTSC (0) vs PAL (1): afecta líneas totales y posición de V-blank. Llamar tras detectar región cartucho. */
+void gen_vdp_set_pal(gen_vdp_t *vdp, int is_pal);
+
+/* Reinicia contador H-int desde reg 10 (p. ej. tras load parcial sin GEN1). */
+void gen_vdp_reload_hint_counter(gen_vdp_t *vdp);
 
 /* Callback para DMA 68k→VDP. Llamar antes de run. */
 void gen_vdp_set_dma_read(gen_vdp_t *vdp, gen_vdp_dma_read_fn fn, void *ctx);
@@ -56,7 +71,7 @@ void gen_vdp_write_ctrl(gen_vdp_t *vdp, uint16_t val);
 /* Puerto datos: escribe según modo actual (VRAM/CRAM/VSRAM) */
 void gen_vdp_write_data(gen_vdp_t *vdp, uint16_t val);
 
-/* Patrón de prueba (stub) */
+/* Patrón de barras cuando el display está apagado o para diagnóstico. */
 void gen_vdp_render_test_pattern(gen_vdp_t *vdp);
 
 /* Render desde VRAM/CRAM (tiles plano A) */
@@ -71,5 +86,8 @@ uint16_t gen_vdp_read_hv(gen_vdp_t *vdp);
 
 /* Interrupciones: nivel pendiente (4=HBlank, 6=VBlank) o 0 si ninguna */
 int gen_vdp_pending_irq_level(gen_vdp_t *vdp);
+
+/* Devuelve y pone a 0 ciclos 68k pendientes por último DMA VDP (para stall en el core). */
+uint32_t gen_vdp_take_dma_stall(gen_vdp_t *vdp);
 
 #endif /* BITEMU_GENESIS_VDP_H */
