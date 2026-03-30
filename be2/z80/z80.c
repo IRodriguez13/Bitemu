@@ -101,8 +101,10 @@ static inline uint16_t R16_(gen_z80_t *z, void *c)
 
 static uint8_t z80_port_in(void *ctx, uint8_t port)
 {
-    (void)ctx;
-    (void)port;
+    genesis_impl_t *impl = (genesis_impl_t *)ctx;
+    /* Drivers Genesis: YM2612 status vía IN en 0x40–0x43 (map a bus 68k A040xx). */
+    if ((port & 0xFCu) == 0x40u && impl->mem.ym2612)
+        return gen_ym2612_read_port(impl->mem.ym2612, (int)(port & 3u));
     return 0xFF;
 }
 
@@ -200,6 +202,20 @@ int gen_z80_step(gen_z80_t *z80, void *ctx, int cycles)
         case 0xDB: /* IN A,(n) */
             af[1] = z80_port_in(ctx, R8());
             executed += 11;
+            break;
+        case 0x32: /* LD (nn),A */
+            {
+                uint16_t nn = R16();
+                W8(nn, af[1]);
+            }
+            executed += 13;
+            break;
+        case 0x3A: /* LD A,(nn) */
+            {
+                uint16_t nn = R16();
+                af[1] = z80_mem_read(ctx, nn);
+            }
+            executed += 13;
             break;
         case 0xD3: /* OUT (n),A */
             z80_port_out(ctx, R8(), HI(z80->af));

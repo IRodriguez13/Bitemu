@@ -27,6 +27,20 @@ TEST(gen_ym2612_read_port_mvp)
     ASSERT_EQ(gen_ym2612_read_port(&ym, 3), 0);
 }
 
+/* Bit 7 busy tras escribir dato; decae con ciclos de chip (aprox. test ROMs). */
+TEST(gen_ym2612_busy_clears_after_chip_cycles)
+{
+    gen_ym2612_t ym;
+    gen_ym2612_init(&ym);
+    gen_ym2612_reset(&ym);
+    gen_ym2612_write_port(&ym, 0, 0x30);
+    ASSERT_EQ(gen_ym2612_read_port(&ym, 0), 0);
+    gen_ym2612_write_port(&ym, 1, 0);
+    ASSERT_EQ(gen_ym2612_read_port(&ym, 0), 0x80u);
+    gen_ym2612_step(&ym, 200, NULL);
+    ASSERT_EQ(gen_ym2612_read_port(&ym, 0) & 0x80u, 0u);
+}
+
 TEST(gen_ym2612_key_on_attack)
 {
     gen_ym2612_t ym;
@@ -81,6 +95,7 @@ void run_genesis_ym2612_tests(void)
 {
     SUITE("Genesis YM2612");
     RUN(gen_ym2612_read_port_mvp);
+    RUN(gen_ym2612_busy_clears_after_chip_cycles);
     RUN(gen_ym2612_key_on_attack);
     RUN(gen_ym2612_key_off_release);
     RUN(gen_ym2612_run_produces_output);

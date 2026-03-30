@@ -15,7 +15,6 @@
 #define YM_REG_DAC_CTRL   0x2B
 #define YM_DAC_ENABLE     0x80
 
-#define YM_WRITE_BUSY_CYCLES 96
 /* Un tick de contador de timer YM ≈ cada N ciclos de bus 68k (FM clock no modelado al ciclo). */
 #define YM_TIMER_SAMPLE_68K_CYCLES 16
 
@@ -172,7 +171,7 @@ void gen_ym2612_write_port(gen_ym2612_t *ym, int port, uint8_t val)
         return;
     }
 
-    ym->busy_cycles = YM_WRITE_BUSY_CYCLES;
+    ym->busy_cycles = GEN_YM2612_WRITE_BUSY_CYCLES_68K;
 
     uint8_t r = ym->addr[part];
 
