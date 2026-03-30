@@ -32,12 +32,22 @@ enum {
     GEN_CYCLES_PER_FRAME_PAL = GEN_SCANLINES_TOTAL_PAL * GEN_CYCLES_PER_LINE_PAL,
 };
 
-/* Aproximación: 68k ocupado por palabra DMA (slot timing no modelado; fill/copy/68k distintos). */
+/*
+ * Stall 68k por palabra DMA: distinto en zona activa vs vblank (hueco CPU mayor con rayo off).
+ * Valores aproximados respecto a tablas tipo "DMA speed test" / GPGX; no son slot-exact.
+ */
 enum {
-    GEN_VDP_DMA_STALL_FILL_PER_WORD = 5,
-    GEN_VDP_DMA_STALL_COPY_PER_WORD = 9,
-    GEN_VDP_DMA_STALL_68K_PER_WORD = 8,
-    GEN_VDP_DMA_STALL_CYCLES_PER_WORD = GEN_VDP_DMA_STALL_68K_PER_WORD, /* alias histórico */
+    GEN_VDP_DMA_STALL_FILL_PER_WORD_ACTIVE   = 6,
+    GEN_VDP_DMA_STALL_FILL_PER_WORD_VBLANK   = 4,
+    GEN_VDP_DMA_STALL_COPY_PER_WORD_ACTIVE  = 10,
+    GEN_VDP_DMA_STALL_COPY_PER_WORD_VBLANK  = 6,
+    GEN_VDP_DMA_STALL_68K_PER_WORD_ACTIVE   = 12,
+    GEN_VDP_DMA_STALL_68K_PER_WORD_VBLANK   = 5,
+    /* Alias histórico = activo (DMA típico en pantalla) */
+    GEN_VDP_DMA_STALL_FILL_PER_WORD = GEN_VDP_DMA_STALL_FILL_PER_WORD_ACTIVE,
+    GEN_VDP_DMA_STALL_COPY_PER_WORD = GEN_VDP_DMA_STALL_COPY_PER_WORD_ACTIVE,
+    GEN_VDP_DMA_STALL_68K_PER_WORD  = GEN_VDP_DMA_STALL_68K_PER_WORD_ACTIVE,
+    GEN_VDP_DMA_STALL_CYCLES_PER_WORD = GEN_VDP_DMA_STALL_68K_PER_WORD_ACTIVE,
 };
 
 /* Retraso mínimo 68k tras escribir BUSREQ (A11100 bit0=1) antes de acceso estable a RAM Z80. */
@@ -51,6 +61,13 @@ enum {
 };
 
 /* ===== Audio ===== */
+/*
+ * YM2612 busy (~11.4 µs tras escribir puerto datos a escala bus 68k NTSC ≈ 86–92 ciclos;
+ * afinado hacia mediciones / test ROMs FM; ver Documentación genesis-test-roms).
+ */
+enum {
+    GEN_YM2612_WRITE_BUSY_CYCLES_68K = 88,
+};
 enum {
     GEN_SAMPLE_RATE          = 44100,
     GEN_CYCLES_PER_SAMPLE    = GEN_68000_HZ / GEN_SAMPLE_RATE,  /* ~174 */
@@ -126,6 +143,13 @@ enum {
     GEN_SRAM_SIZE        = 0x10000,   /* 64 KB */
     GEN_SRAM_MASK        = 0xFFFF,
     GEN_ADDR_SRAM_ENABLE = 0xA130F1,
+    /* Mapper Super Street Fighter II (y similares): bancos 512KB en 0x000000-0x3FFFFF.
+     * Escrituras en direcciones impares 0xA130F3, 0xA130F5, … seleccionan página ROM por slot. */
+    GEN_ADDR_SSF2_SLOT0  = 0xA130F3,
+    GEN_ADDR_SSF2_SLOT7  = 0xA130FF,
+    GEN_SSF2_SLOT_SHIFT  = 19,       /* 512 KiB por slot */
+    GEN_SSF2_SLOT_SIZE   = 0x80000u,
+    GEN_SSF2_SLOT_COUNT  = 8,
 
     /* Lock-on: S&K 2MB + locked 2MB. Patch (Sonic 2 & K) = 256KB extra. */
     GEN_LOCKON_SIZE      = 4 * 1024 * 1024,
@@ -157,7 +181,7 @@ enum {
     GEN_Z80_BUSREQ_OFF   = 0x1100,    /* (addr & GEN_ADDR_OFFSET_MASK) */
     GEN_Z80_RESET_OFF    = 0x1200,
     GEN_ADDR_OFFSET_MASK = 0xFFFF,    /* low 16 bits para Z80 bus decode */
-    GEN_IO_UNMAPPED_READ = 0xFF,      /* lectura en zona no mapeada */
+    GEN_IO_UNMAPPED_READ = 0xFF,      /* open bus MVP: byte leído sin dispositivo (no modelo prefetch 68k) */
 
     /* TMSS (licencia SEGA) */
     GEN_ADDR_TMSS        = 0xA14000,
@@ -220,8 +244,11 @@ enum {
     GEN_CPU_PC_RESET     = 0x000000,
     GEN_VECTOR_SSP       = 0x000000, /* Reset: initial SSP (32-bit) */
     GEN_VECTOR_PC        = 0x000004, /* Reset: initial PC (32-bit) */
+    GEN_VECTOR_ADDRESS_ERROR = 3,    /* Word/long en dirección impar */
     GEN_VECTOR_ILLEGAL   = 4,        /* ILLEGAL opcode */
+    GEN_VECTOR_ZERO_DIV  = 5,        /* DIVU/DIVS por cero */
     GEN_VECTOR_CHK       = 6,        /* CHK out of bounds */
+    GEN_VECTOR_PRIVILEGE_VIOLATION = 8,
 };
 
 /* ===== CPU 68000: opcodes ===== */
@@ -267,17 +294,17 @@ enum {
     GEN_EA_MODE_PREDEC  = 4,   /* -(An) */
 };
 
-/* Shift/rotate: bits 11-9=count (0=8, 1-7=1-7), 8=ir, 7-6=size, 5-3=reg, 2-0=op */
+/* Shift/rotate reg: línea 0xE, bits 11-9 count/Dm, 8=ir, 7-6=size, 5-3=Dn; 2-0 tipo (68000) */
 enum {
-    GEN_OP_ASR           = 0xE000,   /* ASR #n,Dn o ASR Dm,Dn */
-    GEN_OP_LSR           = 0xE008,   /* LSR #n,Dn o LSR Dm,Dn */
-    GEN_OP_ROR           = 0xE018,   /* ROR */
-    GEN_OP_ROXR          = 0xE010,   /* ROXR (rotate with X) */
-    GEN_OP_ASL           = 0xE100,   /* ASL (= LSL para flags) */
-    GEN_OP_LSL           = 0xE108,   /* LSL #n,Dn o LSL Dm,Dn */
-    GEN_OP_ROXL          = 0xE110,   /* ROXL (rotate with X) */
-    GEN_OP_ROL           = 0xE118,   /* ROL */
-    GEN_OP_SHIFT_MASK    = 0xFFF8,   /* bits 2-0 = op subtype */
+    GEN_OP_ASL           = 0xE000,   /* …000 */
+    GEN_OP_LSL           = 0xE001,   /* …001 */
+    GEN_OP_LSR           = 0xE002,   /* …010 */
+    GEN_OP_ASR           = 0xE003,   /* …011 */
+    GEN_OP_ROL           = 0xE004,   /* …100 */
+    GEN_OP_ROR           = 0xE005,   /* …101 */
+    GEN_OP_ROXL          = 0xE006,   /* …110 */
+    GEN_OP_ROXR          = 0xE007,   /* …111 */
+    GEN_OP_SHIFT_MASK    = 0xF007,   /* nibble alto + bits 2-0 */
     GEN_OP_MOVEM_STORE   = 0x4800,   /* MOVEM regs,mem; 0100 10xx xxxx xxxx */
     GEN_OP_MOVEM_LOAD    = 0x4C00,   /* MOVEM mem,regs; 0100 11xx xxxx xxxx */
     GEN_OP_MOVEM_MASK    = 0xFE00,   /* ignora bit 10 (size) */
@@ -388,12 +415,17 @@ enum {
     GEN_CYCLES_DIVU         = 140,
     GEN_CYCLES_DIVS         = 158,
     GEN_CYCLES_ADDX_SUBX    = 4,
+    GEN_CYCLES_ABCD_REG     = 6,
+    GEN_CYCLES_ABCD_MEM     = 18,
     GEN_CYCLES_NEGX         = 4,
     GEN_CYCLES_TAS          = 4,
     GEN_CYCLES_CHK          = 10,
     GEN_CYCLES_ILLEGAL      = 34,
     GEN_CYCLES_RESET        = 132,
-    GEN_CYCLES_STOP         = 4,
+    /* STOP: fetch + inmediato 16 (68000 UM ~8 ciclos bus interno). */
+    GEN_CYCLES_STOP         = 8,
+    /* Address Error: agrupación exception (~50 ciclos; marco largo real no modelado). */
+    GEN_CYCLES_ADDRESS_ERROR = 50,
 };
 
 /* ADDQ/SUBQ: imm en bits 11-9; 0=8, 1-7=1-7 */
@@ -472,6 +504,10 @@ enum {
     GEN_VDP_DMA_TYPE_68K    = 0,
     GEN_VDP_DMA_TYPE_FILL   = 2,
     GEN_VDP_DMA_TYPE_COPY   = 3,
+};
+/* En DMA 68k, (reg[23]>>4) impar: avance dirección fuente +1 (MOVE8); par: +2 (MOVE16). */
+enum {
+    GEN_VDP_DMA68K_MOVE8_NIBBLE_BIT = 1,
 };
 
 /* VDP 16-bit register write: bits 15-14 = 10 */
@@ -564,6 +600,15 @@ enum {
     GEN_VDP_REG_HSCROLL   = 13,
     GEN_VDP_HSCROLL_BASE_MASK  = 0x3F,
     GEN_VDP_HSCROLL_BASE_WORDS = 0x200,  /* 0x400 bytes / 2 */
+};
+
+/* Reg 11 (0x8B): bits 1-0 modo scroll horizontal; bits 3-2 modo scroll vertical.
+ * 00=pantalla completa; 10=celda 8 líneas; 11=por línea; 01=reservado (tratamos como 00). */
+enum {
+    GEN_VDP_REG_MODE3         = 11,
+    GEN_VDP_MODE3_HSCROLL_MASK = 3,
+    GEN_VDP_MODE3_VSCROLL_SHIFT = 2,
+    GEN_VDP_MODE3_VSCROLL_MASK = 3,
 };
 
 /* Reg 17 (0x11): bit 7 = ventana alineada a la derecha (resto reservado en hardware) */
