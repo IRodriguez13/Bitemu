@@ -92,6 +92,9 @@ void bitemu_set_input(bitemu_t *emu, uint8_t state);
 /* Genesis 6-button: bits 0-7 como bitemu_set_input, 8-11=X,Y,Z,Mode. Solo aplica si consola=Genesis. */
 void bitemu_set_input_genesis(bitemu_t *emu, uint16_t state);
 
+/* Mando 2 (puerto B): misma codificación que bitemu_set_input_genesis. */
+void bitemu_set_input_genesis_p2(bitemu_t *emu, uint16_t state);
+
 /*
  * Solo para el bucle por consola (CLI): lee teclado (stdin) y actualiza el joypad dentro del core.
  * En GUI no llamar en el mismo tick que bitemu_run_frame si ya aplicás teclas/gamepad vía

@@ -38,6 +38,12 @@ O en un paso: `bash scripts/profile_genesis_gprof.sh [ruta.rom] [frames]`.
 
 **Nota sobre ciclos 68k:** para contadores por instrucción o por componente del chip, hace falta **instrumentación** o **simulador con hooks**; gprof solo atribuye tiempo a **funciones C** del proceso host.
 
+### Cuándo conviene perfilar el host (y cuándo no)
+
+- **Tiene sentido** cuando el modelo de emulación ya es estable para el caso que medís (misma ROM, mismos flags), y querés ver **dónde gasta tiempo la implementación C** (VDP, YM2612, CPU, memoria): ahí sí aplicá reglas de Pareto sobre el flat profile.
+- **Todavía no compensa** como sustituto de validar **ciclos del 68000** ni medir **bus interno**: eso va con tablas por instrucción/EA, test ROMs o trazas; mientras cambiés mucho `gen_cpu_step` o el coste por opcode, el reparto en gprof se mueve sin correlación directa con “precisión del chip”.
+- **Orden sugerido:** primero acercar tiempos y comportamiento frente a referencia (gentest, BlastEm); después, si el binario queda lento, `make profile-cli` + ROM pesada para optimizar el **camino caliente real** del host.
+
 Variaciones útiles:
 
 | Objetivo | Comando |
@@ -119,5 +125,5 @@ Más abajo en `gprof.out`, la sección **Call graph** muestra **quién llama a q
 
 ## gperf (tablas de ciclos) vs gprof
 
-- **gperf** en este proyecto: tablas generadas (`cycles*.gperf` → `*_gperf.h`) y API en `be1/cpu/cycle_sym.h`, `be2/cpu/cycle_sym.h` para **ciclos de referencia por opcode / línea de decode**, no para medir tiempo real de CPU en tu máquina.
+- **gperf** en este proyecto: tablas generadas (`cycles*.gperf` → `*_gperf.h`) y API en `be1/cpu/cycle_sym.h`, `be2/cpu/cycle_sym.h` (`gen_cpu_line_cycles_ref`, `gen_cpu_cycles_ref_line_nibble`) para **ciclos de referencia agregados por línea de decode (bits 15–12)**, ancla hacia documentación y gentest — **no** miden tiempo en tu CPU ni sustituyen coste por modo EA.
 - **gprof**: mide dónde el **binario que corriste** gastó tiempo (muestreo estadístico). Comandos: `make gperf-help` vs `make profile-help`.

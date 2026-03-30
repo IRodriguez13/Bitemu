@@ -314,6 +314,13 @@ void bitemu_set_input_genesis(bitemu_t *emu, uint16_t state)
     emu->impl.genesis.joypad_state = state & 0x0FFF;
 }
 
+void bitemu_set_input_genesis_p2(bitemu_t *emu, uint16_t state)
+{
+    if (!emu || emu->console_type != CONSOLE_GENESIS)
+        return;
+    emu->impl.genesis.joypad2_state = state & 0x0FFF;
+}
+
 void bitemu_poll_input(bitemu_t *emu)
 {
     if (!emu)
