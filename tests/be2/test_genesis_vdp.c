@@ -10,6 +10,61 @@
 #include "be2/genesis_constants.h"
 #include <string.h>
 
+/* Nivel IRQ que ve el 68k cuando el VDP tiene F + IE + HB/VB (contrato gen_vdp_pending_irq_level). */
+TEST(gen_vdp_pending_irq_hblank_level)
+{
+    gen_vdp_t vdp;
+    gen_vdp_init(&vdp);
+    gen_vdp_reset(&vdp);
+    gen_vdp_set_pal(&vdp, 0);
+    vdp.regs[0] = GEN_VDP_REG0_IE1;
+    vdp.line_counter = 10;
+    vdp.irq_hint_pending = 1;
+    ASSERT_EQ(gen_vdp_pending_irq_level(&vdp), GEN_IRQ_LEVEL_HBLANK);
+}
+
+TEST(gen_vdp_pending_irq_vblank_level)
+{
+    gen_vdp_t vdp;
+    gen_vdp_init(&vdp);
+    gen_vdp_reset(&vdp);
+    gen_vdp_set_pal(&vdp, 0);
+    vdp.regs[1] = GEN_VDP_REG1_IE0;
+    vdp.line_counter = 225;
+    vdp.status_reg = GEN_VDP_STATUS_VB;
+    vdp.irq_vint_pending = 1;
+    ASSERT_EQ(gen_vdp_pending_irq_level(&vdp), GEN_IRQ_LEVEL_VBLANK);
+}
+
+TEST(gen_vdp_pending_irq_vblank_wins_over_hint_flags)
+{
+    gen_vdp_t vdp;
+    gen_vdp_init(&vdp);
+    gen_vdp_reset(&vdp);
+    gen_vdp_set_pal(&vdp, 0);
+    vdp.regs[0] = GEN_VDP_REG0_IE1;
+    vdp.regs[1] = GEN_VDP_REG1_IE0;
+    vdp.line_counter = 225;
+    vdp.status_reg = (uint8_t)(GEN_VDP_STATUS_VB | GEN_VDP_STATUS_HB);
+    vdp.irq_vint_pending = 1;
+    vdp.irq_hint_pending = 1;
+    ASSERT_EQ(gen_vdp_pending_irq_level(&vdp), GEN_IRQ_LEVEL_VBLANK);
+}
+
+/* H-int: nivel visible aun sin bit HB (p.ej. durante porción activa de línea). */
+TEST(gen_vdp_hint_irq_not_lost_when_hblank_cleared)
+{
+    gen_vdp_t vdp;
+    gen_vdp_init(&vdp);
+    gen_vdp_reset(&vdp);
+    gen_vdp_set_pal(&vdp, 0);
+    vdp.regs[0] = GEN_VDP_REG0_IE1;
+    vdp.line_counter = 5;
+    vdp.irq_hint_pending = 1;
+    vdp.status_reg = 0;
+    ASSERT_EQ(gen_vdp_pending_irq_level(&vdp), GEN_IRQ_LEVEL_HBLANK);
+}
+
 TEST(gen_vdp_pal_wraps_313_lines)
 {
     gen_vdp_t vdp;
@@ -120,7 +175,42 @@ TEST(gen_vdp_dma_fill_adds_68k_stall)
     vdp.regs[GEN_VDP_REG_DMA_LEN_HI] = 0;
     vdp.dma_stall_68k = 0;
     gen_vdp_write_data(&vdp, 0xABCD);
-    ASSERT_EQ(vdp.dma_stall_68k, 2u * (uint32_t)GEN_VDP_DMA_STALL_FILL_PER_WORD);
+    ASSERT_EQ(vdp.dma_stall_68k, 2u * (uint32_t)GEN_VDP_DMA_STALL_FILL_PER_WORD_ACTIVE);
+}
+
+TEST(gen_vdp_dma_fill_stall_lower_in_vblank)
+{
+    gen_vdp_t vdp;
+    gen_vdp_init(&vdp);
+    gen_vdp_reset(&vdp);
+    vdp.line_counter = GEN_SCANLINES_VISIBLE + 1;
+    vdp.status_reg |= GEN_VDP_STATUS_VB;
+    vdp.dma_fill_pending = 1;
+    vdp.code_reg = GEN_VDP_CODE_VRAM_WRITE;
+    vdp.addr_reg = 0;
+    vdp.regs[GEN_VDP_REG_DMA_LEN_LO] = 4;
+    vdp.regs[GEN_VDP_REG_DMA_LEN_HI] = 0;
+    vdp.dma_stall_68k = 0;
+    gen_vdp_write_data(&vdp, 0xABCD);
+    ASSERT_EQ(vdp.dma_stall_68k, 2u * (uint32_t)GEN_VDP_DMA_STALL_FILL_PER_WORD_VBLANK);
+}
+
+/* HV: H interpolado en zona activa vs tramo hblank (no mezclar toda la línea). */
+TEST(gen_vdp_read_hv_active_and_hblank_ranges)
+{
+    gen_vdp_t vdp;
+    gen_vdp_init(&vdp);
+    gen_vdp_reset(&vdp);
+    gen_vdp_set_pal(&vdp, 0);
+    vdp.cycle_counter = 0;
+    uint16_t hv0 = gen_vdp_read_hv(&vdp);
+    ASSERT_EQ((hv0 >> 8) & 0xFF, 0);
+    vdp.cycle_counter = GEN_CYCLES_PER_LINE / 4;
+    uint16_t hv1 = gen_vdp_read_hv(&vdp);
+    ASSERT_TRUE(((hv1 >> 8) & 0xFF) > 0 && ((hv1 >> 8) & 0xFF) < (int)GEN_VDP_H_BLANK_START);
+    vdp.cycle_counter = GEN_CYCLES_PER_LINE - GEN_VDP_HBLANK_CYCLES;
+    uint16_t hv2 = gen_vdp_read_hv(&vdp);
+    ASSERT_EQ((hv2 >> 8) & 0xFF, (unsigned)GEN_VDP_H_BLANK_START);
 }
 
 TEST(gen_vdp_hint_reloads_on_frame_wrap)
@@ -141,10 +231,16 @@ void run_genesis_vdp_tests(void)
     SUITE("Genesis VDP timing");
     RUN(gen_vdp_pal_wraps_313_lines);
     RUN(gen_vdp_ntsc_wraps_262_lines);
+    RUN(gen_vdp_pending_irq_hblank_level);
+    RUN(gen_vdp_pending_irq_vblank_level);
+    RUN(gen_vdp_pending_irq_vblank_wins_over_hint_flags);
+    RUN(gen_vdp_hint_irq_not_lost_when_hblank_cleared);
     RUN(gen_vdp_hint_reg10);
     RUN(gen_vdp_window_right_vs_left);
     RUN(gen_vdp_status_read_clears_col);
     RUN(gen_vdp_status_includes_pal_bit);
     RUN(gen_vdp_dma_fill_adds_68k_stall);
+    RUN(gen_vdp_dma_fill_stall_lower_in_vblank);
+    RUN(gen_vdp_read_hv_active_and_hblank_ranges);
     RUN(gen_vdp_hint_reloads_on_frame_wrap);
 }

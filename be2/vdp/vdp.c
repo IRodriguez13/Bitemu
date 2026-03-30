@@ -6,6 +6,7 @@
  */
 
 #include "vdp.h"
+#include "../memory.h"
 #include <string.h>
 #include <stddef.h>
 
@@ -27,6 +28,55 @@ static int vdp_hint_reload(const gen_vdp_t *vdp)
 {
     int r = vdp->regs[GEN_VDP_REG_HINT] & 0xFF;
     return r ? r : 256;
+}
+
+static int vdp_in_vblank_for_dma(const gen_vdp_t *vdp)
+{
+    int lines_vis = vdp->is_pal ? GEN_SCANLINES_VISIBLE_PAL : GEN_SCANLINES_VISIBLE;
+    return (vdp->line_counter >= lines_vis) || ((vdp->status_reg & GEN_VDP_STATUS_VB) != 0);
+}
+
+static void vdp_dma_stall_fill_words(gen_vdp_t *vdp, uint32_t nwords)
+{
+    uint32_t per = vdp_in_vblank_for_dma(vdp) ? (uint32_t)GEN_VDP_DMA_STALL_FILL_PER_WORD_VBLANK
+                                                : (uint32_t)GEN_VDP_DMA_STALL_FILL_PER_WORD_ACTIVE;
+    vdp->dma_stall_68k += nwords * per;
+}
+
+static void vdp_dma_stall_copy_words(gen_vdp_t *vdp, uint32_t nwords)
+{
+    uint32_t per = vdp_in_vblank_for_dma(vdp) ? (uint32_t)GEN_VDP_DMA_STALL_COPY_PER_WORD_VBLANK
+                                                : (uint32_t)GEN_VDP_DMA_STALL_COPY_PER_WORD_ACTIVE;
+    vdp->dma_stall_68k += nwords * per;
+}
+
+static void vdp_dma_stall_68k_words(gen_vdp_t *vdp, uint32_t nwords)
+{
+    uint32_t per = vdp_in_vblank_for_dma(vdp) ? (uint32_t)GEN_VDP_DMA_STALL_68K_PER_WORD_VBLANK
+                                                : (uint32_t)GEN_VDP_DMA_STALL_68K_PER_WORD_ACTIVE;
+    vdp->dma_stall_68k += nwords * per;
+}
+
+static void vdp_hint_fire_at_hblank(gen_vdp_t *vdp)
+{
+    if (vdp->regs[0] & GEN_VDP_REG0_IE1)
+    {
+        vdp->hint_counter--;
+        if (vdp->hint_counter < 0)
+        {
+            vdp->irq_hint_pending = 1;
+            vdp->status_reg |= GEN_VDP_STATUS_F;
+            vdp->hint_counter = vdp_hint_reload(vdp);
+        }
+    }
+}
+
+static void vdp_sync_hblank_bit(gen_vdp_t *vdp, int active_end)
+{
+    if (vdp->cycle_counter < active_end)
+        vdp->status_reg &= ~GEN_VDP_STATUS_HB;
+    else
+        vdp->status_reg |= GEN_VDP_STATUS_HB;
 }
 
 void gen_vdp_set_pal(gen_vdp_t *vdp, int is_pal)
@@ -56,6 +106,8 @@ void gen_vdp_reset(gen_vdp_t *vdp)
     vdp->status_reg = 0;
     vdp->status_cache = 0;
     vdp->hint_counter = vdp_hint_reload(vdp);
+    vdp->irq_vint_pending = 0;
+    vdp->irq_hint_pending = 0;
     gen_vdp_render_test_pattern(vdp);
 }
 
@@ -132,7 +184,7 @@ void gen_vdp_write_ctrl(gen_vdp_t *vdp, uint16_t val)
                 vdp->regs[GEN_VDP_REG_DMA_SRC_LO] = (uint8_t)(src & 0xFF);
                 vdp->regs[GEN_VDP_REG_DMA_SRC_HI] = (uint8_t)(src >> 8);
                 vdp->addr_reg = addr;
-                vdp->dma_stall_68k += (len / 2u) * (uint32_t)GEN_VDP_DMA_STALL_COPY_PER_WORD;
+                vdp_dma_stall_copy_words(vdp, len / 2u);
             }
             else if (vdp->dma_read_16 && vdp->dma_read_ctx)
             {
@@ -142,10 +194,21 @@ void gen_vdp_write_ctrl(gen_vdp_t *vdp, uint16_t val)
                 uint16_t dest = addr;
                 int is_cram = dest_code == GEN_VDP_CODE_CRAM_WRITE;
                 int is_vsram = dest_code == GEN_VDP_CODE_VSRAM_WRITE;
+                uint32_t src_step = 2u;
+                if (dma_type < 8 && (dma_type & GEN_VDP_DMA68K_MOVE8_NIBBLE_BIT))
+                    src_step = 1u;
+                genesis_mem_t *mem68 = (genesis_mem_t *)vdp->dma_read_ctx;
 
                 for (uint32_t i = 0; i < len; i += 2)
                 {
-                    uint16_t w = vdp->dma_read_16(vdp->dma_read_ctx, src);
+                    uint16_t w;
+                    if (src_step == 2u)
+                        w = vdp->dma_read_16(vdp->dma_read_ctx, src);
+                    else
+                    {
+                        w = (uint16_t)(((uint16_t)genesis_mem_read8(mem68, src) << 8)
+                                     | genesis_mem_read8(mem68, src + 1u));
+                    }
                     if (is_cram)
                     {
                         int idx = (dest >> 1) & GEN_VDP_CRAM_MASK;
@@ -156,7 +219,7 @@ void gen_vdp_write_ctrl(gen_vdp_t *vdp, uint16_t val)
                     else if (dest < GEN_VDP_VRAM_WORDS)
                         vdp->vram[dest] = w;
                     dest = (dest + (vdp->addr_inc & GEN_VDP_ADDR_INC_MASK)) & GEN_VDP_ADDR_MASK;
-                    src += 2;
+                    src += src_step;
                     /* 128K DMA window: wrap lower 17 bits */
                     src = ((uint32_t)(vdp->regs[GEN_VDP_REG_DMA_SRC_EXT] & 0x3F) << 17) | (src & 0x1FFFF);
                 }
@@ -164,7 +227,7 @@ void gen_vdp_write_ctrl(gen_vdp_t *vdp, uint16_t val)
                 vdp->regs[GEN_VDP_REG_DMA_SRC_LO] = (uint8_t)((src >> 1) & 0xFF);
                 vdp->regs[GEN_VDP_REG_DMA_SRC_HI] = (uint8_t)((src >> 9) & 0xFF);
                 vdp->status_reg &= ~GEN_VDP_STATUS_DMA;
-                vdp->dma_stall_68k += (len / 2u) * (uint32_t)GEN_VDP_DMA_STALL_CYCLES_PER_WORD;
+                vdp_dma_stall_68k_words(vdp, len / 2u);
             }
             return;
         }
@@ -216,7 +279,7 @@ void gen_vdp_write_data(gen_vdp_t *vdp, uint16_t val)
             addr = (addr + (vdp->addr_inc & GEN_VDP_ADDR_INC_MASK)) & GEN_VDP_ADDR_MASK;
         }
         vdp->addr_reg = addr;
-        vdp->dma_stall_68k += (len / 2u) * (uint32_t)GEN_VDP_DMA_STALL_FILL_PER_WORD;
+        vdp_dma_stall_fill_words(vdp, len / 2u);
         return;
     }
 
@@ -473,12 +536,39 @@ static void render_window(gen_vdp_t *vdp, uint32_t window_addr, int priority_fil
     }
 }
 
-/* Dibuja un plano con scroll. priority_filter: 0=low, 1=high. width_tiles: 32 o 40 */
-static void render_plane(gen_vdp_t *vdp, uint32_t plane_addr, int vscroll, uint32_t hscroll_base, int priority_filter, int width_tiles)
+static int vdp_hscroll_line_index(int y, int h_mode)
+{
+    switch (h_mode)
+    {
+    case 2:  return y / 8;
+    case 3:  return y;
+    case 1:  /* inválido en HW */
+    default: return 0;
+    }
+}
+
+static int vdp_vscroll_for_line(const gen_vdp_t *vdp, int y, int v_mode)
+{
+    int vi;
+    switch (v_mode)
+    {
+    case 2:  vi = (y / 8) % GEN_VDP_VSRAM_SIZE; break;
+    case 3:  vi = y % GEN_VDP_VSRAM_SIZE; break;
+    case 1:
+    default: vi = 0; break;
+    }
+    return (int)(vdp->vsram[vi] & GEN_VDP_VSRAM_MASK);
+}
+
+/* Dibuja un plano con scroll. plane_a: 0=B (word par en tabla H), 1=A (word impar). width_tiles: 32 o 40 */
+static void render_plane(gen_vdp_t *vdp, uint32_t plane_addr, uint32_t hscroll_base, int plane_a, int h_mode, int v_mode,
+                         int priority_filter, int width_tiles)
 {
     for (int y = 0; y < GEN_DISPLAY_HEIGHT; y++)
     {
-        uint32_t row_offset = hscroll_base + (uint32_t)(y * 2);
+        int vscroll = vdp_vscroll_for_line(vdp, y, v_mode);
+        int h_li = vdp_hscroll_line_index(y, h_mode);
+        uint32_t row_offset = hscroll_base + (uint32_t)(h_li * 2) + (plane_a ? 1u : 0u);
         int hscroll = (row_offset < GEN_VDP_VRAM_WORDS) ?
             (int)(vdp->vram[row_offset] & 0x3FF) : 0;
 
@@ -572,7 +662,14 @@ void gen_vdp_render(gen_vdp_t *vdp)
         vdp->framebuffer[i + 2] = bg_rgb[2];
     }
 
-    int vscroll = vdp->vsram[0] & GEN_VDP_VSRAM_MASK;
+    uint8_t mode3 = vdp->regs[GEN_VDP_REG_MODE3];
+    int h_mode = mode3 & GEN_VDP_MODE3_HSCROLL_MASK;
+    if (h_mode == 1)
+        h_mode = 0;
+    int v_mode = (mode3 >> GEN_VDP_MODE3_VSCROLL_SHIFT) & GEN_VDP_MODE3_VSCROLL_MASK;
+    if (v_mode == 1)
+        v_mode = 0;
+
     uint32_t hscroll_base = (uint32_t)((vdp->regs[GEN_VDP_REG_HSCROLL] & GEN_VDP_HSCROLL_BASE_MASK) * GEN_VDP_HSCROLL_BASE_WORDS);
 
     /* H32 (32 tiles) vs H40 (40 tiles) - reg 12 bits 1-0 */
@@ -608,15 +705,15 @@ void gen_vdp_render(gen_vdp_t *vdp)
     memset(g_spr_occ, 0, (size_t)display_w * GEN_DISPLAY_HEIGHT);
 
     /* Orden: B(lo), Window(lo), A(lo), sprites(lo), B(hi), Window(hi), A(hi), sprites(hi) */
-    render_plane(vdp, plane_b_addr, vscroll, hscroll_base, 0, width_tiles);
+    render_plane(vdp, plane_b_addr, hscroll_base, 0, h_mode, v_mode, 0, width_tiles);
     render_window(vdp, window_addr, 0, win_x0, win_w, win_h, width_tiles, display_w);
-    render_plane(vdp, plane_a_addr, vscroll, hscroll_base, 0, width_tiles);
+    render_plane(vdp, plane_a_addr, hscroll_base, 1, h_mode, v_mode, 0, width_tiles);
     for (int s = GEN_VDP_SPRITE_MAX - 1; s >= 0; s--)
         render_sprite(vdp, s, sat_base, 0, display_w, g_spr_occ);
 
-    render_plane(vdp, plane_b_addr, vscroll, hscroll_base, 1, width_tiles);
+    render_plane(vdp, plane_b_addr, hscroll_base, 0, h_mode, v_mode, 1, width_tiles);
     render_window(vdp, window_addr, 1, win_x0, win_w, win_h, width_tiles, display_w);
-    render_plane(vdp, plane_a_addr, vscroll, hscroll_base, 1, width_tiles);
+    render_plane(vdp, plane_a_addr, hscroll_base, 1, h_mode, v_mode, 1, width_tiles);
     for (int s = GEN_VDP_SPRITE_MAX - 1; s >= 0; s--)
         render_sprite(vdp, s, sat_base, 1, display_w, g_spr_occ);
 
@@ -628,50 +725,63 @@ void gen_vdp_step(gen_vdp_t *vdp, int cycles)
     int lines_total = vdp->is_pal ? GEN_SCANLINES_TOTAL_PAL : GEN_SCANLINES_TOTAL;
     int lines_vis = vdp->is_pal ? GEN_SCANLINES_VISIBLE_PAL : GEN_SCANLINES_VISIBLE;
     int cycles_line = vdp->is_pal ? GEN_CYCLES_PER_LINE_PAL : GEN_CYCLES_PER_LINE;
+    int active_end = cycles_line - GEN_VDP_HBLANK_CYCLES;
+    int rem = cycles;
 
-    vdp->cycle_counter += cycles;
-
-    while (vdp->cycle_counter >= cycles_line)
+    while (rem > 0)
     {
-        vdp->cycle_counter -= cycles_line;
-        vdp->line_counter++;
-
-        vdp->status_reg &= ~GEN_VDP_STATUS_HB;
-
-        if (vdp->line_counter >= lines_total)
+        int cc = vdp->cycle_counter;
+        if (cc < active_end)
         {
-            vdp->line_counter = 0;
-            vdp->status_reg &= ~GEN_VDP_STATUS_VB;
-            vdp->hint_counter = vdp_hint_reload(vdp);
-        }
-        else if (vdp->line_counter == lines_vis)
-        {
-            vdp->status_reg |= GEN_VDP_STATUS_VB | GEN_VDP_STATUS_F;
-            if (vdp->regs[1] & GEN_VDP_REG1_IE0)
-                vdp->status_reg |= GEN_VDP_STATUS_F;
-        }
-
-        vdp->status_reg |= GEN_VDP_STATUS_HB;
-
-        /* H-int: reg 10 = líneas entre IRQ; 0 cuenta como 256 */
-        if (vdp->regs[0] & GEN_VDP_REG0_IE1)
-        {
-            vdp->hint_counter--;
-            if (vdp->hint_counter < 0)
+            int d = active_end - cc;
+            int t = rem < d ? rem : d;
+            vdp->cycle_counter = cc + t;
+            rem -= t;
+            if (t == d)
             {
-                vdp->status_reg |= GEN_VDP_STATUS_F;
-                vdp->hint_counter = vdp_hint_reload(vdp);
+                vdp->status_reg |= GEN_VDP_STATUS_HB;
+                vdp_hint_fire_at_hblank(vdp);
             }
         }
-
-        if (vdp->line_counter & 1)
-            vdp->status_reg |= GEN_VDP_STATUS_ODD;
         else
-            vdp->status_reg &= ~GEN_VDP_STATUS_ODD;
+        {
+            int d = cycles_line - cc;
+            int t = rem < d ? rem : d;
+            vdp->cycle_counter = cc + t;
+            rem -= t;
+            if (t == d)
+            {
+                vdp->cycle_counter = 0;
+                vdp->line_counter++;
+                vdp->status_reg &= ~GEN_VDP_STATUS_HB;
+
+                if (vdp->line_counter >= lines_total)
+                {
+                    vdp->line_counter = 0;
+                    vdp->status_reg &= ~GEN_VDP_STATUS_VB;
+                    vdp->hint_counter = vdp_hint_reload(vdp);
+                }
+                else if (vdp->line_counter == lines_vis)
+                {
+                    vdp->status_reg |= GEN_VDP_STATUS_VB;
+                    if (vdp->regs[1] & GEN_VDP_REG1_IE0)
+                    {
+                        vdp->irq_vint_pending = 1;
+                        vdp->status_reg |= GEN_VDP_STATUS_F;
+                    }
+                }
+
+                if (vdp->line_counter & 1)
+                    vdp->status_reg |= GEN_VDP_STATUS_ODD;
+                else
+                    vdp->status_reg &= ~GEN_VDP_STATUS_ODD;
+            }
+        }
+        vdp_sync_hblank_bit(vdp, active_end);
     }
 
-    if (vdp->cycle_counter < cycles_line - GEN_VDP_HBLANK_CYCLES)
-        vdp->status_reg &= ~GEN_VDP_STATUS_HB;
+    if (cycles == 0)
+        vdp_sync_hblank_bit(vdp, active_end);
 }
 
 static uint8_t vdp_status_byte_for_read(const gen_vdp_t *vdp)
@@ -686,6 +796,8 @@ uint16_t gen_vdp_read_status(gen_vdp_t *vdp)
     uint8_t merged = vdp_status_byte_for_read(vdp);
     vdp->status_cache = (uint16_t)(((uint16_t)merged << 8) | (uint16_t)merged);
     vdp->status_reg &= (uint8_t)~(GEN_VDP_STATUS_F | GEN_VDP_STATUS_SOVR | GEN_VDP_STATUS_COL);
+    vdp->irq_vint_pending = 0;
+    vdp->irq_hint_pending = 0;
     return vdp->status_cache;
 }
 
@@ -697,6 +809,8 @@ uint8_t gen_vdp_read_status_byte(gen_vdp_t *vdp, int fetch)
         uint8_t merged = vdp_status_byte_for_read(vdp);
         vdp->status_cache = (uint16_t)(((uint16_t)merged << 8) | (uint16_t)merged);
         vdp->status_reg &= (uint8_t)~(GEN_VDP_STATUS_F | GEN_VDP_STATUS_SOVR | GEN_VDP_STATUS_COL);
+        vdp->irq_vint_pending = 0;
+        vdp->irq_hint_pending = 0;
     }
     return fetch ? (uint8_t)(vdp->status_cache >> 8) : (uint8_t)(vdp->status_cache & GEN_VDP_CMD_DATA_MASK);
 }
@@ -704,20 +818,36 @@ uint8_t gen_vdp_read_status_byte(gen_vdp_t *vdp, int fetch)
 uint16_t gen_vdp_read_hv(gen_vdp_t *vdp)
 {
     int cycles_line = vdp->is_pal ? GEN_CYCLES_PER_LINE_PAL : GEN_CYCLES_PER_LINE;
-    int h = (vdp->cycle_counter * GEN_VDP_H_VISIBLE_N) / cycles_line;
-    if (h > GEN_VDP_H_VISIBLE_END)
-        h = GEN_VDP_H_BLANK_START + (h - GEN_VDP_H_VISIBLE_N);
+    int active = cycles_line - GEN_VDP_HBLANK_CYCLES;
+    int cc = vdp->cycle_counter;
+    int h;
+    if (cc < active)
+    {
+        h = active > 0 ? (cc * (int)GEN_VDP_H_VISIBLE_N) / active : 0;
+        if (h > GEN_VDP_H_VISIBLE_END)
+            h = GEN_VDP_H_VISIBLE_END;
+    }
+    else
+    {
+        int hb_cyc = cc - active;
+        int hb_max = 0xFF - (int)GEN_VDP_H_BLANK_START;
+        int hb_den = GEN_VDP_HBLANK_CYCLES - 1;
+        if (hb_den < 1)
+            hb_den = 1;
+        h = (int)GEN_VDP_H_BLANK_START + (hb_cyc * hb_max) / hb_den;
+        if (h > 0xFF)
+            h = 0xFF;
+    }
     int v = vdp->line_counter & GEN_VDP_HV_V_MASK;
     return (uint16_t)((h << 8) | v);
 }
 
 int gen_vdp_pending_irq_level(gen_vdp_t *vdp)
 {
-    if (!(vdp->status_reg & GEN_VDP_STATUS_F))
-        return 0;
-    if ((vdp->regs[1] & GEN_VDP_REG1_IE0) && (vdp->status_reg & GEN_VDP_STATUS_VB))
+    if ((vdp->regs[1] & GEN_VDP_REG1_IE0) && vdp->irq_vint_pending
+        && (vdp->status_reg & GEN_VDP_STATUS_VB))
         return GEN_IRQ_LEVEL_VBLANK;
-    if ((vdp->regs[0] & GEN_VDP_REG0_IE1) && (vdp->status_reg & GEN_VDP_STATUS_HB))
+    if ((vdp->regs[0] & GEN_VDP_REG0_IE1) && vdp->irq_hint_pending)
     {
         int lines_vis = vdp->is_pal ? GEN_SCANLINES_VISIBLE_PAL : GEN_SCANLINES_VISIBLE;
         if (vdp->line_counter < lines_vis)

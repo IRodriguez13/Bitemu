@@ -51,6 +51,10 @@ struct gen_vdp {
     /* DMA 68k: callback para leer memoria. ctx = genesis_mem_t*. No serializable. */
     gen_vdp_dma_read_fn dma_read_16;
     void *dma_read_ctx;
+
+    /* IRQ al 68k: pendientes internos (el bit F del status refleja “algo pendiente”). */
+    uint8_t irq_vint_pending;
+    uint8_t irq_hint_pending;
 };
 
 void gen_vdp_init(gen_vdp_t *vdp);
