@@ -41,6 +41,10 @@ struct genesis_mem {
     uint16_t joypad_raw[2]; /* estado crudo: bits 0-11 = R,L,D,U,Start,A,B,C,X,Y,Z,Mode; 1=presionado */
     uint8_t joypad_ctrl[2]; /* TH/TR último escrito (0xA10003, 0xA10005) */
     uint8_t joypad_cycle[2];/* ciclo 0-8 para protocolo 6-button */
+    uint8_t tmss[4];        /* 0xA14000–03: últimos bytes escritos (TMSS Model 1) */
+    uint8_t tmss_unlocked; /* 1 si tmss[0..3] == SEGA (mismo orden que header cartucho) */
+    uint8_t ssf2_bank[GEN_SSF2_SLOT_COUNT]; /* páginas 512KB por slot (mapper SSF2) */
+    uint8_t mapper_ssf2;   /* 1 si ROM > 4MB: ventana 0–0x3FFFFF bancada */
 };
 
 void genesis_joypad_write_ctrl(genesis_mem_t *mem, int port, uint8_t val);

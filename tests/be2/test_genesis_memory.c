@@ -71,6 +71,14 @@ TEST(gen_mem_rom_no_rom_returns_ff)
     ASSERT_EQ(genesis_mem_read16(&impl.mem, 0x100000), 0xFFFF);
 }
 
+/* Hueco cartucho típico (p. ej. 0x500000): sin ROM/RAM/IO → open bus MVP = 0xFF/byte */
+TEST(gen_mem_unmapped_open_bus)
+{
+    setup();
+    ASSERT_EQ(genesis_mem_read8(&impl.mem, 0x500000), 0xFF);
+    ASSERT_EQ(genesis_mem_read16(&impl.mem, 0x500002), 0xFFFF);
+}
+
 TEST(gen_mem_rom_with_rom)
 {
     setup();
@@ -271,7 +279,9 @@ TEST(gen_mem_tmss_write)
     genesis_mem_write8(&impl.mem, GEN_ADDR_TMSS + 1, 0x45);   /* 'E' */
     genesis_mem_write8(&impl.mem, GEN_ADDR_TMSS + 2, 0x47);   /* 'G' */
     genesis_mem_write8(&impl.mem, GEN_ADDR_TMSS + 3, 0x41);   /* 'A' */
-    ASSERT_TRUE(1);  /* No crash = pass */
+    ASSERT_EQ(genesis_mem_read8(&impl.mem, GEN_ADDR_TMSS), 0x53);
+    ASSERT_EQ(genesis_mem_read8(&impl.mem, GEN_ADDR_TMSS + 3), 0x41);
+    ASSERT_EQ(impl.mem.tmss_unlocked, 1u);
 }
 
 /* --- SRAM: A130F1 habilita mapeo, header "RA" → sram_present --- */
@@ -396,6 +406,30 @@ TEST(gen_mem_lockon_patch)
 
 /* --- ROM tamaño no múltiplo de 2: lectura con máscara, fuera de tamaño → 0xFF --- */
 
+/* ROM > 4MB: mapper SSF2 (8×512KB), registro impar A130F3+2*slot */
+
+TEST(gen_mem_ssf2_bank_switch)
+{
+    setup();
+    const size_t sz = 0x400000u + 0x80000u; /* 4.5 MiB */
+    uint8_t *rom = calloc(1, sz);
+    ASSERT_TRUE(rom != NULL);
+    rom[0] = 0x11;
+    rom[0x80000] = 0x22;
+    impl.mem.rom = rom;
+    impl.mem.rom_size = sz;
+    impl.mem.mapper_ssf2 = 1;
+    impl.mem.lockon = 0;
+    for (int i = 0; i < GEN_SSF2_SLOT_COUNT; i++)
+        impl.mem.ssf2_bank[i] = (uint8_t)i;
+
+    ASSERT_EQ(genesis_mem_read8(&impl.mem, 0x000000), 0x11);
+    genesis_mem_write8(&impl.mem, GEN_ADDR_SSF2_SLOT0, 1);
+    ASSERT_EQ(genesis_mem_read8(&impl.mem, 0x000000), 0x22);
+
+    free(rom);
+}
+
 TEST(gen_mem_rom_odd_size_bounds)
 {
     setup();
@@ -442,6 +476,7 @@ void run_genesis_memory_tests(void)
     RUN(gen_mem_ram_word);
     RUN(gen_mem_ram_long);
     RUN(gen_mem_rom_no_rom_returns_ff);
+    RUN(gen_mem_unmapped_open_bus);
     RUN(gen_mem_rom_with_rom);
     RUN(gen_mem_joypad_default);
     RUN(gen_mem_joypad_custom);
@@ -465,6 +500,7 @@ void run_genesis_memory_tests(void)
     RUN(gen_mem_lockon_detection);
     RUN(gen_mem_lockon_sram);
     RUN(gen_mem_lockon_patch);
+    RUN(gen_mem_ssf2_bank_switch);
     RUN(gen_mem_rom_odd_size_bounds);
     RUN(gen_mem_ym_read);
     RUN(gen_mem_ym2612_timer_overflow_and_clear);

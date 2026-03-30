@@ -51,6 +51,10 @@ typedef struct {
     uint64_t stat_cpu_cyc;
     uint64_t stat_z80_cyc;
     uint64_t stat_dma_stall_consumed;
+    uint16_t joypad2_state;
+    uint8_t ssf2_bank[GEN_SSF2_SLOT_COUNT];
+    uint8_t vdp_irq_vint_pending;
+    uint8_t vdp_irq_hint_pending;
 } gen_bst_ext_v1_t;
 
 static void genesis_detect_region_pal(genesis_impl_t *impl, const uint8_t *rom, size_t size)
@@ -126,7 +130,7 @@ static void gen_step(console_t *ctx, int cycles)
     uint64_t z80_cyc_acc = 0;
 
     impl->mem.joypad_raw[0] = impl->joypad_state & 0x0FFF;
-    impl->mem.joypad_raw[1] = 0;
+    impl->mem.joypad_raw[1] = impl->joypad2_state & 0x0FFF;
 
     while (consumed < cycles)
     {
@@ -258,9 +262,16 @@ static bool gen_load_rom(console_t *ctx, const char *path, const uint8_t *data, 
         impl->rom_path[len] = '\0';
     }
 
-    /* Lock-on: S&K 2MB + locked 2MB (≥4MB). Sonic 2 & K: +256KB patch. */
-    mem->lockon = (size >= GEN_LOCKON_SIZE) ? 1 : 0;
-    mem->lockon_has_patch = (size >= GEN_LOCKON_SIZE + GEN_LOCKON_PATCH) ? 1 : 0;
+    /* ROM > 4MB: mapper SSF2 (512KB slots); no lock-on en ese caso (p. ej. Super Street Fighter II 5MB). */
+    mem->mapper_ssf2 = (size > 0x400000u) ? 1u : 0u;
+    if (mem->mapper_ssf2)
+    {
+        for (int i = 0; i < GEN_SSF2_SLOT_COUNT; i++)
+            mem->ssf2_bank[i] = (uint8_t)i;
+    }
+    /* Lock-on: S&K + locked (≥4MB y sin mapper bancario). */
+    mem->lockon = (size >= GEN_LOCKON_SIZE && !mem->mapper_ssf2) ? 1 : 0;
+    mem->lockon_has_patch = (size >= GEN_LOCKON_SIZE + GEN_LOCKON_PATCH && !mem->mapper_ssf2) ? 1 : 0;
 
     /* SRAM: "RA" en header. Lock-on: A130F1 controla mapeo, empezar con sram_enabled=0. */
     mem->sram_present = 0;
@@ -361,6 +372,7 @@ static int gen_save_state(console_t *ctx, const char *path)
         ext.z80_bus_req = impl->z80_bus_req;
         ext.z80_reset = impl->z80_reset;
         ext.joypad_state = impl->joypad_state;
+        ext.joypad2_state = impl->joypad2_state;
         ext.sample_clock = impl->sample_clock;
         ext.vdp_cycle_counter = impl->vdp.cycle_counter;
         ext.vdp_line_counter = impl->vdp.line_counter;
@@ -375,6 +387,10 @@ static int gen_save_state(console_t *ctx, const char *path)
         ext.stat_cpu_cyc = impl->stat_cpu_cyc;
         ext.stat_z80_cyc = impl->stat_z80_cyc;
         ext.stat_dma_stall_consumed = impl->stat_dma_stall_consumed;
+        if (impl->mem.mapper_ssf2)
+            memcpy(ext.ssf2_bank, impl->mem.ssf2_bank, sizeof(ext.ssf2_bank));
+        ext.vdp_irq_vint_pending = impl->vdp.irq_vint_pending;
+        ext.vdp_irq_hint_pending = impl->vdp.irq_hint_pending;
         uint32_t mag = GEN_BST_EXT_V1_MAGIC;
         uint32_t extsz = (uint32_t)sizeof(ext);
         err |= bst_write_all(f, &mag, sizeof(mag));
@@ -440,6 +456,7 @@ static int gen_load_state(console_t *ctx, const char *path)
     impl->z80_bus_ack_cycles = 0;
     impl->z80_reset = 0xFF;
     impl->joypad_state = 0;
+    impl->joypad2_state = 0;
     impl->sample_clock = 0;
     impl->stat_cpu_cyc = 0;
     impl->stat_z80_cyc = 0;
@@ -470,6 +487,13 @@ static int gen_load_state(console_t *ctx, const char *path)
                         impl->z80_bus_req = ext.z80_bus_req;
                         impl->z80_reset = ext.z80_reset;
                         impl->joypad_state = ext.joypad_state;
+                        if (extsz >= (uint32_t)offsetof(gen_bst_ext_v1_t, joypad2_state) + (uint32_t)sizeof(uint16_t))
+                            impl->joypad2_state = ext.joypad2_state;
+                        else
+                            impl->joypad2_state = 0;
+                        if (impl->mem.mapper_ssf2
+                            && extsz >= (uint32_t)offsetof(gen_bst_ext_v1_t, ssf2_bank) + (uint32_t)sizeof(ext.ssf2_bank))
+                            memcpy(impl->mem.ssf2_bank, ext.ssf2_bank, sizeof(impl->mem.ssf2_bank));
                         impl->sample_clock = (int)ext.sample_clock;
                         impl->vdp.cycle_counter = ext.vdp_cycle_counter;
                         impl->vdp.line_counter = ext.vdp_line_counter;
@@ -490,6 +514,16 @@ static int gen_load_state(console_t *ctx, const char *path)
                             impl->stat_cpu_cyc = ext.stat_cpu_cyc;
                             impl->stat_z80_cyc = ext.stat_z80_cyc;
                             impl->stat_dma_stall_consumed = ext.stat_dma_stall_consumed;
+                        }
+                        if (extsz >= (uint32_t)offsetof(gen_bst_ext_v1_t, vdp_irq_hint_pending) + 2u)
+                        {
+                            impl->vdp.irq_vint_pending = ext.vdp_irq_vint_pending;
+                            impl->vdp.irq_hint_pending = ext.vdp_irq_hint_pending;
+                        }
+                        else
+                        {
+                            impl->vdp.irq_vint_pending = 0;
+                            impl->vdp.irq_hint_pending = 0;
                         }
                         ext_applied = 1;
                     }

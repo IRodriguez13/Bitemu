@@ -34,7 +34,8 @@ typedef struct {
     uint64_t stat_cpu_cyc;       /* acumulado en gen_step (herramientas) */
     uint64_t stat_z80_cyc;       /* ciclos Z80 ejecutados en gen_step */
     uint64_t stat_dma_stall_consumed; /* ciclos 68k consumidos en stall DMA */
-    uint16_t joypad_state;  /* bits 0-11: R,L,D,U,Start,A,B,C,X,Y,Z,Mode; 1=presionado */
+    uint16_t joypad_state;  /* bits 0-11: mando 1; 1=presionado */
+    uint16_t joypad2_state; /* bits 0-11: mando 2 (misma codificación) */
     uint8_t is_pal;         /* 1 = timing PAL (~50 Hz) desde región cartucho @ 0x1F0 */
     char rom_path[GEN_ROM_PATH_MAX];
     void *audio_output;

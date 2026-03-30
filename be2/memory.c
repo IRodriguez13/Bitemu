@@ -47,6 +47,13 @@ void genesis_mem_reset(genesis_mem_t *mem)
     mem->joypad[1] = GEN_JOYPAD_IDLE;
     mem->joypad_ctrl[0] = mem->joypad_ctrl[1] = 0;
     mem->joypad_cycle[0] = mem->joypad_cycle[1] = 0;
+    memset(mem->tmss, 0, sizeof(mem->tmss));
+    mem->tmss_unlocked = 0;
+    if (mem->mapper_ssf2)
+    {
+        for (int i = 0; i < GEN_SSF2_SLOT_COUNT; i++)
+            mem->ssf2_bank[i] = (uint8_t)i;
+    }
     /* sram no se borra; sram_enabled se setea en load_rom si header tiene "RA" */
 }
 
@@ -89,6 +96,26 @@ static uint32_t lockon_rom_offset(genesis_mem_t *mem, uint32_t addr)
     if (addr >= 0x300000 && mem->sram_enabled && mem->lockon_has_patch)
         return GEN_LOCKON_SIZE + ((addr - 0x300000) & (GEN_LOCKON_PATCH - 1));
     return addr;
+}
+
+/* Offset en archivo ROM para dirección de cartucho cart_addr (0…0x3FFFFF). */
+static uint32_t rom_phys_offset(genesis_mem_t *mem, uint32_t cart_addr)
+{
+    if (mem->mapper_ssf2)
+    {
+        unsigned slot = (unsigned)(cart_addr >> GEN_SSF2_SLOT_SHIFT);
+        uint32_t off = cart_addr & (GEN_SSF2_SLOT_SIZE - 1u);
+        if (slot >= GEN_SSF2_SLOT_COUNT)
+            return (uint32_t)mem->rom_size;
+        uint32_t page = mem->ssf2_bank[slot];
+        uint64_t phys = (uint64_t)page * GEN_SSF2_SLOT_SIZE + off;
+        if (phys >= mem->rom_size)
+            return (uint32_t)mem->rom_size;
+        return (uint32_t)phys;
+    }
+    if (mem->lockon)
+        return lockon_rom_offset(mem, cart_addr);
+    return cart_addr;
 }
 
 static uint32_t ram_addr(uint32_t addr)
@@ -165,6 +192,13 @@ uint8_t genesis_joypad_read_byte(genesis_mem_t *mem, int port, int byte_sel)
     return b;
 }
 
+/* Open bus 68k en zona sin chip seleccionado: pull-ups ≈ 0xFF; sin prefetch/último dato en bus. */
+static uint8_t genesis_open_bus_read_u8(uint32_t addr)
+{
+    (void)addr;
+    return (uint8_t)GEN_IO_UNMAPPED_READ;
+}
+
 uint8_t genesis_mem_read8(genesis_mem_t *mem, uint32_t addr)
 {
     /* SRAM: 0x200000-0x20FFFF. Con lock-on Sonic 2 & K, A130F1=1 mapea patch en 0x300000, no SRAM. */
@@ -177,13 +211,20 @@ uint8_t genesis_mem_read8(genesis_mem_t *mem, uint32_t addr)
     }
     if (genesis_addr_in_rom(addr) && mem->rom)
     {
-        uint32_t off = mem->lockon ? lockon_rom_offset(mem, addr) : rom_addr(addr);
+        uint32_t off = rom_phys_offset(mem, rom_addr(addr));
         if (off < mem->rom_size)
             return mem->rom[off];
         return 0xFF;
     }
     if (genesis_addr_in_ram(addr))
         return mem->ram[ram_addr(addr)];
+    if (genesis_addr_in_tmss(addr))
+    {
+        int ti = (int)(addr - GEN_ADDR_TMSS_START);
+        if (ti >= 0 && ti < 4)
+            return mem->tmss[ti];
+        return GEN_IO_UNMAPPED_READ;
+    }
     if (genesis_addr_in_io(addr))
     {
         if (addr == GEN_IO_JOYPAD1_DATA || addr == GEN_IO_JOYPAD1_DATA + 1)
@@ -231,7 +272,7 @@ uint8_t genesis_mem_read8(genesis_mem_t *mem, uint32_t addr)
         }
         return GEN_IO_VERSION_VAL;
     }
-    return GEN_IO_UNMAPPED_READ;
+    return genesis_open_bus_read_u8(addr);
 }
 
 uint16_t genesis_mem_read16(genesis_mem_t *mem, uint32_t addr)
@@ -250,6 +291,18 @@ uint32_t genesis_mem_read32(genesis_mem_t *mem, uint32_t addr)
 
 void genesis_mem_write8(genesis_mem_t *mem, uint32_t addr, uint8_t val)
 {
+    if (mem->mapper_ssf2 && (addr & 1u) && addr >= GEN_ADDR_SSF2_SLOT0 && addr <= GEN_ADDR_SSF2_SLOT7)
+    {
+        int slot = (int)(addr - GEN_ADDR_SSF2_SLOT0) / 2;
+        if (slot >= 0 && slot < GEN_SSF2_SLOT_COUNT && mem->rom_size > 0)
+        {
+            uint32_t npg = (uint32_t)((mem->rom_size + GEN_SSF2_SLOT_SIZE - 1u) / GEN_SSF2_SLOT_SIZE);
+            if (npg < 1u)
+                npg = 1u;
+            mem->ssf2_bank[slot] = (uint8_t)(val % npg);
+        }
+        return;
+    }
     if (addr == GEN_ADDR_SRAM_ENABLE)
     {
         mem->sram_enabled = (val & 1) ? 1 : 0;
@@ -316,7 +369,15 @@ void genesis_mem_write8(genesis_mem_t *mem, uint32_t addr, uint8_t val)
         return;
     }
     if (genesis_addr_in_tmss(addr))
-        return;  /* TMSS: acepta writes; VDP siempre desbloqueado en emu */
+    {
+        int ti = (int)(addr - GEN_ADDR_TMSS_START);
+        if (ti >= 0 && ti < 4)
+        {
+            mem->tmss[ti] = val;
+            mem->tmss_unlocked = (memcmp(mem->tmss, GEN_HEADER_MAGIC, 4) == 0) ? 1 : 0;
+        }
+        return;
+    }
     (void)addr;
     (void)val;
 }
