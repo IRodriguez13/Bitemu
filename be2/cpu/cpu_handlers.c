@@ -10,9 +10,41 @@
 #include <string.h>
 
 static void gen_take_trap(gen_cpu_t *, genesis_mem_t *, int, uint32_t);
+int gen_op_illegal(gen_cpu_t *, genesis_mem_t *);
+
+static void gen_cpu_exception_jump(gen_cpu_t *cpu, genesis_mem_t *mem, int vector, uint32_t pc_val)
+{
+    cpu->a[7] -= 2;
+    genesis_mem_write16(mem, cpu->a[7], cpu->sr);
+    cpu->a[7] -= 4;
+    genesis_mem_write32(mem, cpu->a[7], pc_val);
+    cpu->sr |= 0x2000;
+    cpu->sr &= ~0x8000;
+    cpu->pc = genesis_mem_read32(mem, (unsigned)vector * 4u);
+}
+
+void gen_cpu_address_error(gen_cpu_t *cpu, genesis_mem_t *mem, uint32_t pc_stacked)
+{
+    gen_cpu_exception_jump(cpu, mem, GEN_VECTOR_ADDRESS_ERROR, pc_stacked);
+    cpu->cycle_override = GEN_CYCLES_ADDRESS_ERROR;
+}
+
+static void gen_cpu_sp_require_even(gen_cpu_t *cpu, genesis_mem_t *mem)
+{
+    if (cpu->a[7] & 1u)
+        gen_cpu_address_error(cpu, mem, cpu->inst_pc);
+}
+
+static void gen_mem_ea_align(gen_cpu_t *cpu, genesis_mem_t *mem, uint32_t addr, int size)
+{
+    if (size != 0 && (addr & 1u))
+        gen_cpu_address_error(cpu, mem, cpu->inst_pc);
+}
 
 static uint16_t fetch16(gen_cpu_t *cpu, genesis_mem_t *mem)
 {
+    if (cpu->pc & 1u)
+        gen_cpu_address_error(cpu, mem, cpu->inst_pc);
     uint16_t w = genesis_mem_read16(mem, cpu->pc);
     cpu->pc += 2;
     return w;
@@ -38,20 +70,27 @@ uint32_t gen_ea_read(gen_cpu_t *cpu, genesis_mem_t *mem, uint16_t ea, int size, 
     case 2:  /* (An) */
         addr = cpu->a[reg];
         if (out_addr) *out_addr = addr;
+        if (size) gen_mem_ea_align(cpu, mem, addr, size);
         if (size == 0) return genesis_mem_read8(mem, addr);
         if (size == 1) return genesis_mem_read16(mem, addr);
         return genesis_mem_read32(mem, addr);
-    case 3:  /* (An)+ */
+    case 3:  /* (An)+ — alinear antes de tocar An; incremento solo si lectura ok */
         addr = cpu->a[reg];
-        cpu->a[reg] += (size == 0) ? 1 : (size == 1) ? 2 : 4;
         if (out_addr) *out_addr = addr;
-        if (size == 0) return genesis_mem_read8(mem, addr);
-        if (size == 1) return genesis_mem_read16(mem, addr);
-        return genesis_mem_read32(mem, addr);
+        if (size) gen_mem_ea_align(cpu, mem, addr, size);
+        {
+            uint32_t v;
+            if (size == 0) v = genesis_mem_read8(mem, addr);
+            else if (size == 1) v = genesis_mem_read16(mem, addr);
+            else v = genesis_mem_read32(mem, addr);
+            cpu->a[reg] += (size == 0) ? 1 : (size == 1) ? 2 : 4;
+            return v;
+        }
     case 4:  /* -(An) */
         cpu->a[reg] -= (size == 0) ? 1 : (size == 1) ? 2 : 4;
         addr = cpu->a[reg];
         if (out_addr) *out_addr = addr;
+        if (size) gen_mem_ea_align(cpu, mem, addr, size);
         if (size == 0) return genesis_mem_read8(mem, addr);
         if (size == 1) return genesis_mem_read16(mem, addr);
         return genesis_mem_read32(mem, addr);
@@ -60,6 +99,7 @@ uint32_t gen_ea_read(gen_cpu_t *cpu, genesis_mem_t *mem, uint16_t ea, int size, 
         int16_t d = (int16_t)fetch16(cpu, mem);
         addr = cpu->a[reg] + (int32_t)d;
         if (out_addr) *out_addr = addr;
+        if (size) gen_mem_ea_align(cpu, mem, addr, size);
         if (size == 0) return genesis_mem_read8(mem, addr);
         if (size == 1) return genesis_mem_read16(mem, addr);
         return genesis_mem_read32(mem, addr);
@@ -76,6 +116,7 @@ uint32_t gen_ea_read(gen_cpu_t *cpu, genesis_mem_t *mem, uint16_t ea, int size, 
             xn = (uint32_t)(int32_t)(int16_t)(xn & 0xFFFF);
         addr = cpu->a[reg] + disp + xn;
         if (out_addr) *out_addr = addr;
+        if (size) gen_mem_ea_align(cpu, mem, addr, size);
         if (size == 0) return genesis_mem_read8(mem, addr);
         if (size == 1) return genesis_mem_read16(mem, addr);
         return genesis_mem_read32(mem, addr);
@@ -85,15 +126,18 @@ uint32_t gen_ea_read(gen_cpu_t *cpu, genesis_mem_t *mem, uint16_t ea, int size, 
         {
             addr = (uint32_t)(int32_t)(int16_t)fetch16(cpu, mem);
             if (out_addr) *out_addr = addr;
+            if (size) gen_mem_ea_align(cpu, mem, addr, size);
             if (size == 0) return genesis_mem_read8(mem, addr);
             if (size == 1) return genesis_mem_read16(mem, addr);
             return genesis_mem_read32(mem, addr);
         }
         if (reg == 1)  /* (d32) */
         {
+            gen_mem_ea_align(cpu, mem, cpu->pc, 2);
             addr = genesis_mem_read32(mem, cpu->pc);
             cpu->pc += 4;
             if (out_addr) *out_addr = addr;
+            if (size) gen_mem_ea_align(cpu, mem, addr, size);
             if (size == 0) return genesis_mem_read8(mem, addr);
             if (size == 1) return genesis_mem_read16(mem, addr);
             return genesis_mem_read32(mem, addr);
@@ -104,6 +148,7 @@ uint32_t gen_ea_read(gen_cpu_t *cpu, genesis_mem_t *mem, uint16_t ea, int size, 
             int16_t d = (int16_t)fetch16(cpu, mem);
             addr = base + (int32_t)d;
             if (out_addr) *out_addr = addr;
+            if (size) gen_mem_ea_align(cpu, mem, addr, size);
             if (size == 0) return genesis_mem_read8(mem, addr);
             if (size == 1) return genesis_mem_read16(mem, addr);
             return genesis_mem_read32(mem, addr);
@@ -121,6 +166,7 @@ uint32_t gen_ea_read(gen_cpu_t *cpu, genesis_mem_t *mem, uint16_t ea, int size, 
             uint32_t base = cpu->pc;
             addr = base + disp + xn;
             if (out_addr) *out_addr = addr;
+            if (size) gen_mem_ea_align(cpu, mem, addr, size);
             if (size == 0) return genesis_mem_read8(mem, addr);
             if (size == 1) return genesis_mem_read16(mem, addr);
             return genesis_mem_read32(mem, addr);
@@ -146,7 +192,13 @@ uint32_t gen_ea_addr(gen_cpu_t *cpu, genesis_mem_t *mem, uint16_t ea, int size)
     {
     case 0: case 1: return 0;
     case 2: return cpu->a[reg];
-    case 3: { uint32_t a = cpu->a[reg]; cpu->a[reg] += (size==0)?1:(size==1)?2:4; return a; }
+    case 3:
+    {
+        uint32_t a = cpu->a[reg];
+        if (size) gen_mem_ea_align(cpu, mem, a, size);
+        cpu->a[reg] += (size == 0) ? 1 : (size == 1) ? 2 : 4;
+        return a;
+    }
     case 4: { cpu->a[reg] -= (size==0)?1:(size==1)?2:4; return cpu->a[reg]; }
     case 5: return cpu->a[reg] + (int32_t)(int16_t)fetch16(cpu, mem);
     case 6:
@@ -163,7 +215,13 @@ uint32_t gen_ea_addr(gen_cpu_t *cpu, genesis_mem_t *mem, uint16_t ea, int size)
     }
     case 7:
         if (reg == 0) return (uint32_t)(int32_t)(int16_t)fetch16(cpu, mem);
-        if (reg == 1) { uint32_t a = genesis_mem_read32(mem, cpu->pc); cpu->pc += 4; return a; }
+        if (reg == 1)
+        {
+            gen_mem_ea_align(cpu, mem, cpu->pc, 2);
+            uint32_t a = genesis_mem_read32(mem, cpu->pc);
+            cpu->pc += 4;
+            return a;
+        }
         if (reg == 2) return cpu->pc + (int32_t)(int16_t)fetch16(cpu, mem);
         if (reg == 3)
         {
@@ -182,9 +240,10 @@ uint32_t gen_ea_addr(gen_cpu_t *cpu, genesis_mem_t *mem, uint16_t ea, int size)
     return 0;
 }
 
-void gen_ea_write(genesis_mem_t *mem, uint32_t addr, uint32_t val, int size)
+void gen_ea_write(gen_cpu_t *cpu, genesis_mem_t *mem, uint32_t addr, uint32_t val, int size)
 {
     if (addr == 0) return;
+    if (size) gen_mem_ea_align(cpu, mem, addr, size);
     if (size == 0) genesis_mem_write8(mem, addr, (uint8_t)val);
     else if (size == 1) genesis_mem_write16(mem, addr, (uint16_t)val);
     else genesis_mem_write32(mem, addr, val);
@@ -219,6 +278,7 @@ static int branch_taken(gen_cpu_t *cpu, int cond)
 int gen_op_nop(gen_cpu_t *cpu, genesis_mem_t *mem) { (void)cpu;(void)mem; return 4; }
 int gen_op_rts(gen_cpu_t *cpu, genesis_mem_t *mem)
 {
+    gen_cpu_sp_require_even(cpu, mem);
     cpu->pc = genesis_mem_read32(mem, cpu->a[7]);
     cpu->a[7] += 4;
     return 16;
@@ -226,8 +286,10 @@ int gen_op_rts(gen_cpu_t *cpu, genesis_mem_t *mem)
 int gen_op_rte(gen_cpu_t *cpu, genesis_mem_t *mem)
 {
     /* Format 0: [PC][SR], a[7] points to SR. Pop SR, then PC. */
+    gen_cpu_sp_require_even(cpu, mem);
     cpu->sr = genesis_mem_read16(mem, cpu->a[7]);
     cpu->a[7] += 2;
+    gen_cpu_sp_require_even(cpu, mem);
     cpu->pc = genesis_mem_read32(mem, cpu->a[7]);
     cpu->a[7] += 4;
     return 20;
@@ -237,6 +299,7 @@ int gen_op_rte(gen_cpu_t *cpu, genesis_mem_t *mem)
 int gen_op_rtd(gen_cpu_t *cpu, genesis_mem_t *mem)
 {
     int16_t imm = (int16_t)fetch16(cpu, mem);
+    gen_cpu_sp_require_even(cpu, mem);
     cpu->pc = genesis_mem_read32(mem, cpu->a[7]);
     cpu->a[7] += 4;
     cpu->a[7] += (int32_t)imm;
@@ -274,11 +337,24 @@ int gen_op_bra(gen_cpu_t *cpu, genesis_mem_t *mem, uint16_t op)
 
 int gen_op_bsr(gen_cpu_t *cpu, genesis_mem_t *mem, uint16_t op)
 {
-    cpu->a[7] -= 4;
-    genesis_mem_write32(mem, cpu->a[7], cpu->pc);
     int8_t d = (int8_t)(op & 0xFF);
-    if (d == 0) { int16_t ext = (int16_t)fetch16(cpu, mem); cpu->pc += ext; }
-    else cpu->pc += d;
+    if (d == 0)
+    {
+        int16_t ext = (int16_t)fetch16(cpu, mem);
+        uint32_t link = cpu->pc;
+        gen_cpu_sp_require_even(cpu, mem);
+        cpu->a[7] -= 4;
+        genesis_mem_write32(mem, cpu->a[7], link);
+        cpu->pc = link + (uint32_t)(int32_t)ext;
+    }
+    else
+    {
+        uint32_t link = cpu->pc;
+        gen_cpu_sp_require_even(cpu, mem);
+        cpu->a[7] -= 4;
+        genesis_mem_write32(mem, cpu->a[7], link);
+        cpu->pc = link + (uint32_t)(int32_t)d;
+    }
     return 18;
 }
 
@@ -298,6 +374,8 @@ int gen_op_move(gen_cpu_t *cpu, genesis_mem_t *mem, uint16_t op)
     int size = (sz == 1) ? 0 : (sz == 2) ? 2 : 1;
 
     uint32_t src = gen_ea_read(cpu, mem, op & 0x3F, size, NULL);
+    if (cpu->cycle_override)
+        return 4;
     uint16_t dst_ea = (op >> 6) & 0x3F;
     int dst_mode = (dst_ea >> 3) & 7;
     int dst_reg = dst_ea & 7;
@@ -309,10 +387,10 @@ int gen_op_move(gen_cpu_t *cpu, genesis_mem_t *mem, uint16_t op)
     else
     {
         uint32_t addr = gen_ea_addr(cpu, mem, dst_ea, size);
-        gen_ea_write(mem, addr, src, size);
+        gen_ea_write(cpu, mem, addr, src, size);
     }
-    set_n(cpu, (size == 1 && (src & 0x80)) || (size >= 2 && (src & 0x8000)) || (size == 2 && (src & 0x80000000)));
-    set_z(cpu, (size == 1 && !(src & 0xFF)) || (size == 2 && !(src & 0xFFFF)) || (size == 4 && src == 0));
+    set_n(cpu, (size == 0 && (src & 0x80)) || (size == 1 && (src & 0x8000)) || (size == 2 && (src & 0x80000000)));
+    set_z(cpu, (size == 0 && !(src & 0xFF)) || (size == 1 && !(src & 0xFFFF)) || (size == 2 && src == 0));
     set_v(cpu, 0);
     set_c(cpu, 0);
     return 4;
@@ -335,6 +413,7 @@ int gen_op_jmp(gen_cpu_t *cpu, genesis_mem_t *mem, uint16_t op)
 int gen_op_jsr(gen_cpu_t *cpu, genesis_mem_t *mem, uint16_t op)
 {
     uint32_t addr = gen_ea_addr(cpu, mem, op & 0x3F, 2);
+    gen_cpu_sp_require_even(cpu, mem);
     cpu->a[7] -= 4;
     genesis_mem_write32(mem, cpu->a[7], cpu->pc);
     cpu->pc = addr;
@@ -416,6 +495,152 @@ int gen_op_sub(gen_cpu_t *cpu, genesis_mem_t *mem, uint16_t op)
     return 4;
 }
 
+/* ABCD: solo .B; Dy,Dx o -(Ay),-(Ax). Z se limpia si resultado != 0; si es 0, Z no cambia. */
+int gen_op_abcd(gen_cpu_t *cpu, genesis_mem_t *mem, uint16_t op)
+{
+    int rx = (op >> 9) & 7;
+    int ry = op & 7;
+    int memform = ((op >> 3) & 1) != 0;
+    uint16_t corf = flag_x(cpu) ? 1u : 0u;
+    uint8_t srcb, dstb;
+
+    if (!memform)
+    {
+        srcb = (uint8_t)(cpu->d[ry] & 0xFFu);
+        dstb = (uint8_t)(cpu->d[rx] & 0xFFu);
+    }
+    else
+    {
+        cpu->a[ry]--;
+        cpu->a[rx]--;
+        srcb = genesis_mem_read8(mem, cpu->a[ry]);
+        dstb = genesis_mem_read8(mem, cpu->a[rx]);
+    }
+
+    uint16_t i = (uint16_t)((uint16_t)(srcb & 0xFu) + (uint16_t)(dstb & 0xFu) + corf);
+    if (i > 9u)
+        i += 6u;
+    uint16_t j = (uint16_t)((uint16_t)(srcb & 0xF0u) + (uint16_t)(dstb & 0xF0u) + (i & 0xF0u));
+    if (j > 0x90u)
+        j += 0x60u;
+    uint16_t res16 = (uint16_t)((j & 0xFFu) + (i & 0x0Fu));
+    uint8_t resb = (uint8_t)(res16 & 0xFFu);
+    int c = (j > 0xFFu);
+    set_x(cpu, c);
+    set_c(cpu, c);
+    set_n(cpu, (resb & 0x80u) != 0);
+    if (resb != 0)
+        set_z(cpu, 0);
+    set_v(cpu, 0);
+
+    if (!memform)
+        cpu->d[rx] = (cpu->d[rx] & 0xFFFFFF00u) | resb;
+    else
+        genesis_mem_write8(mem, cpu->a[rx], resb);
+
+    return memform ? GEN_CYCLES_ABCD_MEM : GEN_CYCLES_ABCD_REG;
+}
+
+/* BCD empaquetado: dst - src - x_in; borrow_out = préstamo fuera del byte (C/X). */
+static void bitemu_bcd_sub_byte(uint8_t dstb, uint8_t srcb, unsigned x_in,
+                                uint8_t *res_out, int *borrow_out)
+{
+    int d0 = (dstb >> 0) & 0xF;
+    int s0 = (srcb >> 0) & 0xF;
+    int lo = d0 - s0 - (int)x_in;
+    int bh = 0;
+    if (lo < 0)
+    {
+        lo += 10;
+        bh = 1;
+    }
+    int d1 = (dstb >> 4) & 0xF;
+    int s1 = (srcb >> 4) & 0xF;
+    int hi = d1 - s1 - bh;
+    int byte_borrow = 0;
+    if (hi < 0)
+    {
+        hi += 10;
+        byte_borrow = 1;
+    }
+    *res_out = (uint8_t)(((hi & 0xF) << 4) | (lo & 0xF));
+    *borrow_out = byte_borrow;
+}
+
+/* SBCD: solo .B; Dy,Dx o -(Ay),-(Ax). Z como ABCD. */
+int gen_op_sbcd(gen_cpu_t *cpu, genesis_mem_t *mem, uint16_t op)
+{
+    int rx = (op >> 9) & 7;
+    int ry = op & 7;
+    int memform = ((op >> 3) & 1) != 0;
+    unsigned xin = flag_x(cpu) ? 1u : 0u;
+    uint8_t srcb, dstb;
+    uint8_t resb;
+    int borrow;
+
+    if (!memform)
+    {
+        srcb = (uint8_t)(cpu->d[ry] & 0xFFu);
+        dstb = (uint8_t)(cpu->d[rx] & 0xFFu);
+    }
+    else
+    {
+        cpu->a[ry]--;
+        cpu->a[rx]--;
+        srcb = genesis_mem_read8(mem, cpu->a[ry]);
+        dstb = genesis_mem_read8(mem, cpu->a[rx]);
+    }
+
+    bitemu_bcd_sub_byte(dstb, srcb, xin, &resb, &borrow);
+    set_x(cpu, borrow);
+    set_c(cpu, borrow);
+    set_n(cpu, (resb & 0x80u) != 0);
+    set_v(cpu, 0);
+    if (resb != 0)
+        set_z(cpu, 0);
+
+    if (!memform)
+        cpu->d[rx] = (cpu->d[rx] & 0xFFFFFF00u) | resb;
+    else
+        genesis_mem_write8(mem, cpu->a[rx], resb);
+
+    return memform ? GEN_CYCLES_ABCD_MEM : GEN_CYCLES_ABCD_REG;
+}
+
+/* NBCD: 0 - <ea>.B - X en BCD. Solo byte. */
+int gen_op_nbcd(gen_cpu_t *cpu, genesis_mem_t *mem, uint16_t op)
+{
+    uint16_t ea = op & GEN_EA_MASK;
+    int mode = (ea >> GEN_EA_MODE_SHIFT) & GEN_EA_REG_MASK;
+    int regv = ea & GEN_EA_REG_MASK;
+    unsigned xin = flag_x(cpu) ? 1u : 0u;
+    uint8_t srcb;
+    uint32_t addr = 0;
+
+    if (mode == 0)
+        srcb = (uint8_t)(cpu->d[regv] & 0xFFu);
+    else
+        srcb = (uint8_t)(gen_ea_read(cpu, mem, ea, 0, &addr) & 0xFFu);
+
+    uint8_t resb;
+    int borrow;
+    bitemu_bcd_sub_byte(0, srcb, xin, &resb, &borrow);
+
+    set_x(cpu, borrow);
+    set_c(cpu, borrow);
+    set_n(cpu, (resb & 0x80u) != 0);
+    set_v(cpu, 0);
+    if (resb != 0)
+        set_z(cpu, 0);
+
+    if (mode == 0)
+        cpu->d[regv] = (cpu->d[regv] & 0xFFFFFF00u) | resb;
+    else if (addr)
+        gen_ea_write(cpu, mem, addr, resb, 0);
+
+    return (mode == 0) ? GEN_CYCLES_ABCD_REG : GEN_CYCLES_NEG_NOT;
+}
+
 int gen_op_and(gen_cpu_t *cpu, genesis_mem_t *mem, uint16_t op)
 {
     int sz = (op >> 6) & 3;
@@ -442,7 +667,7 @@ int gen_op_and(gen_cpu_t *cpu, genesis_mem_t *mem, uint16_t op)
         uint32_t dst = gen_ea_read(cpu, mem, ea, size, &addr);
         r = dst & dn;
         if (addr)
-            gen_ea_write(mem, addr, r, size);
+            gen_ea_write(cpu, mem, addr, r, size);
         else if (mode == 0)
         {
             int dest_reg = ea & 7;
@@ -484,7 +709,7 @@ int gen_op_or(gen_cpu_t *cpu, genesis_mem_t *mem, uint16_t op)
         uint32_t dst = gen_ea_read(cpu, mem, ea, size, &addr);
         r = dst | dn;
         if (addr)
-            gen_ea_write(mem, addr, r, size);
+            gen_ea_write(cpu, mem, addr, r, size);
         else if (mode == 0)
         {
             int dest_reg = ea & 7;
@@ -540,7 +765,7 @@ int gen_op_clr(gen_cpu_t *cpu, genesis_mem_t *mem, uint16_t op)
     else
     {
         uint32_t addr = gen_ea_addr(cpu, mem, ea, size);
-        gen_ea_write(mem, addr, 0, size);
+        gen_ea_write(cpu, mem, addr, 0, size);
     }
     set_n(cpu, 0);
     set_z(cpu, 1);
@@ -606,7 +831,7 @@ int gen_op_addq_subq(gen_cpu_t *cpu, genesis_mem_t *mem, uint16_t op)
     if (size == GEN_TST_SIZE_W)
         r &= 0xFFFF;
     if (addr)
-        gen_ea_write(mem, addr, r, size);
+        gen_ea_write(cpu, mem, addr, r, size);
     set_n(cpu, (r & (size == GEN_TST_SIZE_W ? 0x8000U : 0x80000000U)) != 0);
     set_z(cpu, r == 0);
     set_v(cpu, ((val ^ r) & ((is_sub ? (uint32_t)imm : (uint32_t)(-(int)imm)) ^ r)) & (size == GEN_TST_SIZE_W ? 0x8000U : 0x80000000U));
@@ -682,7 +907,7 @@ int gen_op_neg(gen_cpu_t *cpu, genesis_mem_t *mem, uint16_t op)
         val = gen_ea_read(cpu, mem, ea, size, &addr);
         r = (0 - val) & mask;
         if (addr)
-            gen_ea_write(mem, addr, r, size);
+            gen_ea_write(cpu, mem, addr, r, size);
     }
     set_n(cpu, (r & (size == 0 ? 0x80U : size == GEN_TST_SIZE_W ? 0x8000U : 0x80000000U)) != 0);
     set_z(cpu, r == 0);
@@ -718,7 +943,7 @@ int gen_op_not(gen_cpu_t *cpu, genesis_mem_t *mem, uint16_t op)
         r = gen_ea_read(cpu, mem, ea, size, &addr);
         r = (size == 0) ? (~r & 0xFF) : (size == GEN_TST_SIZE_W) ? (~r & 0xFFFF) : ~r;
         if (addr)
-            gen_ea_write(mem, addr, r, size);
+            gen_ea_write(cpu, mem, addr, r, size);
     }
     set_n(cpu, (r & (size == 0 ? 0x80U : size == GEN_TST_SIZE_W ? 0x8000U : 0x80000000U)) != 0);
     set_z(cpu, r == 0);
@@ -759,6 +984,7 @@ int gen_op_exg(gen_cpu_t *cpu, genesis_mem_t *mem, uint16_t op)
 int gen_op_pea(gen_cpu_t *cpu, genesis_mem_t *mem, uint16_t op)
 {
     uint32_t addr = gen_ea_addr(cpu, mem, op & GEN_EA_MASK, GEN_TST_SIZE_L);
+    gen_cpu_sp_require_even(cpu, mem);
     cpu->a[7] -= 4;
     genesis_mem_write32(mem, cpu->a[7], addr);
     return GEN_CYCLES_PEA;
@@ -769,6 +995,7 @@ int gen_op_link(gen_cpu_t *cpu, genesis_mem_t *mem, uint16_t op)
 {
     int reg = op & GEN_EA_REG_MASK;
     int16_t imm = (int16_t)fetch16(cpu, mem);
+    gen_cpu_sp_require_even(cpu, mem);
     cpu->a[7] -= 4;
     genesis_mem_write32(mem, cpu->a[7], cpu->a[reg]);
     cpu->a[reg] = cpu->a[7];
@@ -781,6 +1008,7 @@ int gen_op_unlk(gen_cpu_t *cpu, genesis_mem_t *mem, uint16_t op)
 {
     int reg = op & GEN_EA_REG_MASK;
     cpu->a[7] = cpu->a[reg];
+    gen_cpu_sp_require_even(cpu, mem);
     cpu->a[reg] = genesis_mem_read32(mem, cpu->a[7]);
     cpu->a[7] += 4;
     return GEN_CYCLES_UNLK;
@@ -853,6 +1081,70 @@ int gen_op_imm(gen_cpu_t *cpu, genesis_mem_t *mem, uint16_t op)
 {
     int base = (op >> 9) & 7;
     int sz = (op >> 6) & 3;
+
+    /* Pseudo-EA 0x3C: ORI/ANDI/EORI/CMPI #imm, CCR (.B) o ORI/ANDI/EORI #imm, SR (.W). */
+    if ((op & 0x3F) == 0x3C && (sz == 0 || sz == 1))
+    {
+        if (sz == 0)
+        {
+            if (base != 0 && base != 1 && base != 5 && base != 6)
+            {
+                gen_take_trap(cpu, mem, GEN_VECTOR_ILLEGAL, cpu->pc - 2);
+                return GEN_CYCLES_ILLEGAL;
+            }
+            uint32_t imm = (uint32_t)fetch16(cpu, mem) & 0xFFu;
+            uint32_t ccr = (uint32_t)(cpu->sr & 0xFFu);
+            uint32_t r;
+            if (base == 6)
+            {
+                r = (ccr - imm) & 0xFFu;
+                set_n(cpu, (r & 0x80u) != 0);
+                set_z(cpu, r == 0);
+                set_v(cpu, ((ccr ^ imm) & (ccr ^ r) & 0x80u) != 0);
+                set_c(cpu, imm > ccr);
+                return GEN_CYCLES_IMM;
+            }
+            if (base == 0)
+                r = ccr | imm;
+            else if (base == 1)
+                r = ccr & imm;
+            else
+                r = ccr ^ imm;
+            cpu->sr = (cpu->sr & 0xFF00u) | (uint16_t)(r & 0xFFu);
+            set_n(cpu, (r & 0x80u) != 0);
+            set_z(cpu, (r & 0xFFu) == 0);
+            set_v(cpu, 0);
+            set_c(cpu, 0);
+            return GEN_CYCLES_IMM;
+        }
+        /* .W a SR: sólo ORI/ANDI/EORI; privilegio supervisor */
+        if (base != 0 && base != 1 && base != 5)
+        {
+            gen_take_trap(cpu, mem, GEN_VECTOR_ILLEGAL, cpu->pc - 2);
+            return GEN_CYCLES_ILLEGAL;
+        }
+        if ((cpu->sr & 0x2000) == 0)
+        {
+            gen_take_trap(cpu, mem, GEN_VECTOR_PRIVILEGE_VIOLATION, cpu->pc - 2);
+            return GEN_CYCLES_ILLEGAL;
+        }
+        uint32_t imm = (uint32_t)fetch16(cpu, mem);
+        uint32_t sr = (uint32_t)cpu->sr;
+        uint32_t r = (base == 0) ? (sr | imm) : (base == 1) ? (sr & imm) : (sr ^ imm);
+        cpu->sr = (uint16_t)(r & 0xA71Fu);
+        set_n(cpu, (cpu->sr & GEN_SR_N) != 0);
+        set_z(cpu, (cpu->sr & GEN_SR_Z) != 0);
+        set_v(cpu, (cpu->sr & GEN_SR_V) != 0);
+        set_c(cpu, (cpu->sr & GEN_SR_C) != 0);
+        return GEN_CYCLES_IMM;
+    }
+
+    if (sz == 3)
+    {
+        gen_take_trap(cpu, mem, GEN_VECTOR_ILLEGAL, cpu->pc - 2);
+        return GEN_CYCLES_ILLEGAL;
+    }
+
     int size = (sz == 0) ? 0 : (sz == 1) ? 1 : 2;
     uint32_t imm = (size == 0) ? (uint32_t)fetch16(cpu, mem) & 0xFF
                  : (size == 1) ? (uint32_t)fetch16(cpu, mem) : (uint32_t)(fetch16(cpu, mem) << 16) | fetch16(cpu, mem);
@@ -902,7 +1194,7 @@ int gen_op_imm(gen_cpu_t *cpu, genesis_mem_t *mem, uint16_t op)
         else cpu->d[reg] = r;
     }
     else if (addr && base != 6)
-        gen_ea_write(mem, addr, r, size);
+        gen_ea_write(cpu, mem, addr, r, size);
     return GEN_CYCLES_IMM;
 }
 
@@ -986,7 +1278,11 @@ int gen_op_divu(gen_cpu_t *cpu, genesis_mem_t *mem, uint16_t op)
 {
     int reg = (op >> 9) & 7;
     uint32_t src = gen_ea_read(cpu, mem, op & GEN_EA_MASK, 1, NULL) & 0xFFFF;
-    if (src == 0) { set_v(cpu, 1); return GEN_CYCLES_DIVU; }
+    if (src == 0)
+    {
+        gen_take_trap(cpu, mem, GEN_VECTOR_ZERO_DIV, cpu->pc - 2);
+        return GEN_CYCLES_DIVU;
+    }
     uint32_t dividend = cpu->d[reg];
     uint32_t quot = dividend / src;
     uint32_t rem = dividend % src;
@@ -1004,7 +1300,11 @@ int gen_op_divs(gen_cpu_t *cpu, genesis_mem_t *mem, uint16_t op)
 {
     int reg = (op >> 9) & 7;
     int32_t src = (int32_t)(int16_t)(gen_ea_read(cpu, mem, op & GEN_EA_MASK, 1, NULL) & 0xFFFF);
-    if (src == 0) { set_v(cpu, 1); return GEN_CYCLES_DIVS; }
+    if (src == 0)
+    {
+        gen_take_trap(cpu, mem, GEN_VECTOR_ZERO_DIV, cpu->pc - 2);
+        return GEN_CYCLES_DIVS;
+    }
     int32_t dividend = (int32_t)cpu->d[reg];
     int32_t quot = dividend / src;
     int32_t rem = dividend % src;
@@ -1095,7 +1395,7 @@ int gen_op_negx(gen_cpu_t *cpu, genesis_mem_t *mem, uint16_t op)
         else cpu->d[reg] = r;
     }
     else if (addr)
-        gen_ea_write(mem, addr, r, size);
+        gen_ea_write(cpu, mem, addr, r, size);
 
     set_x(cpu, val != 0 || x != 0);
     set_c(cpu, val != 0 || x != 0);
@@ -1151,13 +1451,7 @@ int gen_op_move_sr_ccr(gen_cpu_t *cpu, genesis_mem_t *mem, uint16_t op)
 /* Exception: push PC, SR; set S=1, T=0; jump to vector. 68000 format 0: [SR][PC], a[7]->SR. */
 static void gen_take_trap(gen_cpu_t *cpu, genesis_mem_t *mem, int vector, uint32_t pc_val)
 {
-    cpu->a[7] -= 2;
-    genesis_mem_write16(mem, cpu->a[7], cpu->sr);
-    cpu->a[7] -= 4;
-    genesis_mem_write32(mem, cpu->a[7], pc_val);
-    cpu->sr |= 0x2000;   /* S=1 supervisor */
-    cpu->sr &= ~0x8000;  /* T=0 trace off */
-    cpu->pc = genesis_mem_read32(mem, (unsigned)vector * 4);
+    gen_cpu_exception_jump(cpu, mem, vector, pc_val);
 }
 
 /* CHK Dn,<ea>: trap #6 if Dn < 0 or Dn > bound. */
@@ -1182,12 +1476,54 @@ int gen_op_reset(gen_cpu_t *cpu, genesis_mem_t *mem)
 /* STOP #imm: load SR, halt until interrupt. */
 int gen_op_stop(gen_cpu_t *cpu, genesis_mem_t *mem, uint16_t op)
 {
-    uint16_t imm = genesis_mem_read16(mem, cpu->pc);
-    cpu->pc += 2;
+    uint16_t imm = fetch16(cpu, mem);
     cpu->sr = (cpu->sr & 0xFF00) | (imm & 0xA71F);
     cpu->stopped = 1;
     (void)op;
     return GEN_CYCLES_STOP;
+}
+
+/* MOVEP: solo (d16,An); bytes en direcciones pares espaciadas (+2). */
+int gen_op_movep(gen_cpu_t *cpu, genesis_mem_t *mem, uint16_t op)
+{
+    if (((op >> 3) & 7) != 5)
+        return gen_op_illegal(cpu, mem);
+    int an = op & 7;
+    int dn = (op >> 9) & 7;
+    int reg_to_mem = (op >> 7) & 1;
+    int is_long = (op >> 6) & 1;
+    int16_t d16 = (int16_t)genesis_mem_read16(mem, cpu->pc);
+    cpu->pc += 2;
+    uint32_t addr = cpu->a[an] + (int32_t)d16;
+
+    if (reg_to_mem)
+    {
+        uint32_t v = cpu->d[dn];
+        if (!is_long)
+        {
+            genesis_mem_write8(mem, addr, (uint8_t)(v >> 8));
+            genesis_mem_write8(mem, addr + 2, (uint8_t)(v & 0xFF));
+            return 16;
+        }
+        genesis_mem_write8(mem, addr, (uint8_t)(v >> 24));
+        genesis_mem_write8(mem, addr + 2, (uint8_t)(v >> 16));
+        genesis_mem_write8(mem, addr + 4, (uint8_t)(v >> 8));
+        genesis_mem_write8(mem, addr + 6, (uint8_t)v);
+        return 24;
+    }
+    if (!is_long)
+    {
+        uint32_t hi = genesis_mem_read8(mem, addr);
+        uint32_t lo = genesis_mem_read8(mem, addr + 2);
+        cpu->d[dn] = (cpu->d[dn] & ~0xFFFFu) | (hi << 8) | lo;
+        return 16;
+    }
+    uint32_t b0 = genesis_mem_read8(mem, addr);
+    uint32_t b1 = genesis_mem_read8(mem, addr + 2);
+    uint32_t b2 = genesis_mem_read8(mem, addr + 4);
+    uint32_t b3 = genesis_mem_read8(mem, addr + 6);
+    cpu->d[dn] = (b0 << 24) | (b1 << 16) | (b2 << 8) | b3;
+    return 24;
 }
 
 /* ILLEGAL: trap #4. */
@@ -1209,8 +1545,10 @@ int gen_op_trap(gen_cpu_t *cpu, genesis_mem_t *mem, uint16_t op)
 /* RTR: pop CCR, pop PC (return and restore) */
 int gen_op_rtr(gen_cpu_t *cpu, genesis_mem_t *mem, uint16_t op)
 {
+    gen_cpu_sp_require_even(cpu, mem);
     uint16_t ccr = genesis_mem_read16(mem, cpu->a[7]);
     cpu->a[7] += 2;
+    gen_cpu_sp_require_even(cpu, mem);
     cpu->pc = genesis_mem_read32(mem, cpu->a[7]);
     cpu->a[7] += 4;
     cpu->sr = (cpu->sr & 0xFF00) | (ccr & 0xFF);
@@ -1218,17 +1556,22 @@ int gen_op_rtr(gen_cpu_t *cpu, genesis_mem_t *mem, uint16_t op)
     return GEN_CYCLES_RTR;
 }
 
-/* Shift count: bits 11-9. 0=8, 1-7=1-7. Solo immediate (ir=0). */
-static int shift_count(uint16_t op)
+/* Shift count: bit 8=0 → bits 11-9 inmediato (0=8); bit 8=1 → Dn mod 64 (0→8). */
+static int shift_count(gen_cpu_t *cpu, uint16_t op)
 {
-    int c = (op >> 9) & 7;
-    return c ? c : 8;
+    if ((op & 0x0100) == 0)
+    {
+        int c = (op >> 9) & 7;
+        return c ? c : 8;
+    }
+    unsigned c = (unsigned)cpu->d[(op >> 9) & 7] & 63u;
+    return c ? (int)c : 8;
 }
 
 /* LSL #n,Dn: logical shift left. size: 0=B, 1=W, 2=L */
 int gen_op_lsl(gen_cpu_t *cpu, genesis_mem_t *mem, uint16_t op)
 {
-    int count = shift_count(op);
+    int count = shift_count(cpu, op);
     int sz = (op >> 6) & 3;
     int size = (sz == 0) ? 0 : (sz == 1) ? 1 : 2;
     int reg = (op >> 3) & 7;
@@ -1257,7 +1600,7 @@ int gen_op_lsl(gen_cpu_t *cpu, genesis_mem_t *mem, uint16_t op)
 /* LSR #n,Dn: logical shift right */
 int gen_op_lsr(gen_cpu_t *cpu, genesis_mem_t *mem, uint16_t op)
 {
-    int count = shift_count(op);
+    int count = shift_count(cpu, op);
     int sz = (op >> 6) & 3;
     int size = (sz == 0) ? 0 : (sz == 1) ? 1 : 2;
     int reg = (op >> 3) & 7;
@@ -1292,7 +1635,7 @@ int gen_op_asl(gen_cpu_t *cpu, genesis_mem_t *mem, uint16_t op)
 /* ROR: rotate right (bit 0 → C → bit 31) */
 int gen_op_ror(gen_cpu_t *cpu, genesis_mem_t *mem, uint16_t op)
 {
-    int count = shift_count(op);
+    int count = shift_count(cpu, op);
     int sz = (op >> 6) & 3;
     int size = (sz == 0) ? 0 : (sz == 1) ? 1 : 2;
     int reg = (op >> 3) & 7;
@@ -1321,7 +1664,7 @@ int gen_op_ror(gen_cpu_t *cpu, genesis_mem_t *mem, uint16_t op)
 /* ROL: rotate left (bit 31 → C → bit 0) */
 int gen_op_rol(gen_cpu_t *cpu, genesis_mem_t *mem, uint16_t op)
 {
-    int count = shift_count(op);
+    int count = shift_count(cpu, op);
     int sz = (op >> 6) & 3;
     int size = (sz == 0) ? 0 : (sz == 1) ? 1 : 2;
     int reg = (op >> 3) & 7;
@@ -1350,7 +1693,7 @@ int gen_op_rol(gen_cpu_t *cpu, genesis_mem_t *mem, uint16_t op)
 /* ROXR: rotate right through X */
 int gen_op_roxr(gen_cpu_t *cpu, genesis_mem_t *mem, uint16_t op)
 {
-    int count = shift_count(op);
+    int count = shift_count(cpu, op);
     int sz = (op >> 6) & 3;
     int size = (sz == 0) ? 0 : (sz == 1) ? 1 : 2;
     int reg = (op >> 3) & 7;
@@ -1381,7 +1724,7 @@ int gen_op_roxr(gen_cpu_t *cpu, genesis_mem_t *mem, uint16_t op)
 /* ROXL: rotate left through X */
 int gen_op_roxl(gen_cpu_t *cpu, genesis_mem_t *mem, uint16_t op)
 {
-    int count = shift_count(op);
+    int count = shift_count(cpu, op);
     int sz = (op >> 6) & 3;
     int size = (sz == 0) ? 0 : (sz == 1) ? 1 : 2;
     int reg = (op >> 3) & 7;
@@ -1464,9 +1807,9 @@ int gen_op_movem(gen_cpu_t *cpu, genesis_mem_t *mem, uint16_t op)
                 if (!(list & (1u << i)))
                     continue;
                 if (i < 8)
-                    gen_ea_write(mem, addr, cpu->d[i], size);
+                    gen_ea_write(cpu, mem, addr, cpu->d[i], size);
                 else
-                    gen_ea_write(mem, addr, cpu->a[i - 8], size);
+                    gen_ea_write(cpu, mem, addr, cpu->a[i - 8], size);
                 addr += (size == GEN_TST_SIZE_W) ? GEN_MOVEM_STEP_WORD : GEN_MOVEM_STEP_LONG;
             }
         }
@@ -1512,7 +1855,7 @@ int gen_op_movem(gen_cpu_t *cpu, genesis_mem_t *mem, uint16_t op)
 /* ASR #n,Dn: arithmetic shift right (sign-extend) */
 int gen_op_asr(gen_cpu_t *cpu, genesis_mem_t *mem, uint16_t op)
 {
-    int count = shift_count(op);
+    int count = shift_count(cpu, op);
     int sz = (op >> 6) & 3;
     int size = (sz == 0) ? 0 : (sz == 1) ? 1 : 2;
     int reg = (op >> 3) & 7;

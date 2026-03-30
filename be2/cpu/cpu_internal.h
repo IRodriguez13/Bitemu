@@ -33,9 +33,11 @@
 #define set_v(cpu, v)  do { (cpu)->sr = ((cpu)->sr & ~GEN_SR_V) | ((v) ? GEN_SR_V : 0); } while(0)
 #define set_c(cpu, v)  do { (cpu)->sr = ((cpu)->sr & ~GEN_SR_C) | ((v) ? GEN_SR_C : 0); } while(0)
 
+void gen_cpu_address_error(gen_cpu_t *cpu, genesis_mem_t *mem, uint32_t pc_stacked);
+
 /* ea = 6 bits: mode (3) | reg (3). Lee EA. size: 0=B, 1=W, 2=L. out_addr para escritura. */
 uint32_t gen_ea_read(gen_cpu_t *cpu, genesis_mem_t *mem, uint16_t ea, int size, uint32_t *out_addr);
-void gen_ea_write(genesis_mem_t *mem, uint32_t addr, uint32_t val, int size);
+void gen_ea_write(gen_cpu_t *cpu, genesis_mem_t *mem, uint32_t addr, uint32_t val, int size);
 /* Obtiene solo la dirección (para destino de MOVE), avanza An si (An)+/-(An) */
 uint32_t gen_ea_addr(gen_cpu_t *cpu, genesis_mem_t *mem, uint16_t ea, int size);
 

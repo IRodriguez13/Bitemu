@@ -1,6 +1,14 @@
 /**
  * BE2 — implementación cpu_sync
  *
+ * Próximo refinamiento (fase bus): granularidad BUSACK por ciclo, contienda 68k↔VDP DMA,
+ * lecturas Z80 con último valor de bus donde aplique (distinto del open bus 68k en memory.c).
+ * Hecho en CPU: excepción vector 3 por word/long en dirección impar (EA, fetch, pila);
+ * STOP con ciclos y fetch alineados; marco Address Error largo del 68000 no simulado (solo stack tipo trap).
+ *
+ * Profiling del **host** (gprof): conviene cuando el core ya es estable para la ROM medida; ver Documentation/07-gprof.md.
+ * Ciclos de referencia por **línea** de opcode: `gen_cpu_line_cycles_ref` / `gen_cpu_cycles_ref_line_nibble` (sin EA).
+ *
  * SPDX-License-Identifier: LGPL-3.0-or-later
  */
 

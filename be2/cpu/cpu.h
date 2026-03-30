@@ -21,8 +21,10 @@ struct gen_cpu {
     uint32_t d[8];   /* D0-D7 data */
     uint32_t a[8];   /* A0-A7 address, A7=SP */
     uint32_t pc;
+    uint32_t inst_pc; /* Dirección de la 1ª palabra de la instrucción en curso (excepciones). */
     uint16_t sr;     /* status register */
     int cycles;      /* ciclos consumidos en último step */
+    int cycle_override; /* Tras Address Error dentro de EA: ciclos finales del step (sustituye ret del handler). */
     unsigned stopped : 1;  /* STOP: CPU halted until interrupt */
 };
 

@@ -8,6 +8,9 @@
  *
  * Ver Documentation/08-cpu-sync-genesis.md para el modelo y límites.
  *
+ * Modelo **no** implementado aquí (fase bus/prefetch): cola de prefetch 68000 (palabra siguiente tras opcode),
+ * contienda fina 68k↔Z80↔VDP en el mismo ciclo. Cuando exista, encajará bajo este módulo o bajo memory.c según acople.
+ *
  * SPDX-License-Identifier: LGPL-3.0-or-later
  */
 
