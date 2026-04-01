@@ -78,6 +78,12 @@ void bitemu_clip_i16(int16_t *buf, size_t n);
 size_t bitemu_audio_ring_pull_scaled_clip_i16(const int16_t *ring, size_t ring_len,
     size_t rd, float volume, size_t sample_count, int16_t *dst);
 
+/**
+ * Rellena nbytes de píxeles RGB888 (nbytes múltiplo de 3) con (r,g,b).
+ * Ruta NEON/SSE2 o memset si r==g==b; idempotente con bitemu_simd_init.
+ */
+void bitemu_fill_rgb888(uint8_t *dst, size_t nbytes, uint8_t r, uint8_t g, uint8_t b);
+
 #ifdef __cplusplus
 }
 #endif

@@ -6,6 +6,8 @@
 #ifndef BITEMU_BE2_CYCLE_SYM_H
 #define BITEMU_BE2_CYCLE_SYM_H
 
+#include <stdint.h>
+
 const char *gen_cpu_line_cycle_symbol(unsigned line_0_to_15);
 int gen_cpu_line_cycles_ref(unsigned line_0_to_15);
 

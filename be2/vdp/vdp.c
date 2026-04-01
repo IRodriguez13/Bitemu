@@ -7,11 +7,14 @@
 
 #include "vdp.h"
 #include "../memory.h"
+#include "../../core/simd/simd.h"
 #include <string.h>
 #include <stddef.h>
 
 /* Cobertura sprite/píxel (H40 máx.): COL vs sprites superpuestos no transparentes */
 static uint8_t g_spr_occ[GEN_DISPLAY_WIDTH * GEN_DISPLAY_HEIGHT];
+
+static void vdp_fifo_note_write(gen_vdp_t *vdp);
 
 void gen_vdp_init(gen_vdp_t *vdp)
 {
@@ -97,6 +100,7 @@ void gen_vdp_reset(gen_vdp_t *vdp)
     memset(vdp->vsram, 0, sizeof(vdp->vsram));
     vdp->addr_reg = 0;
     vdp->code_reg = 0;
+    vdp->_pad_cmd = 0;
     vdp->pending_hi = 0;
     vdp->addr_inc = GEN_VDP_ADDR_INC_DEF;
     vdp->dma_fill_pending = 0;
@@ -108,6 +112,10 @@ void gen_vdp_reset(gen_vdp_t *vdp)
     vdp->hint_counter = vdp_hint_reload(vdp);
     vdp->irq_vint_pending = 0;
     vdp->irq_hint_pending = 0;
+    vdp->data_read_latch = 0;
+    vdp->data_read_latch_valid = 0;
+    vdp->fifo_word_backlog = 0;
+    vdp->fifo_drain_acc = 0;
     gen_vdp_render_test_pattern(vdp);
 }
 
@@ -238,6 +246,10 @@ void gen_vdp_write_ctrl(gen_vdp_t *vdp, uint16_t val)
             set_access_mode(vdp, GEN_VDP_CODE_CRAM_WRITE, addr);
         else if ((code & 0x0F) == GEN_VDP_CODE_VSRAM_WRITE)
             set_access_mode(vdp, GEN_VDP_CODE_VSRAM_WRITE, addr);
+        else if ((code & 0x0F) == GEN_VDP_CODE_CRAM_READ)
+            set_access_mode(vdp, GEN_VDP_CODE_CRAM_READ, addr);
+        else if ((code & 0x0F) == GEN_VDP_CODE_VSRAM_READ)
+            set_access_mode(vdp, GEN_VDP_CODE_VSRAM_READ, addr);
         else
             set_access_mode(vdp, GEN_VDP_CODE_VRAM_READ, addr);
         return;
@@ -276,6 +288,13 @@ void gen_vdp_write_data(gen_vdp_t *vdp, uint16_t val)
         {
             if (vdp->code_reg == GEN_VDP_CODE_VRAM_WRITE && addr < GEN_VDP_VRAM_WORDS)
                 vdp->vram[addr] = fill_word;
+            else if (vdp->code_reg == GEN_VDP_CODE_CRAM_WRITE)
+            {
+                int idx = (addr >> 1) & GEN_VDP_CRAM_MASK;
+                vdp->cram[idx] = fill_word & GEN_VDP_CRAM_COLOR;
+            }
+            else if (vdp->code_reg == GEN_VDP_CODE_VSRAM_WRITE && (addr >> 1) < GEN_VDP_VSRAM_SIZE)
+                vdp->vsram[addr >> 1] = fill_word & GEN_VDP_VSRAM_MASK;
             addr = (addr + (vdp->addr_inc & GEN_VDP_ADDR_INC_MASK)) & GEN_VDP_ADDR_MASK;
         }
         vdp->addr_reg = addr;
@@ -289,22 +308,94 @@ void gen_vdp_write_data(gen_vdp_t *vdp, uint16_t val)
         if (addr < GEN_VDP_VRAM_WORDS)
             vdp->vram[addr] = val;
         vdp->addr_reg = (addr + (vdp->addr_inc & GEN_VDP_ADDR_INC_MASK)) & GEN_VDP_ADDR_MASK;
+        vdp_fifo_note_write(vdp);
         break;
     case GEN_VDP_CODE_CRAM_WRITE:
     {
         int idx = (addr >> 1) & GEN_VDP_CRAM_MASK;
         vdp->cram[idx] = val & GEN_VDP_CRAM_COLOR;
         vdp->addr_reg = (addr + (vdp->addr_inc & GEN_VDP_ADDR_INC_MASK)) & GEN_VDP_ADDR_MASK;
+        vdp_fifo_note_write(vdp);
         break;
     }
     case GEN_VDP_CODE_VSRAM_WRITE:
         if (addr < GEN_VDP_VSRAM_SIZE * 2)
             vdp->vsram[addr >> 1] = val & GEN_VDP_VSRAM_MASK;
         vdp->addr_reg = (addr + (vdp->addr_inc & GEN_VDP_ADDR_INC_MASK)) & GEN_VDP_ADDR_MASK;
+        vdp_fifo_note_write(vdp);
         break;
     default:
         break;
     }
+}
+
+static uint16_t vdp_step_data_port_read_fetch(gen_vdp_t *vdp)
+{
+    uint16_t addr = vdp->addr_reg;
+    uint16_t inc = (uint16_t)(vdp->addr_inc & GEN_VDP_ADDR_INC_MASK);
+    uint16_t next = (uint16_t)((addr + inc) & GEN_VDP_ADDR_MASK);
+
+    switch (vdp->code_reg)
+    {
+    case GEN_VDP_CODE_VRAM_READ:
+    {
+        uint16_t w = 0;
+        if (addr < GEN_VDP_VRAM_WORDS)
+            w = vdp->vram[addr];
+        vdp->addr_reg = next;
+        return w;
+    }
+    case GEN_VDP_CODE_CRAM_READ:
+    {
+        int idx = (int)((addr >> 1) & GEN_VDP_CRAM_MASK);
+        uint16_t w = vdp->cram[idx];
+        vdp->addr_reg = next;
+        return w;
+    }
+    case GEN_VDP_CODE_VSRAM_READ:
+    {
+        uint16_t w = 0;
+        if ((addr >> 1) < GEN_VDP_VSRAM_SIZE)
+            w = (uint16_t)(vdp->vsram[addr >> 1] & GEN_VDP_VSRAM_MASK);
+        vdp->addr_reg = next;
+        return w;
+    }
+    default:
+        return 0xFFFF;
+    }
+}
+
+int gen_vdp_is_vram_read_mode(const gen_vdp_t *vdp)
+{
+    return (vdp->code_reg == GEN_VDP_CODE_VRAM_READ) ? 1 : 0;
+}
+
+uint16_t gen_vdp_read_data_word(gen_vdp_t *vdp)
+{
+    vdp->data_read_latch_valid = 0;
+    if (vdp->code_reg == GEN_VDP_CODE_VRAM_READ
+        || vdp->code_reg == GEN_VDP_CODE_CRAM_READ
+        || vdp->code_reg == GEN_VDP_CODE_VSRAM_READ)
+        return vdp_step_data_port_read_fetch(vdp);
+    return 0xFFFF;
+}
+
+uint8_t gen_vdp_read_data_byte(gen_vdp_t *vdp, unsigned addr_odd)
+{
+    if (!vdp->data_read_latch_valid)
+    {
+        if (vdp->code_reg == GEN_VDP_CODE_VRAM_READ
+            || vdp->code_reg == GEN_VDP_CODE_CRAM_READ
+            || vdp->code_reg == GEN_VDP_CODE_VSRAM_READ)
+            vdp->data_read_latch = vdp_step_data_port_read_fetch(vdp);
+        else
+            vdp->data_read_latch = 0xFFFF;
+        vdp->data_read_latch_valid = 1;
+    }
+    if (!addr_odd)
+        return (uint8_t)(vdp->data_read_latch >> 8);
+    vdp->data_read_latch_valid = 0;
+    return (uint8_t)(vdp->data_read_latch & 0xFF);
 }
 
 void gen_vdp_render_test_pattern(gen_vdp_t *vdp)
@@ -332,10 +423,34 @@ static void cram_to_rgb888(uint16_t c, uint8_t *out)
     out[2] = (uint8_t)((b * 255 + 3) / 7);
 }
 
-static void vdp_plot_cram(gen_vdp_t *vdp, int x, int y, uint16_t cram_word)
+/* Reg 12 bit3: índice de paleta 14/15 ≈ sombra / resalte (modo 5, aproximación MVP). */
+static void vdp_apply_shadow_highlight(const gen_vdp_t *vdp, uint8_t *rgb, int pix4)
 {
+    if ((vdp->regs[GEN_VDP_REG_MODE4] & GEN_VDP_MODE4_SH_BIT) == 0)
+        return;
+    if (pix4 == 14)
+    {
+        rgb[0] = (uint8_t)((rgb[0] * 5) / 8);
+        rgb[1] = (uint8_t)((rgb[1] * 5) / 8);
+        rgb[2] = (uint8_t)((rgb[2] * 5) / 8);
+    }
+    else if (pix4 == 15)
+    {
+        for (int i = 0; i < 3; i++)
+        {
+            int t = (int)rgb[i] + 40;
+            rgb[i] = (uint8_t)(t > 255 ? 255 : t);
+        }
+    }
+}
+
+static void vdp_plot_fb_idx(gen_vdp_t *vdp, int x, int y, int color_idx)
+{
+    if (color_idx < 0 || color_idx >= GEN_VDP_CRAM_SIZE)
+        return;
     uint8_t *p = &vdp->framebuffer[y * GEN_FB_STRIDE + x * GEN_FB_BYTES_PER_PIXEL];
-    cram_to_rgb888(cram_word, p);
+    cram_to_rgb888(vdp->cram[color_idx], p);
+    vdp_apply_shadow_highlight(vdp, p, color_idx & 15);
 }
 
 static int vdp_sprite_height_pixels(int size_bits)
@@ -362,20 +477,41 @@ static int vdp_sprite_intersects_line(gen_vdp_t *vdp, uint32_t sat_base, int s, 
     return (line >= y_pos && line < y_pos + h);
 }
 
-/** Orden SAT (0…spr_idx) en esta línea; -1 si spr_idx no cruza la línea. */
+static int vdp_sat_next_link(gen_vdp_t *vdp, uint32_t sat_base, int cur)
+{
+    uint32_t off = sat_base + (uint32_t)cur * GEN_VDP_SAT_ENTRY_WORDS;
+    if (off + 4 > GEN_VDP_VRAM_WORDS || cur < 0 || cur >= GEN_VDP_SPRITE_MAX)
+        return -1;
+    int nxt = (int)(vdp->vram[off + 1] & GEN_VDP_SAT_LINK_MASK);
+    if (nxt == 0 || nxt >= GEN_VDP_SPRITE_MAX)
+        return -1;
+    return nxt;
+}
+
+/** Orden en cadena SAT (sprite 0 → campo link); -1 si spr_idx no cruza la línea. */
 static int vdp_sprite_line_slot(gen_vdp_t *vdp, uint32_t sat_base, int line, int spr_idx)
 {
-    if (!vdp_sprite_intersects_line(vdp, sat_base, spr_idx, line))
-        return -1;
+    uint8_t seen[(GEN_VDP_SPRITE_MAX + 7) / 8];
+    memset(seen, 0, sizeof seen);
     int cnt = 0;
-    for (int s = 0; s <= spr_idx; s++)
+    int cur = 0;
+    for (int i = 0; i < GEN_VDP_SPRITE_MAX; i++)
     {
-        if (vdp_sprite_intersects_line(vdp, sat_base, s, line))
+        if (cur < 0 || cur >= GEN_VDP_SPRITE_MAX)
+            return -1;
+        if (seen[cur / 8] & (uint8_t)(1u << (unsigned)(cur % 8)))
+            return -1;
+        seen[cur / 8] |= (uint8_t)(1u << (unsigned)(cur % 8));
+        if (vdp_sprite_intersects_line(vdp, sat_base, cur, line))
         {
             cnt++;
-            if (s == spr_idx)
+            if (cur == spr_idx)
                 return cnt;
         }
+        int nxt = vdp_sat_next_link(vdp, sat_base, cur);
+        if (nxt < 0)
+            break;
+        cur = nxt;
     }
     return -1;
 }
@@ -474,7 +610,7 @@ static void render_sprite(gen_vdp_t *vdp, int spr_idx, uint32_t sat_base, int pr
                     }
                     int color_idx = pal * GEN_VDP_PALETTE_SIZE + pix;
                     if (color_idx < GEN_VDP_CRAM_SIZE)
-                        vdp_plot_cram(vdp, dx, dy, vdp->cram[color_idx]);
+                        vdp_plot_fb_idx(vdp, dx, dy, color_idx);
                 }
             }
         }
@@ -531,7 +667,7 @@ static void render_window(gen_vdp_t *vdp, uint32_t window_addr, int priority_fil
                 continue;
             int color_idx = pal * GEN_VDP_PALETTE_SIZE + pix;
             if (color_idx < GEN_VDP_CRAM_SIZE)
-                vdp_plot_cram(vdp, sx, y, vdp->cram[color_idx]);
+                vdp_plot_fb_idx(vdp, sx, y, color_idx);
         }
     }
 }
@@ -612,8 +748,29 @@ static void render_plane(gen_vdp_t *vdp, uint32_t plane_addr, uint32_t hscroll_b
                 continue;
             int color_idx = pal * GEN_VDP_PALETTE_SIZE + pix;
             if (color_idx < GEN_VDP_CRAM_SIZE)
-                vdp_plot_cram(vdp, x, y, vdp->cram[color_idx]);
+                vdp_plot_fb_idx(vdp, x, y, color_idx);
         }
+    }
+}
+
+static void vdp_render_sprites_chain(gen_vdp_t *vdp, uint32_t sat_base, int priority_filter, int display_w,
+                                     uint8_t *spr_occ)
+{
+    uint8_t seen[(GEN_VDP_SPRITE_MAX + 7) / 8];
+    memset(seen, 0, sizeof seen);
+    int cur = 0;
+    for (int i = 0; i < GEN_VDP_SPRITE_MAX; i++)
+    {
+        if (cur < 0 || cur >= GEN_VDP_SPRITE_MAX)
+            break;
+        if (seen[cur / 8] & (uint8_t)(1u << (unsigned)(cur % 8)))
+            break;
+        seen[cur / 8] |= (uint8_t)(1u << (unsigned)(cur % 8));
+        render_sprite(vdp, cur, sat_base, priority_filter, display_w, spr_occ);
+        int nxt = vdp_sat_next_link(vdp, sat_base, cur);
+        if (nxt < 0)
+            break;
+        cur = nxt;
     }
 }
 
@@ -623,18 +780,23 @@ static void vdp_detect_sprite_overflow(gen_vdp_t *vdp)
     uint32_t sat_base = (uint32_t)((vdp->regs[5] & GEN_VDP_SAT_BASE_MASK) * 0x100);
     for (int line = 0; line < GEN_DISPLAY_HEIGHT; line++)
     {
+        uint8_t seen[(GEN_VDP_SPRITE_MAX + 7) / 8];
+        memset(seen, 0, sizeof seen);
         int cnt = 0;
-        for (int s = 0; s < GEN_VDP_SPRITE_MAX; s++)
+        int cur = 0;
+        for (int i = 0; i < GEN_VDP_SPRITE_MAX; i++)
         {
-            uint32_t off = sat_base + (uint32_t)(s * GEN_VDP_SAT_ENTRY_WORDS);
-            if (off + 4 > GEN_VDP_VRAM_WORDS)
+            if (cur < 0 || cur >= GEN_VDP_SPRITE_MAX)
                 break;
-            int y_pos = (int)(vdp->vram[off + 0] & 0x3FF);
-            uint16_t w1 = vdp->vram[off + 1];
-            int size_bits = (w1 >> GEN_VDP_SPR_SIZE_SHIFT) & GEN_VDP_SPR_SIZE_MASK;
-            int h = vdp_sprite_height_pixels(size_bits);
-            if (line >= y_pos && line < y_pos + h)
+            if (seen[cur / 8] & (uint8_t)(1u << (unsigned)(cur % 8)))
+                break;
+            seen[cur / 8] |= (uint8_t)(1u << (unsigned)(cur % 8));
+            if (vdp_sprite_intersects_line(vdp, sat_base, cur, line))
                 cnt++;
+            int nxt = vdp_sat_next_link(vdp, sat_base, cur);
+            if (nxt < 0)
+                break;
+            cur = nxt;
         }
         if (cnt > GEN_VDP_MAX_SPRITES_PER_LINE)
         {
@@ -654,13 +816,11 @@ void gen_vdp_render(gen_vdp_t *vdp)
     int bg_color = bg_pal * GEN_VDP_PALETTE_SIZE + bg_idx;
     uint8_t bg_rgb[3] = {0, 0, 0};
     if (bg_color < GEN_VDP_CRAM_SIZE)
-        cram_to_rgb888(vdp->cram[bg_color], bg_rgb);
-    for (int i = 0; i < GEN_FB_SIZE; i += GEN_FB_BYTES_PER_PIXEL)
     {
-        vdp->framebuffer[i]     = bg_rgb[0];
-        vdp->framebuffer[i + 1] = bg_rgb[1];
-        vdp->framebuffer[i + 2] = bg_rgb[2];
+        cram_to_rgb888(vdp->cram[bg_color], bg_rgb);
+        vdp_apply_shadow_highlight(vdp, bg_rgb, bg_idx & 15);
     }
+    bitemu_fill_rgb888(vdp->framebuffer, GEN_FB_SIZE, bg_rgb[0], bg_rgb[1], bg_rgb[2]);
 
     uint8_t mode3 = vdp->regs[GEN_VDP_REG_MODE3];
     int h_mode = mode3 & GEN_VDP_MODE3_HSCROLL_MASK;
@@ -708,14 +868,12 @@ void gen_vdp_render(gen_vdp_t *vdp)
     render_plane(vdp, plane_b_addr, hscroll_base, 0, h_mode, v_mode, 0, width_tiles);
     render_window(vdp, window_addr, 0, win_x0, win_w, win_h, width_tiles, display_w);
     render_plane(vdp, plane_a_addr, hscroll_base, 1, h_mode, v_mode, 0, width_tiles);
-    for (int s = GEN_VDP_SPRITE_MAX - 1; s >= 0; s--)
-        render_sprite(vdp, s, sat_base, 0, display_w, g_spr_occ);
+    vdp_render_sprites_chain(vdp, sat_base, 0, display_w, g_spr_occ);
 
     render_plane(vdp, plane_b_addr, hscroll_base, 0, h_mode, v_mode, 1, width_tiles);
     render_window(vdp, window_addr, 1, win_x0, win_w, win_h, width_tiles, display_w);
     render_plane(vdp, plane_a_addr, hscroll_base, 1, h_mode, v_mode, 1, width_tiles);
-    for (int s = GEN_VDP_SPRITE_MAX - 1; s >= 0; s--)
-        render_sprite(vdp, s, sat_base, 1, display_w, g_spr_occ);
+    vdp_render_sprites_chain(vdp, sat_base, 1, display_w, g_spr_occ);
 
     vdp_detect_sprite_overflow(vdp);
 }
@@ -782,6 +940,13 @@ void gen_vdp_step(gen_vdp_t *vdp, int cycles)
 
     if (cycles == 0)
         vdp_sync_hblank_bit(vdp, active_end);
+
+    vdp->fifo_drain_acc += (uint32_t)cycles;
+    while (vdp->fifo_drain_acc >= 4u && vdp->fifo_word_backlog > 0)
+    {
+        vdp->fifo_drain_acc -= 4u;
+        vdp->fifo_word_backlog--;
+    }
 }
 
 static uint8_t vdp_status_byte_for_read(const gen_vdp_t *vdp)
@@ -791,10 +956,26 @@ static uint8_t vdp_status_byte_for_read(const gen_vdp_t *vdp)
     return b;
 }
 
+static void vdp_fifo_note_write(gen_vdp_t *vdp)
+{
+    if (vdp->fifo_word_backlog < 4)
+        vdp->fifo_word_backlog++;
+}
+
+static uint16_t vdp_build_status_u16(const gen_vdp_t *vdp)
+{
+    uint16_t w = (uint16_t)vdp_status_byte_for_read(vdp);
+    int lvl = (int)vdp->fifo_word_backlog + (vdp->pending_hi ? 1 : 0);
+    if (lvl == 0)
+        w |= GEN_VDP_STATUS_FIFO_EMPTY;
+    if (lvl >= 4)
+        w |= GEN_VDP_STATUS_FIFO_FULL;
+    return w;
+}
+
 uint16_t gen_vdp_read_status(gen_vdp_t *vdp)
 {
-    uint8_t merged = vdp_status_byte_for_read(vdp);
-    vdp->status_cache = (uint16_t)(((uint16_t)merged << 8) | (uint16_t)merged);
+    vdp->status_cache = vdp_build_status_u16(vdp);
     vdp->status_reg &= (uint8_t)~(GEN_VDP_STATUS_F | GEN_VDP_STATUS_SOVR | GEN_VDP_STATUS_COL);
     vdp->irq_vint_pending = 0;
     vdp->irq_hint_pending = 0;
@@ -806,8 +987,7 @@ uint8_t gen_vdp_read_status_byte(gen_vdp_t *vdp, int fetch)
 {
     if (fetch)
     {
-        uint8_t merged = vdp_status_byte_for_read(vdp);
-        vdp->status_cache = (uint16_t)(((uint16_t)merged << 8) | (uint16_t)merged);
+        vdp->status_cache = vdp_build_status_u16(vdp);
         vdp->status_reg &= (uint8_t)~(GEN_VDP_STATUS_F | GEN_VDP_STATUS_SOVR | GEN_VDP_STATUS_COL);
         vdp->irq_vint_pending = 0;
         vdp->irq_hint_pending = 0;
@@ -820,12 +1000,17 @@ uint16_t gen_vdp_read_hv(gen_vdp_t *vdp)
     int cycles_line = vdp->is_pal ? GEN_CYCLES_PER_LINE_PAL : GEN_CYCLES_PER_LINE;
     int active = cycles_line - GEN_VDP_HBLANK_CYCLES;
     int cc = vdp->cycle_counter;
+    int h40 = ((vdp->regs[GEN_VDP_REG_MODE4] & GEN_VDP_H40_MASK) == GEN_VDP_H40_VAL) ? 1 : 0;
+    int h_vis_n = h40 ? (int)GEN_VDP_H_VISIBLE_N
+                      : (int)GEN_VDP_H_VISIBLE_N * GEN_DISPLAY_WIDTH_H32 / GEN_DISPLAY_WIDTH;
+    int h_vis_end = h40 ? (int)GEN_VDP_H_VISIBLE_END
+                        : (int)GEN_VDP_H_VISIBLE_END * GEN_DISPLAY_WIDTH_H32 / GEN_DISPLAY_WIDTH;
     int h;
     if (cc < active)
     {
-        h = active > 0 ? (cc * (int)GEN_VDP_H_VISIBLE_N) / active : 0;
-        if (h > GEN_VDP_H_VISIBLE_END)
-            h = GEN_VDP_H_VISIBLE_END;
+        h = active > 0 ? (cc * h_vis_n) / active : 0;
+        if (h > h_vis_end)
+            h = h_vis_end;
     }
     else
     {

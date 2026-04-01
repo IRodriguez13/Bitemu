@@ -1,6 +1,7 @@
 /**
  * BE2 - Sega Genesis: input (CLI teclado)
- * Mismo mapeo que GB: WASD, J=A, K=B, I=Start
+ * P1: WASD, J=A, K=B, Coma=C, I/Enter=Start (bits joypad_raw como memory.c).
+ * P2: TFGH, O=A, Y=B, U=C, P=Start.
  *
  * Copyright (c) 2026 Iván Ezequiel Rodriguez
  * SPDX-License-Identifier: LGPL-3.0-or-later
@@ -44,23 +45,35 @@ void gen_input_poll(genesis_impl_t *impl)
         return;
     set_raw_mode(1);
 
-    uint8_t state = 0xFF;  /* 0 = pressed */
+    /* joypad_raw: bit=1 presionado; orden R,L,D,U luego A,B,C,Start… (ver memory.c). */
+    uint16_t p1 = 0, p2 = 0;
     char c;
     while (read(STDIN_FILENO, &c, 1) == 1)
     {
         switch (c)
         {
-        case 'w': case 'W': state &= ~(1 << 2); break;
-        case 's': case 'S': state &= ~(1 << 3); break;
-        case 'a': case 'A': state &= ~(1 << 1); break;
-        case 'd': case 'D': state &= ~(1 << 0); break;
-        case 'j': case 'J': state &= ~(1 << 4); break;
-        case 'k': case 'K': state &= ~(1 << 5); break;
-        case 'i': case 'I': case '\r': case '\n': state &= ~(1 << 7); break;
+        case 'w': case 'W': p1 |= 1u << 3; break; /* U */
+        case 's': case 'S': p1 |= 1u << 1; break; /* D */
+        case 'a': case 'A': p1 |= 1u << 2; break; /* L */
+        case 'd': case 'D': p1 |= 1u << 0; break; /* R */
+        case 'j': case 'J': p1 |= 1u << 4; break; /* A */
+        case 'k': case 'K': p1 |= 1u << 5; break; /* B */
+        case ',': p1 |= 1u << 6; break; /* C */
+        case 'i': case 'I': case '\r': case '\n': p1 |= 1u << 7; break; /* Start */
+
+        case 't': case 'T': p2 |= 1u << 3; break;
+        case 'g': case 'G': p2 |= 1u << 1; break;
+        case 'f': case 'F': p2 |= 1u << 2; break;
+        case 'h': case 'H': p2 |= 1u << 0; break;
+        case 'y': case 'Y': p2 |= 1u << 5; break;
+        case 'u': case 'U': p2 |= 1u << 6; break;
+        case 'o': case 'O': p2 |= 1u << 4; break;
+        case 'p': case 'P': p2 |= 1u << 7; break;
         default: break;
         }
     }
-    impl->joypad_state = (impl->joypad_state & 0xFF00) | (uint8_t)(~state & 0xFF);
+    impl->joypad_state = p1 & 0x0FFF;
+    impl->joypad2_state = p2 & 0x0FFF;
 }
 
 #else

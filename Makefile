@@ -69,7 +69,10 @@ TEST_SRCS  = $(TEST_DIR)/test_runner.c $(TEST_DIR)/test_memory.c $(TEST_DIR)/tes
 TEST_BIN   = build/test_runner
 VENV       = frontend/venv/bin
 
+ROM ?=
+
 .PHONY: all clean clean-gperf clean-profile-data cli lib run help test test-core test-frontend \
+	genesis-smoke-rom \
 	gen-cycles-gperf \
 	gperf-help gperf-be1 gperf-be1-check gperf-be2 gperf-be2-check gperf-be3 gperf-all \
 	profile-help profile-cli profile-lib profile-test-core profile-report \
@@ -86,6 +89,7 @@ help:
 	@echo "  run          Ejecuta frontend Python (ventana)"
 	@echo "  test         Corre tests de core (C) y frontend (Python)"
 	@echo "  test-core    Solo tests del core C"
+	@echo "  genesis-smoke-rom  ROM=… [FRAMES=N] — headless (default 120 frames)"
 	@echo "  test-frontend Solo tests del frontend Python"
 	@echo "  clean        Borra binarios y objetos"
 	@echo "  clean-gperf  Borra cabeceras generadas por gperf (be*/gen/cycles_gperf.h)"
@@ -136,6 +140,18 @@ build/lib/%.o: %.c
 	$(CC) $(CFLAGS) -c $< -o $@
 
 test: test-core test-frontend
+
+FRAMES ?= 120
+
+genesis-smoke-rom: cli
+	@test -n "$(ROM)" || (echo "Uso: make genesis-smoke-rom ROM=/ruta/al/juego.md"; exit 1)
+ifeq ($(UNAME_S),Darwin)
+	DYLD_LIBRARY_PATH=. ./$(CLI_TARGET) -rom "$(ROM)" --cli -frames $(FRAMES)
+else ifeq ($(OS),Windows_NT)
+	PATH=".;$$PATH" ./$(CLI_TARGET) -rom "$(ROM)" --cli -frames $(FRAMES)
+else
+	LD_LIBRARY_PATH=. ./$(CLI_TARGET) -rom "$(ROM)" --cli -frames $(FRAMES)
+endif
 
 test-core: lib
 	@mkdir -p build

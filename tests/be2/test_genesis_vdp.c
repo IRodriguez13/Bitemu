@@ -163,6 +163,27 @@ TEST(gen_vdp_status_includes_pal_bit)
     ASSERT_EQ(st & GEN_VDP_STATUS_PAL, 0);
 }
 
+TEST(gen_vdp_status_fifo_mvp)
+{
+    gen_vdp_t vdp;
+    gen_vdp_init(&vdp);
+    gen_vdp_reset(&vdp);
+    vdp.code_reg = GEN_VDP_CODE_VRAM_WRITE;
+    vdp.addr_reg = 0;
+    uint16_t st0 = gen_vdp_read_status(&vdp);
+    ASSERT_NEQ(st0 & GEN_VDP_STATUS_FIFO_EMPTY, 0);
+    gen_vdp_write_data(&vdp, 1);
+    uint16_t st1 = gen_vdp_read_status(&vdp);
+    ASSERT_EQ(st1 & GEN_VDP_STATUS_FIFO_EMPTY, 0);
+    for (int i = 0; i < 3; i++)
+        gen_vdp_write_data(&vdp, (uint16_t)(i + 2));
+    uint16_t stf = gen_vdp_read_status(&vdp);
+    ASSERT_NEQ(stf & GEN_VDP_STATUS_FIFO_FULL, 0);
+    gen_vdp_step(&vdp, 4);
+    uint16_t st2 = gen_vdp_read_status(&vdp);
+    ASSERT_EQ(st2 & GEN_VDP_STATUS_FIFO_FULL, 0);
+}
+
 TEST(gen_vdp_dma_fill_adds_68k_stall)
 {
     gen_vdp_t vdp;
@@ -195,6 +216,40 @@ TEST(gen_vdp_dma_fill_stall_lower_in_vblank)
     ASSERT_EQ(vdp.dma_stall_68k, 2u * (uint32_t)GEN_VDP_DMA_STALL_FILL_PER_WORD_VBLANK);
 }
 
+/* DMA fill hacia CRAM (no solo VRAM). */
+TEST(gen_vdp_dma_fill_cram)
+{
+    gen_vdp_t vdp;
+    gen_vdp_init(&vdp);
+    gen_vdp_reset(&vdp);
+    vdp.dma_fill_pending = 1;
+    vdp.code_reg = GEN_VDP_CODE_CRAM_WRITE;
+    vdp.addr_reg = 0;
+    vdp.addr_inc = 2;
+    vdp.regs[GEN_VDP_REG_DMA_LEN_LO] = 4;
+    vdp.regs[GEN_VDP_REG_DMA_LEN_HI] = 0;
+    gen_vdp_write_data(&vdp, 0xCDEF);
+    ASSERT_EQ((unsigned)vdp.cram[0], (unsigned)(0xCDCD & GEN_VDP_CRAM_COLOR));
+    ASSERT_EQ((unsigned)vdp.cram[1], (unsigned)(0xCDCD & GEN_VDP_CRAM_COLOR));
+}
+
+/* Reg 12 bit3 + índice fondo 15: resalte MVP (píxel más claro). */
+TEST(gen_vdp_shadow_highlight_bg15)
+{
+    gen_vdp_t vdp;
+    gen_vdp_init(&vdp);
+    gen_vdp_reset(&vdp);
+    /* Color no saturado para que +40 en resalte aumente el canal R */
+    vdp.cram[31] = 0x0004u;
+    vdp.regs[7] = (uint8_t)((1u << GEN_VDP_BG_PAL_SHIFT) | 15u);
+    gen_vdp_render(&vdp);
+    uint8_t r0 = vdp.framebuffer[0];
+    vdp.regs[GEN_VDP_REG_MODE4] |= (uint8_t)GEN_VDP_MODE4_SH_BIT;
+    gen_vdp_render(&vdp);
+    uint8_t r1 = vdp.framebuffer[0];
+    ASSERT_TRUE(r1 > r0);
+}
+
 /* HV: H interpolado en zona activa vs tramo hblank (no mezclar toda la línea). */
 TEST(gen_vdp_read_hv_active_and_hblank_ranges)
 {
@@ -211,6 +266,22 @@ TEST(gen_vdp_read_hv_active_and_hblank_ranges)
     vdp.cycle_counter = GEN_CYCLES_PER_LINE - GEN_VDP_HBLANK_CYCLES;
     uint16_t hv2 = gen_vdp_read_hv(&vdp);
     ASSERT_EQ((hv2 >> 8) & 0xFF, (unsigned)GEN_VDP_H_BLANK_START);
+}
+
+/* H32 (reg12 bits1-0=00): contador H activo escala ~256/320 respecto a H40. */
+TEST(gen_vdp_read_hv_h32_smaller_active_h)
+{
+    gen_vdp_t vdp;
+    gen_vdp_init(&vdp);
+    gen_vdp_reset(&vdp);
+    gen_vdp_set_pal(&vdp, 0);
+    vdp.regs[GEN_VDP_REG_MODE4] = 0;
+    vdp.cycle_counter = GEN_CYCLES_PER_LINE / 4;
+    uint16_t hv32 = gen_vdp_read_hv(&vdp);
+    vdp.regs[GEN_VDP_REG_MODE4] = GEN_VDP_H40_VAL;
+    vdp.cycle_counter = GEN_CYCLES_PER_LINE / 4;
+    uint16_t hv40 = gen_vdp_read_hv(&vdp);
+    ASSERT_TRUE(((hv32 >> 8) & 0xFF) < ((hv40 >> 8) & 0xFF));
 }
 
 TEST(gen_vdp_hint_reloads_on_frame_wrap)
@@ -239,8 +310,12 @@ void run_genesis_vdp_tests(void)
     RUN(gen_vdp_window_right_vs_left);
     RUN(gen_vdp_status_read_clears_col);
     RUN(gen_vdp_status_includes_pal_bit);
+    RUN(gen_vdp_status_fifo_mvp);
     RUN(gen_vdp_dma_fill_adds_68k_stall);
     RUN(gen_vdp_dma_fill_stall_lower_in_vblank);
+    RUN(gen_vdp_dma_fill_cram);
+    RUN(gen_vdp_shadow_highlight_bg15);
     RUN(gen_vdp_read_hv_active_and_hblank_ranges);
+    RUN(gen_vdp_read_hv_h32_smaller_active_h);
     RUN(gen_vdp_hint_reloads_on_frame_wrap);
 }

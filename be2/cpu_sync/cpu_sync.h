@@ -19,6 +19,9 @@
 
 #include <stdint.h>
 
+struct gen_cpu;
+struct gen_vdp;
+
 /**
  * Ciclos Z80 a ejecutar en lockstep con `cycles_68k` ciclos de bus del 68000.
  * Reloj Z80 ≈ GEN_PSG_HZ (/ PAL); 68000 ≈ GEN_68000_HZ (/ PAL).
@@ -42,5 +45,13 @@ uint8_t gen_cpu_sync_z80_ram_contention_read(uint32_t addr);
 
 /** Convención histórica en tests; preferir gen_cpu_sync_z80_ram_contention_read(addr). */
 #define GEN_CPU_SYNC_Z80_RAM_DENIED_READ 0xFFu
+
+/**
+ * Ciclos 68k extra por modelo burdo: burbuja tras BRA/BSR/Bcc (msb 0x60–0x6F),
+ * +1 si VDP marca DMA activo sin fill pendiente. Tope 3 por slice (auditable).
+ * cpu/vdp pueden ser NULL (trata como sin extra salvo step).
+ */
+int gen_cpu_sync_m68k_bus_extra_cycles(int cycles_68k_slice, const struct gen_cpu *cpu,
+                                       const struct gen_vdp *vdp);
 
 #endif /* BITEMU_GEN_CPU_SYNC_H */

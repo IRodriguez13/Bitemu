@@ -1,10 +1,20 @@
 /**
  * BE2 — línea de instrucción 68000 → etiqueta y ciclos referencia (gperf).
+ *
+ * Límite actual: la tabla por *línea* no sustituye ciclos exactos por EA/modos de acceso;
+ * ampliar cycles_gperf / cycle_line_names y acoplar al descodificador 68k queda pendiente (ver cpu_sync).
  */
 
 #include "cycle_sym.h"
 #include <stddef.h>
+#if defined(__GNUC__) || defined(__clang__)
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wunused-parameter"
+#endif
 #include "../gen/cycles_gperf.h"
+#if defined(__GNUC__) || defined(__clang__)
+#pragma GCC diagnostic pop
+#endif
 #include "../gen/cycle_line_names.h"
 
 static void be2_line_key(char *k3, unsigned line)

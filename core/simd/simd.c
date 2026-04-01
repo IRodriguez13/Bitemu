@@ -8,6 +8,7 @@
 #include "simd.h"
 #include "../utils/log.h"
 #include <stdio.h>
+#include <string.h>
 
 #if defined(__x86_64__) || defined(__i386__) || defined(_M_X64) || defined(_M_IX86)
 # if defined(__GNUC__) || defined(__clang__)
@@ -131,6 +132,75 @@ static void clip_i16_neon(int16_t *buf, size_t n)
     }
     for (; i < n; i++)
         buf[i] = bitemu_sat_i16_i32((int32_t)buf[i]);
+}
+#endif
+
+static void fill_rgb888_generic(uint8_t *dst, size_t nbytes, uint8_t r, uint8_t g, uint8_t b)
+{
+    if (r == g && g == b)
+    {
+        memset(dst, r, nbytes);
+        return;
+    }
+    uint64_t pack2 = (uint64_t)r | ((uint64_t)g << 8) | ((uint64_t)b << 16)
+                   | ((uint64_t)r << 24) | ((uint64_t)g << 32) | ((uint64_t)b << 40);
+    size_t i = 0;
+    for (; i + 6 <= nbytes; i += 6)
+        memcpy(dst + i, &pack2, 6);
+    for (; i + 3 <= nbytes; i += 3)
+    {
+        dst[i] = r;
+        dst[i + 1] = g;
+        dst[i + 2] = b;
+    }
+}
+
+#if defined(__SSE2__)
+static void fill_rgb888_sse2(uint8_t *dst, size_t nbytes, uint8_t r, uint8_t g, uint8_t b)
+{
+    if (r == g && g == b)
+    {
+        memset(dst, r, nbytes);
+        return;
+    }
+    size_t i = 0;
+    for (; i + 48 <= nbytes; i += 48)
+    {
+        __m128i p0 = _mm_setr_epi8((char)r, (char)g, (char)b, (char)r, (char)g, (char)b,
+            (char)r, (char)g, (char)b, (char)r, (char)g, (char)b, (char)r, (char)g, (char)b, (char)r);
+        __m128i p1 = _mm_setr_epi8((char)g, (char)b, (char)r, (char)g, (char)b, (char)r,
+            (char)g, (char)b, (char)r, (char)g, (char)b, (char)r, (char)g, (char)b, (char)r, (char)g);
+        __m128i p2 = _mm_setr_epi8((char)b, (char)r, (char)g, (char)b, (char)r, (char)g,
+            (char)b, (char)r, (char)g, (char)b, (char)r, (char)g, (char)b, (char)r, (char)g, (char)b);
+        _mm_storeu_si128((__m128i *)(void *)(dst + i), p0);
+        _mm_storeu_si128((__m128i *)(void *)(dst + i + 16), p1);
+        _mm_storeu_si128((__m128i *)(void *)(dst + i + 32), p2);
+    }
+    fill_rgb888_generic(dst + i, nbytes - i, r, g, b);
+}
+#endif
+
+#if defined(__ARM_NEON)
+static void fill_rgb888_neon(uint8_t *dst, size_t nbytes, uint8_t r, uint8_t g, uint8_t b)
+{
+    if (r == g && g == b)
+    {
+        memset(dst, r, nbytes);
+        return;
+    }
+    uint8x8_t vr = vdup_n_u8(r);
+    uint8x8_t vg = vdup_n_u8(g);
+    uint8x8_t vb = vdup_n_u8(b);
+    size_t i = 0;
+    for (; i + 24 <= nbytes; i += 24)
+    {
+        uint8x8x3_t t;
+        t.val[0] = vr;
+        t.val[1] = vg;
+        t.val[2] = vb;
+        vst3_u8(dst + i, t);
+    }
+    fill_rgb888_generic(dst + i, nbytes - i, r, g, b);
 }
 #endif
 
@@ -360,4 +430,27 @@ size_t bitemu_audio_ring_pull_scaled_clip_i16(const int16_t *ring, size_t ring_l
         i += chunk;
     }
     return rd;
+}
+
+void bitemu_fill_rgb888(uint8_t *dst, size_t nbytes, uint8_t r, uint8_t g, uint8_t b)
+{
+    if (!dst || nbytes == 0)
+        return;
+    if (!g_inited)
+        bitemu_simd_init();
+#if defined(__ARM_NEON)
+    if (g_caps & BITEMU_SIMD_NEON)
+    {
+        fill_rgb888_neon(dst, nbytes, r, g, b);
+        return;
+    }
+#endif
+#if defined(__SSE2__)
+    if (g_caps & BITEMU_SIMD_SSE2)
+    {
+        fill_rgb888_sse2(dst, nbytes, r, g, b);
+        return;
+    }
+#endif
+    fill_rgb888_generic(dst, nbytes, r, g, b);
 }

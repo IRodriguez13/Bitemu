@@ -13,7 +13,9 @@
  */
 
 #include "cpu_sync.h"
+#include "../cpu/cpu.h"
 #include "../genesis_constants.h"
+#include "../vdp/vdp.h"
 
 int gen_cpu_sync_z80_cycles_from_68k(int cycles_68k, int is_pal)
 {
@@ -46,4 +48,27 @@ uint8_t gen_cpu_sync_z80_ram_contention_read(uint32_t addr)
     uint32_t z = addr & (uint32_t)(GEN_Z80_RAM_SIZE - 1);
     uint32_t mix = z ^ (addr >> 9) ^ (addr >> 1);
     return (uint8_t)(0xFFu ^ (mix & 0x7Fu) ^ ((mix >> 7) & 0x7Fu));
+}
+
+int gen_cpu_sync_m68k_bus_extra_cycles(int cycles_68k_slice, const struct gen_cpu *cpu,
+                                       const struct gen_vdp *vdp)
+{
+    int extra = 0;
+
+    if (cpu)
+    {
+        /* Ramas: más refill de prefetch (aprox. un ciclo útil de bus). */
+        uint8_t msb = (uint8_t)(cpu->last_opcode >> 8);
+        if (msb >= 0x60u && msb <= 0x6Fu)
+            extra += 1;
+    }
+
+    if (vdp && (vdp->status_reg & GEN_VDP_STATUS_DMA) && !vdp->dma_fill_pending)
+        extra += 1;
+
+    /* Reserva de bus VDP DMA 68k: el stall principal sigue en dma_stall_68k. */
+    (void)cycles_68k_slice;
+    if (extra > 3)
+        extra = 3;
+    return extra;
 }

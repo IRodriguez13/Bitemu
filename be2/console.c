@@ -55,6 +55,10 @@ typedef struct {
     uint8_t ssf2_bank[GEN_SSF2_SLOT_COUNT];
     uint8_t vdp_irq_vint_pending;
     uint8_t vdp_irq_hint_pending;
+    uint16_t vdp_data_read_latch;
+    uint8_t vdp_data_read_latch_valid;
+    uint8_t tmss_unlocked_st;
+    uint8_t tmss_st[4];
 } gen_bst_ext_v1_t;
 
 static void genesis_detect_region_pal(genesis_impl_t *impl, const uint8_t *rom, size_t size)
@@ -81,6 +85,62 @@ static void genesis_detect_region_pal(genesis_impl_t *impl, const uint8_t *rom, 
 static uint16_t dma_read_68k(void *ctx, uint32_t addr)
 {
     return genesis_mem_read16((genesis_mem_t *)ctx, addr);
+}
+
+/* Latch comando VDP: formato nuevo etiquetado (10 B) o legado 2+1+1+4 (pending 8-bit, pad implícito 0). */
+static int gen_bst_write_vdp_cmd_latch(FILE *f, gen_vdp_t *v)
+{
+    uint32_t tag = GEN_BST_VDP_CMD_TAG;
+    uint8_t len = (uint8_t)GEN_BST_VDP_CMD_PAYLOAD;
+    uint8_t buf[GEN_BST_VDP_CMD_PAYLOAD];
+    memcpy(buf, &v->addr_reg, 2);
+    buf[2] = v->code_reg;
+    buf[3] = v->_pad_cmd;
+    memcpy(buf + 4, &v->pending_hi, 2);
+    memcpy(buf + 6, &v->addr_inc, 4);
+    int e = bst_write_all(f, &tag, sizeof(tag));
+    e |= bst_write_all(f, &len, 1);
+    e |= bst_write_all(f, buf, sizeof(buf));
+    return e;
+}
+
+static int gen_bst_read_vdp_cmd_latch(FILE *f, gen_vdp_t *v)
+{
+    long pos = ftell(f);
+    if (pos < 0)
+        return -1;
+    uint32_t tag = 0;
+    if (fread(&tag, sizeof(tag), 1, f) != 1)
+        return -1;
+    if (tag == GEN_BST_VDP_CMD_TAG)
+    {
+        uint8_t len = 0;
+        uint8_t buf[GEN_BST_VDP_CMD_PAYLOAD];
+        if (fread(&len, 1, 1, f) != 1 || len != GEN_BST_VDP_CMD_PAYLOAD
+            || fread(buf, sizeof(buf), 1, f) != 1)
+            return -1;
+        memcpy(&v->addr_reg, buf, 2);
+        v->code_reg = buf[2];
+        v->_pad_cmd = buf[3];
+        memcpy(&v->pending_hi, buf + 4, 2);
+        memcpy(&v->addr_inc, buf + 6, 4);
+        return 0;
+    }
+    if (fseek(f, pos, SEEK_SET) != 0)
+        return -1;
+    if (bst_read_all(f, &v->addr_reg, sizeof(v->addr_reg)) != 0)
+        return -1;
+    if (bst_read_all(f, &v->code_reg, sizeof(v->code_reg)) != 0)
+        return -1;
+    uint8_t pend8 = 0;
+    if (bst_read_all(f, &pend8, 1) != 0)
+        return -1;
+    v->_pad_cmd = 0;
+    v->pending_hi = pend8;
+    if (bst_read_all(f, &v->addr_inc, sizeof(v->addr_inc)) != 0)
+        return -1;
+    log_info("Genesis save: latch VDP legado (8 B); conviene re-guardar estado.");
+    return 0;
 }
 
 static void gen_init(console_t *ctx)
@@ -167,18 +227,20 @@ static void gen_step(console_t *ctx, int cycles)
         int step = gen_cpu_step(&impl->cpu, &impl->mem, cycles - consumed);
         if (step == 0 && gen_cpu_stopped(&impl->cpu))
             break;
-        consumed += step;
-        if (impl->z80_bus_ack_cycles > (uint32_t)step)
-            impl->z80_bus_ack_cycles -= (uint32_t)step;
+        int bus_extra = gen_cpu_sync_m68k_bus_extra_cycles(step, &impl->cpu, &impl->vdp);
+        int slice = step + bus_extra;
+        consumed += slice;
+        if (impl->z80_bus_ack_cycles > (uint32_t)slice)
+            impl->z80_bus_ack_cycles -= (uint32_t)slice;
         else
             impl->z80_bus_ack_cycles = 0;
-        gen_vdp_step(&impl->vdp, step);
-        gen_ym2612_step(&impl->ym2612, step, impl->audio_output);
-        gen_psg_step(&impl->psg, step, impl->audio_output);
+        gen_vdp_step(&impl->vdp, slice);
+        gen_ym2612_step(&impl->ym2612, slice, impl->audio_output);
+        gen_psg_step(&impl->psg, slice, impl->audio_output);
         /* Z80 @ 3.58 MHz cuando tiene el bus */
         if (gen_cpu_sync_z80_should_run(impl->z80_bus_req, impl->z80_reset))
         {
-            int z80_cycles = gen_cpu_sync_z80_cycles_from_68k(step, impl->is_pal);
+            int z80_cycles = gen_cpu_sync_z80_cycles_from_68k(slice, impl->is_pal);
             if (z80_cycles > 0)
             {
                 gen_z80_step(&impl->z80, impl, z80_cycles);
@@ -305,6 +367,11 @@ static bool gen_load_rom(console_t *ctx, const char *path, const uint8_t *data, 
         genesis_mem_apply_sram_header_ie32(mem, NULL);
 
     gen_reset(ctx);
+    mem->cart_requires_tmss =
+        (size >= GEN_HEADER_OFFSET + GEN_HEADER_MAGIC_LEN
+         && memcmp(mem->rom + GEN_HEADER_OFFSET, GEN_HEADER_MAGIC, GEN_HEADER_MAGIC_LEN) == 0)
+            ? 1u
+            : 0u;
     if (path && mem->sram_present)
         genesis_mem_load_sav(mem, path);
     log_info("Genesis ROM loaded: %zu bytes%s%s", size,
@@ -323,6 +390,7 @@ static void gen_unload_rom(console_t *ctx)
     free(mem->rom);
     mem->rom = NULL;
     mem->rom_size = 0;
+    mem->cart_requires_tmss = 0;
     impl->rom_path[0] = '\0';
     impl->is_pal = 0;
 }
@@ -357,10 +425,7 @@ static int gen_save_state(console_t *ctx, const char *path)
     err |= bst_write_section(f, impl->vdp.vram, sizeof(impl->vdp.vram));
     err |= bst_write_section(f, impl->vdp.cram, sizeof(impl->vdp.cram));
     err |= bst_write_section(f, impl->vdp.vsram, sizeof(impl->vdp.vsram));
-    err |= bst_write_all(f, &impl->vdp.addr_reg, sizeof(impl->vdp.addr_reg));
-    err |= bst_write_all(f, &impl->vdp.code_reg, sizeof(impl->vdp.code_reg));
-    err |= bst_write_all(f, &impl->vdp.pending_hi, sizeof(impl->vdp.pending_hi));
-    err |= bst_write_all(f, &impl->vdp.addr_inc, sizeof(impl->vdp.addr_inc));
+    err |= gen_bst_write_vdp_cmd_latch(f, &impl->vdp);
     err |= bst_write_section(f, &impl->psg, (uint32_t)sizeof(gen_psg_t));
     err |= bst_write_section(f, &impl->ym2612, (uint32_t)sizeof(gen_ym2612_t));
     err |= bst_write_section(f, &impl->z80, (uint32_t)sizeof(gen_z80_t));
@@ -391,6 +456,10 @@ static int gen_save_state(console_t *ctx, const char *path)
             memcpy(ext.ssf2_bank, impl->mem.ssf2_bank, sizeof(ext.ssf2_bank));
         ext.vdp_irq_vint_pending = impl->vdp.irq_vint_pending;
         ext.vdp_irq_hint_pending = impl->vdp.irq_hint_pending;
+        ext.vdp_data_read_latch = impl->vdp.data_read_latch;
+        ext.vdp_data_read_latch_valid = impl->vdp.data_read_latch_valid;
+        ext.tmss_unlocked_st = m->tmss_unlocked;
+        memcpy(ext.tmss_st, m->tmss, sizeof(ext.tmss_st));
         uint32_t mag = GEN_BST_EXT_V1_MAGIC;
         uint32_t extsz = (uint32_t)sizeof(ext);
         err |= bst_write_all(f, &mag, sizeof(mag));
@@ -443,10 +512,7 @@ static int gen_load_state(console_t *ctx, const char *path)
     err |= bst_read_section(f, impl->vdp.vram, sizeof(impl->vdp.vram));
     err |= bst_read_section(f, impl->vdp.cram, sizeof(impl->vdp.cram));
     err |= bst_read_section(f, impl->vdp.vsram, sizeof(impl->vdp.vsram));
-    err |= bst_read_all(f, &impl->vdp.addr_reg, sizeof(impl->vdp.addr_reg));
-    err |= bst_read_all(f, &impl->vdp.code_reg, sizeof(impl->vdp.code_reg));
-    err |= bst_read_all(f, &impl->vdp.pending_hi, sizeof(impl->vdp.pending_hi));
-    err |= bst_read_all(f, &impl->vdp.addr_inc, sizeof(impl->vdp.addr_inc));
+    err |= gen_bst_read_vdp_cmd_latch(f, &impl->vdp);
     err |= bst_read_section(f, &impl->psg, (uint32_t)sizeof(gen_psg_t));
     err |= bst_read_section(f, &impl->ym2612, (uint32_t)sizeof(gen_ym2612_t));
     err |= bst_read_section(f, &impl->z80, (uint32_t)sizeof(gen_z80_t));
@@ -525,6 +591,13 @@ static int gen_load_state(console_t *ctx, const char *path)
                             impl->vdp.irq_vint_pending = 0;
                             impl->vdp.irq_hint_pending = 0;
                         }
+                        if (extsz >= offsetof(gen_bst_ext_v1_t, tmss_st) + sizeof(ext.tmss_st))
+                        {
+                            impl->vdp.data_read_latch = ext.vdp_data_read_latch;
+                            impl->vdp.data_read_latch_valid = ext.vdp_data_read_latch_valid;
+                            memcpy(m->tmss, ext.tmss_st, sizeof(m->tmss));
+                            m->tmss_unlocked = ext.tmss_unlocked_st;
+                        }
                         ext_applied = 1;
                     }
                 }
@@ -556,6 +629,11 @@ static int gen_load_state(console_t *ctx, const char *path)
     }
 
     fclose(f);
+    if (m->rom && m->rom_size >= GEN_HEADER_OFFSET + GEN_HEADER_MAGIC_LEN)
+        m->cart_requires_tmss =
+            (memcmp(m->rom + GEN_HEADER_OFFSET, GEN_HEADER_MAGIC, GEN_HEADER_MAGIC_LEN) == 0) ? 1u : 0u;
+    else
+        m->cart_requires_tmss = 0;
     if (err)
     {
         log_error("Error reading Genesis save state: %s", path);

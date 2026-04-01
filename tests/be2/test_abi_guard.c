@@ -44,6 +44,7 @@ TEST(abi_gen_cpu_layout)
     ASSERT_OFFSET(gen_cpu_t, pc,            64);
     ASSERT_OFFSET(gen_cpu_t, inst_pc,       68);
     ASSERT_OFFSET(gen_cpu_t, sr,            72);
+    ASSERT_OFFSET(gen_cpu_t, last_opcode,   74);
     ASSERT_OFFSET(gen_cpu_t, cycles,        76);
     ASSERT_OFFSET(gen_cpu_t, cycle_override, 80);
 }
@@ -52,7 +53,7 @@ TEST(abi_gen_cpu_layout)
 
 TEST(abi_gen_vdp_layout)
 {
-    ASSERT_MIN_SIZE(gen_vdp_t, 280872);
+    ASSERT_MIN_SIZE(gen_vdp_t, 280876);
 
     ASSERT_OFFSET(gen_vdp_t, framebuffer, 0);
     ASSERT_OFFSET(gen_vdp_t, regs,        215040);
@@ -61,10 +62,15 @@ TEST(abi_gen_vdp_layout)
     ASSERT_OFFSET(gen_vdp_t, vsram,        280728);
     ASSERT_OFFSET(gen_vdp_t, addr_reg,     280808);
     ASSERT_OFFSET(gen_vdp_t, code_reg,     280810);
-    ASSERT_OFFSET(gen_vdp_t, pending_hi,   280811);
-    ASSERT_OFFSET(gen_vdp_t, addr_inc,     280812);
+    ASSERT_OFFSET(gen_vdp_t, _pad_cmd,     280811);
+    ASSERT_OFFSET(gen_vdp_t, pending_hi,   280812);
+    ASSERT_OFFSET(gen_vdp_t, addr_inc,     280816);
     ASSERT_OFFSET(gen_vdp_t, irq_vint_pending, 280864);
     ASSERT_OFFSET(gen_vdp_t, irq_hint_pending, 280865);
+    ASSERT_OFFSET(gen_vdp_t, data_read_latch, 280866);
+    ASSERT_OFFSET(gen_vdp_t, data_read_latch_valid, 280868);
+    ASSERT_OFFSET(gen_vdp_t, fifo_word_backlog, 280869);
+    ASSERT_OFFSET(gen_vdp_t, fifo_drain_acc, 280872);
 }
 
 /* ── PSG layout (frozen at BST v3) ── */

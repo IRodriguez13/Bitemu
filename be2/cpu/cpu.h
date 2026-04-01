@@ -23,6 +23,7 @@ struct gen_cpu {
     uint32_t pc;
     uint32_t inst_pc; /* Dirección de la 1ª palabra de la instrucción en curso (excepciones). */
     uint16_t sr;     /* status register */
+    uint16_t last_opcode; /* Primera palabra de la última instrucción ejecutada (prefetch/sync). */
     int cycles;      /* ciclos consumidos en último step */
     int cycle_override; /* Tras Address Error dentro de EA: ciclos finales del step (sustituye ret del handler). */
     unsigned stopped : 1;  /* STOP: CPU halted until interrupt */

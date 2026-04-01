@@ -97,6 +97,7 @@ void gen_cpu_reset(gen_cpu_t *cpu, genesis_mem_t *mem)
         cpu->a[7] = GEN_CPU_SP_INIT;
     }
     cpu->sr = GEN_CPU_SR_INIT;
+    cpu->last_opcode = 0x4E71u; /* NOP (prefetch/sync neutro) */
     cpu->cycles = 0;
     cpu->stopped = 0;
 }
@@ -169,6 +170,7 @@ int gen_cpu_step(gen_cpu_t *cpu, genesis_mem_t *mem, int max_cycles)
 
     uint32_t ipc = cpu->pc;
     uint16_t op = genesis_mem_read16(mem, cpu->pc);
+    cpu->last_opcode = op;
     cpu->pc += 2;
     cpu->inst_pc = ipc;
     int cycles = 4;

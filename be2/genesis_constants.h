@@ -78,7 +78,7 @@ enum {
     GEN_PSG_CYCLES_PER_SAMPLE_PAL = GEN_PSG_HZ_PAL / GEN_SAMPLE_RATE,
 };
 
-/* VDP status register bits (read from 0xC00004) */
+/* VDP status register bits (read from 0xC00004), word 16-bit little-endian en host */
 enum {
     GEN_VDP_STATUS_PAL   = 0x01,
     GEN_VDP_STATUS_DMA  = 0x02,
@@ -88,6 +88,8 @@ enum {
     GEN_VDP_STATUS_COL  = 0x20,
     GEN_VDP_STATUS_SOVR = 0x40,
     GEN_VDP_STATUS_F    = 0x80,   /* VINT asserted; cleared on status read */
+    GEN_VDP_STATUS_FIFO_EMPTY = 0x0200, /* bit 9: 1 = cola CPU→VDP vacía (MVP) */
+    GEN_VDP_STATUS_FIFO_FULL  = 0x0400, /* bit 10: 1 = FIFO llena (4 palabras) */
 };
 
 /* VDP reg 0: IE1=HBlank IRQ enable (bit 5) */
@@ -474,14 +476,16 @@ enum {
     GEN_VDP_CMD_CODE_MASK  = 0x0F,
 };
 
-/* VDP access codes (code_reg) */
+/* VDP access codes (code_reg); lectura CRAM/VSRAM = CD en comando VDP (p. ej. 8 y 4). */
 enum {
-    GEN_VDP_CODE_VRAM_READ  = 0,
-    GEN_VDP_CODE_VRAM_WRITE = 1,
-    GEN_VDP_CODE_CRAM_WRITE = 3,
-    GEN_VDP_CODE_VSRAM_MASK = 0x0E,
-    GEN_VDP_CODE_VSRAM_BIT  = 4,
+    GEN_VDP_CODE_VRAM_READ   = 0,
+    GEN_VDP_CODE_VRAM_WRITE  = 1,
+    GEN_VDP_CODE_VSRAM_READ  = 4,
     GEN_VDP_CODE_VSRAM_WRITE = 5,
+    GEN_VDP_CODE_CRAM_WRITE  = 3,
+    GEN_VDP_CODE_CRAM_READ   = 8,
+    GEN_VDP_CODE_VSRAM_MASK  = 0x0E,
+    GEN_VDP_CODE_VSRAM_BIT   = 4,
 };
 
 /* DMA: CD5 = bit 5 del code (comando 32-bit, code = (cmd>>30)&3 | (cmd>>2)&0x3C) */
@@ -545,6 +549,7 @@ enum {
     GEN_VDP_SAT_ENTRY_WORDS = 4,
     GEN_VDP_SPRITE_MAX      = 80,
     GEN_VDP_MAX_SPRITES_PER_LINE = 20,   /* límite efectivo NTSC modo 5 (SAT) */
+    GEN_VDP_SAT_LINK_MASK   = 0x7F,    /* word 1 SAT: siguiente sprite (0 = fin) */
 };
 
 /* Sprite pattern base: reg 6 bits 5-0 = base bits 13-8 */
@@ -585,8 +590,13 @@ enum {
     GEN_VDP_REG_MODE4     = 12,
     GEN_VDP_H40_MASK      = 3,    /* bits 1-0: 11=40 tiles, 00=32 tiles */
     GEN_VDP_H40_VAL       = 3,    /* 40 tiles = 320 px */
+    GEN_VDP_MODE4_SH_BIT  = 8,    /* bit 3 reg 12: shadow/highlight (modo 5 aprox.) */
     GEN_DISPLAY_WIDTH_H32 = 256,
 };
+
+/* Genesis save core: tras vsram, bloque latch comando VDP etiquetado (migración desde pending 8-bit). */
+#define GEN_BST_VDP_CMD_TAG     0x32504456u  /* "VDP2" en LE */
+#define GEN_BST_VDP_CMD_PAYLOAD 10u
 
 /* Reg 3: Window plane base - bits 6-4 = WA15-13, addr = ((reg>>4)&7) * 0x2000 */
 enum {

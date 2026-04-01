@@ -129,6 +129,39 @@ static inline int parity(uint8_t x)
     return (~x) & 1;
 }
 
+static void z80_ed_adc_hl_rr(gen_z80_t *z80, uint8_t *af, uint16_t hlv, uint16_t rr)
+{
+    uint32_t c = (af[0] & C) ? 1u : 0u;
+    uint32_t res = (uint32_t)hlv + (uint32_t)rr + c;
+    uint16_t r = (uint16_t)res;
+    z80->hl = r;
+    uint8_t f = (r == 0 ? Z : 0) | ((r & 0x8000) ? S : 0);
+    f |= (uint8_t)(((hlv ^ rr ^ r) >> 8) & H);
+    if (!((hlv ^ rr) & 0x8000) && ((hlv ^ r) & 0x8000))
+        f |= P;
+    if (res & 0x10000u)
+        f |= C;
+    af[0] = f;
+}
+
+static void z80_ed_sbc_hl_rr(gen_z80_t *z80, uint8_t *af, uint16_t hlv, uint16_t rr)
+{
+    uint32_t c = (af[0] & C) ? 1u : 0u;
+    uint32_t rhs = (uint32_t)rr + c;
+    uint32_t res = (uint32_t)hlv - rhs;
+    uint16_t r = (uint16_t)res;
+    z80->hl = r;
+    uint8_t f = N | (rhs > (uint32_t)hlv ? C : 0);
+    if (r == 0)
+        f |= Z;
+    if (r & 0x8000)
+        f |= S;
+    f |= (uint8_t)(((hlv ^ rr ^ r) >> 8) & H);
+    if (((hlv ^ rr) & 0x8000) && ((hlv ^ r) & 0x8000))
+        f |= P;
+    af[0] = f;
+}
+
 void gen_z80_init(gen_z80_t *z80)
 {
     memset(z80, 0, sizeof(*z80));
@@ -254,6 +287,9 @@ int gen_z80_step(gen_z80_t *z80, void *ctx, int cycles)
         case 0x11: z80->de = R16(); executed += 10; break;
         case 0x21: z80->hl = R16(); executed += 10; break;
         case 0x31: z80->sp = R16(); executed += 10; break;
+        case 0xE9: z80->pc = z80->hl; executed += 4; break;  /* JP (HL) */
+        case 0xEB: { uint16_t t = z80->de; z80->de = z80->hl; z80->hl = t; } executed += 4; break;  /* EX DE,HL */
+        case 0xF9: z80->sp = z80->hl; executed += 6; break;  /* LD SP,HL */
         case 0x2A: { uint16_t nn = R16(); z80->hl = z80_mem_read(ctx, nn) | (z80_mem_read(ctx, nn + 1) << 8); } executed += 16; break;  /* LD HL,(nn) */
         case 0x22: { uint16_t nn = R16(); W16(nn, z80->hl); } executed += 16; break;  /* LD (nn),HL */
         case 0xF5: z80->sp -= 2; W16(z80->sp, z80->af); executed += 11; break;  /* PUSH AF */
@@ -442,13 +478,193 @@ int gen_z80_step(gen_z80_t *z80, void *ctx, int cycles)
                 uint8_t ed = R8();
                 if (ed == 0x56) { z80->iff1 = 0; executed += 8; break; }  /* IM 1 */
                 if (ed == 0x5E) { z80->iff1 = 0; executed += 8; break; }  /* IM 2 */
+                if (ed == 0x43) { uint16_t nn = R16(); W8(nn, bc[0]); W8(nn + 1, bc[1]); executed += 20; break; }  /* LD (nn),BC */
+                if (ed == 0x53) { uint16_t nn = R16(); W8(nn, de[0]); W8(nn + 1, de[1]); executed += 20; break; }  /* LD (nn),DE */
+                if (ed == 0x73) { uint16_t nn = R16(); W8(nn, z80->sp & 0xFF); W8(nn + 1, z80->sp >> 8); executed += 20; break; }  /* LD (nn),SP */
+                if (ed == 0x4B) { uint16_t nn = R16(); z80->bc = z80_mem_read(ctx, nn) | ((uint16_t)z80_mem_read(ctx, nn + 1) << 8); executed += 20; break; }  /* LD BC,(nn) */
+                if (ed == 0x5B) { uint16_t nn = R16(); z80->de = z80_mem_read(ctx, nn) | ((uint16_t)z80_mem_read(ctx, nn + 1) << 8); executed += 20; break; }  /* LD DE,(nn) */
+                if (ed == 0x7B) { uint16_t nn = R16(); z80->sp = z80_mem_read(ctx, nn) | ((uint16_t)z80_mem_read(ctx, nn + 1) << 8); executed += 20; break; }  /* LD SP,(nn) */
+                if (ed == 0x4A) { z80_ed_adc_hl_rr(z80, af, z80->hl, z80->bc); executed += 15; break; }  /* ADC HL,BC */
+                if (ed == 0x5A) { z80_ed_adc_hl_rr(z80, af, z80->hl, z80->de); executed += 15; break; }  /* ADC HL,DE */
+                if (ed == 0x6A) { z80_ed_adc_hl_rr(z80, af, z80->hl, z80->hl); executed += 15; break; }  /* ADC HL,HL */
+                if (ed == 0x7A) { z80_ed_adc_hl_rr(z80, af, z80->hl, z80->sp); executed += 15; break; }  /* ADC HL,SP */
+                if (ed == 0x42) { z80_ed_sbc_hl_rr(z80, af, z80->hl, z80->bc); executed += 15; break; }  /* SBC HL,BC */
+                if (ed == 0x52) { z80_ed_sbc_hl_rr(z80, af, z80->hl, z80->de); executed += 15; break; }  /* SBC HL,DE */
+                if (ed == 0x62) { z80_ed_sbc_hl_rr(z80, af, z80->hl, z80->hl); executed += 15; break; }  /* SBC HL,HL */
+                if (ed == 0x72) { z80_ed_sbc_hl_rr(z80, af, z80->hl, z80->sp); executed += 15; break; }  /* SBC HL,SP */
+                if (ed == 0xA0) {  /* LDI */
+                    uint8_t v = z80_mem_read(ctx, z80->hl);
+                    W8(z80->de, v);
+                    z80->hl++;
+                    z80->de++;
+                    z80->bc--;
+                    af[0] = (uint8_t)((af[0] & C) | (z80->bc ? P : 0));
+                    executed += 16;
+                    break;
+                }
+                if (ed == 0xA8) {  /* LDD */
+                    uint8_t v = z80_mem_read(ctx, z80->hl);
+                    W8(z80->de, v);
+                    z80->hl--;
+                    z80->de--;
+                    z80->bc--;
+                    af[0] = (uint8_t)((af[0] & C) | (z80->bc ? P : 0));
+                    executed += 16;
+                    break;
+                }
+                if (ed == 0xA1) {  /* CPI */
+                    uint8_t v = z80_mem_read(ctx, z80->hl);
+                    uint8_t a = af[1];
+                    uint8_t res = (uint8_t)(a - v);
+                    z80->hl++;
+                    z80->bc--;
+                    uint8_t f = (uint8_t)((af[0] & C) | N);
+                    if (res == 0)
+                        f |= Z;
+                    if (res & 0x80u)
+                        f |= S;
+                    if (((a ^ v ^ res) & 0x10u) != 0)
+                        f |= H;
+                    if (z80->bc != 0)
+                        f |= P;
+                    af[0] = f;
+                    executed += 16;
+                    break;
+                }
+                if (ed == 0xA9) {  /* CPD */
+                    uint8_t v = z80_mem_read(ctx, z80->hl);
+                    uint8_t a = af[1];
+                    uint8_t res = (uint8_t)(a - v);
+                    z80->hl--;
+                    z80->bc--;
+                    uint8_t f = (uint8_t)((af[0] & C) | N);
+                    if (res == 0)
+                        f |= Z;
+                    if (res & 0x80u)
+                        f |= S;
+                    if (((a ^ v ^ res) & 0x10u) != 0)
+                        f |= H;
+                    if (z80->bc != 0)
+                        f |= P;
+                    af[0] = f;
+                    executed += 16;
+                    break;
+                }
                 if (ed == 0xB0) {  /* LDIR */
                     uint8_t v = z80_mem_read(ctx, z80->hl);
                     W8(z80->de, v);
                     z80->de++; z80->hl++; z80->bc--;
                     af[1] &= ~(H|N|P);
                     if (z80->bc) { z80->pc -= 2; af[1] |= P; }
+                    executed += (z80->bc != 0) ? 21 : 16;
+                    break;
+                }
+                if (ed == 0xB8) {  /* LDDR */
+                    uint8_t v = z80_mem_read(ctx, z80->hl);
+                    W8(z80->de, v);
+                    z80->de--; z80->hl--; z80->bc--;
+                    af[1] &= ~(H|N|P);
+                    if (z80->bc) { z80->pc -= 2; af[1] |= P; }
+                    executed += (z80->bc != 0) ? 21 : 16;
+                    break;
+                }
+                if (ed == 0xA2) {  /* INI: IN (C),(HL) → (HL); HL++; B-- */
+                    uint8_t v = z80_port_in(ctx, bc[0]);
+                    W8(z80->hl, v);
+                    z80->hl++;
+                    bc[1] = (uint8_t)(bc[1] - 1u);
+                    uint8_t b = bc[1];
+                    af[0] &= (uint8_t)~(S | Z | H | P | N | C);
+                    af[0] |= N;
+                    if (b == 0)
+                        af[0] |= Z;
+                    executed += 12;
+                    break;
+                }
+                if (ed == 0xA3) {  /* OUTI */
+                    uint8_t v = z80_mem_read(ctx, z80->hl);
+                    z80_port_out(ctx, bc[0], v);
+                    z80->hl++;
+                    bc[1] = (uint8_t)(bc[1] - 1u);
+                    uint8_t b = bc[1];
+                    af[0] &= (uint8_t)~(S | Z | H | P | N | C);
+                    af[0] |= N;
+                    if (b == 0)
+                        af[0] |= Z;
                     executed += 16;
+                    break;
+                }
+                if (ed == 0xB2) {  /* INIR */
+                    uint8_t v = z80_port_in(ctx, bc[0]);
+                    W8(z80->hl, v);
+                    z80->hl++;
+                    bc[1] = (uint8_t)(bc[1] - 1u);
+                    uint8_t b = bc[1];
+                    af[0] &= (uint8_t)~(S | Z | H | P | N | C);
+                    af[0] |= N;
+                    if (b == 0)
+                        af[0] |= Z;
+                    if (b != 0)
+                        z80->pc -= 2;
+                    executed += (b != 0) ? 21 : 16;
+                    break;
+                }
+                if (ed == 0xBA) {  /* INDR */
+                    uint8_t v = z80_port_in(ctx, bc[0]);
+                    W8(z80->hl, v);
+                    z80->hl--;
+                    bc[1] = (uint8_t)(bc[1] - 1u);
+                    uint8_t b = bc[1];
+                    af[0] &= (uint8_t)~(S | Z | H | P | N | C);
+                    af[0] |= N;
+                    if (b == 0)
+                        af[0] |= Z;
+                    if (b != 0)
+                        z80->pc -= 2;
+                    executed += (b != 0) ? 21 : 16;
+                    break;
+                }
+                if (ed == 0xAB) {  /* OUTD */
+                    uint8_t v = z80_mem_read(ctx, z80->hl);
+                    z80_port_out(ctx, bc[0], v);
+                    z80->hl--;
+                    bc[1] = (uint8_t)(bc[1] - 1u);
+                    uint8_t b = bc[1];
+                    af[0] &= (uint8_t)~(S | Z | H | P | N | C);
+                    af[0] |= N;
+                    if (b == 0)
+                        af[0] |= Z;
+                    executed += 16;
+                    break;
+                }
+                if (ed == 0xB3) {  /* OTIR: OUT (C),(HL); HL++; B-- */
+                    uint8_t v = z80_mem_read(ctx, z80->hl);
+                    z80_port_out(ctx, bc[0], v);
+                    z80->hl++;
+                    bc[1] = (uint8_t)(bc[1] - 1u);
+                    uint8_t b = bc[1];
+                    af[0] &= (uint8_t)~(S | Z | H | P | N | C);
+                    af[0] |= N;
+                    if (b == 0)
+                        af[0] |= Z;
+                    if (b != 0)
+                        z80->pc -= 2;
+                    executed += (b != 0) ? 21 : 16;
+                    break;
+                }
+                if (ed == 0xBB) {  /* OTDR: OUT (C),(HL); HL--; B-- */
+                    uint8_t v = z80_mem_read(ctx, z80->hl);
+                    z80_port_out(ctx, bc[0], v);
+                    z80->hl--;
+                    bc[1] = (uint8_t)(bc[1] - 1u);
+                    uint8_t b = bc[1];
+                    af[0] &= (uint8_t)~(S | Z | H | P | N | C);
+                    af[0] |= N;
+                    if (b == 0)
+                        af[0] |= Z;
+                    if (b != 0)
+                        z80->pc -= 2;
+                    executed += (b != 0) ? 21 : 16;
                     break;
                 }
                 /* ED desconocido: tratar como NOP */

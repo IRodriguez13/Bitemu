@@ -19,6 +19,7 @@ void genesis_mem_init(genesis_mem_t *mem)
 {
     memset(mem, 0, sizeof(*mem));
     mem->sram_bytes = GEN_SRAM_SIZE;
+    mem->bus_read_latch = 0xFF;
 }
 
 void genesis_mem_apply_sram_header_ie32(genesis_mem_t *mem, const uint8_t *range_be32)
@@ -54,6 +55,7 @@ void genesis_mem_reset(genesis_mem_t *mem)
         for (int i = 0; i < GEN_SSF2_SLOT_COUNT; i++)
             mem->ssf2_bank[i] = (uint8_t)i;
     }
+    mem->bus_read_latch = 0xFF;
     /* sram no se borra; sram_enabled se setea en load_rom si header tiene "RA" */
 }
 
@@ -192,14 +194,15 @@ uint8_t genesis_joypad_read_byte(genesis_mem_t *mem, int port, int byte_sel)
     return b;
 }
 
-/* Open bus 68k en zona sin chip seleccionado: pull-ups ≈ 0xFF; sin prefetch/último dato en bus. */
-static uint8_t genesis_open_bus_read_u8(uint32_t addr)
+/* Open bus 68k aprox.: mezcla de dirección y último byte leído (no prefetch 68k). */
+static uint8_t genesis_open_bus_read_u8(const genesis_mem_t *mem, uint32_t addr)
 {
-    (void)addr;
-    return (uint8_t)GEN_IO_UNMAPPED_READ;
+    uint32_t mix = (uint32_t)addr ^ ((uint32_t)addr >> 1) ^ ((uint32_t)addr >> 7)
+                 ^ ((uint32_t)mem->bus_read_latch * 0x9Eu);
+    return (uint8_t)(0x40u | (mix & 0x3Fu));
 }
 
-uint8_t genesis_mem_read8(genesis_mem_t *mem, uint32_t addr)
+static uint8_t genesis_mem_read8_impl(genesis_mem_t *mem, uint32_t addr)
 {
     /* SRAM: 0x200000-0x20FFFF. Con lock-on Sonic 2 & K, A130F1=1 mapea patch en 0x300000, no SRAM. */
     if (genesis_addr_in_sram(addr) && !mem->lockon_has_patch)
@@ -209,8 +212,10 @@ uint8_t genesis_mem_read8(genesis_mem_t *mem, uint32_t addr)
         if (mem->sram_present && !mem->sram_enabled)
             return GEN_IO_UNMAPPED_READ;
     }
-    if (genesis_addr_in_rom(addr) && mem->rom)
+    if (genesis_addr_in_rom(addr))
     {
+        if (!mem->rom)
+            return (uint8_t)GEN_IO_UNMAPPED_READ;
         uint32_t off = rom_phys_offset(mem, rom_addr(addr));
         if (off < mem->rom_size)
             return mem->rom[off];
@@ -270,13 +275,36 @@ uint8_t genesis_mem_read8(genesis_mem_t *mem, uint32_t addr)
             int fetch = (addr == GEN_ADDR_VDP_CTRL);
             return gen_vdp_read_status_byte(mem->vdp, fetch);
         }
+        if (addr == GEN_ADDR_VDP_DATA || addr == GEN_ADDR_VDP_DATA + 1
+            || addr == GEN_ADDR_VDP_DATA + 2 || addr == GEN_ADDR_VDP_DATA + 3)
+        {
+            if (mem->cart_requires_tmss && !mem->tmss_unlocked
+                && gen_vdp_is_vram_read_mode(mem->vdp))
+                return (uint8_t)GEN_IO_UNMAPPED_READ;
+            return gen_vdp_read_data_byte(mem->vdp, addr & 1u);
+        }
         return GEN_IO_VERSION_VAL;
     }
-    return genesis_open_bus_read_u8(addr);
+    return genesis_open_bus_read_u8(mem, addr);
+}
+
+uint8_t genesis_mem_read8(genesis_mem_t *mem, uint32_t addr)
+{
+    uint8_t r = genesis_mem_read8_impl(mem, addr);
+    mem->bus_read_latch = r;
+    return r;
 }
 
 uint16_t genesis_mem_read16(genesis_mem_t *mem, uint32_t addr)
 {
+    if (genesis_addr_in_vdp(addr) && mem->vdp
+        && (addr == GEN_ADDR_VDP_DATA || addr == GEN_ADDR_VDP_DATA + 2))
+    {
+        if (mem->cart_requires_tmss && !mem->tmss_unlocked
+            && gen_vdp_is_vram_read_mode(mem->vdp))
+            return 0xFFFF;
+        return gen_vdp_read_data_word(mem->vdp);
+    }
     uint16_t hi = (uint16_t)genesis_mem_read8(mem, addr);
     uint16_t lo = (uint16_t)genesis_mem_read8(mem, addr + 1);
     return (hi << 8) | lo;
@@ -436,9 +464,12 @@ void genesis_mem_write16(genesis_mem_t *mem, uint32_t addr, uint16_t val)
             *mem->z80_reset = (uint8_t)(val & 0xFF);
         return;
     }
-    /* TMSS: 16-bit write; no-op */
     if (genesis_addr_in_tmss(addr))
+    {
+        genesis_mem_write8(mem, addr, (uint8_t)(val >> 8));
+        genesis_mem_write8(mem, addr + 1, (uint8_t)(val & 0xFF));
         return;
+    }
     genesis_mem_write8(mem, addr, (uint8_t)(val >> 8));
     genesis_mem_write8(mem, addr + 1, (uint8_t)(val & 0xFF));
 }

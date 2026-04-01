@@ -5,7 +5,14 @@
 #include "cycle_sym.h"
 #include <stddef.h>
 #include <string.h>
+#if defined(__GNUC__) || defined(__clang__)
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wunused-parameter"
+#endif
 #include "../gen/cycles_gperf.h"
+#if defined(__GNUC__) || defined(__clang__)
+#pragma GCC diagnostic pop
+#endif
 #include "../gen/cycle_mnemonic_tables.h"
 
 static void be1_op_key(char *k2, uint8_t op)

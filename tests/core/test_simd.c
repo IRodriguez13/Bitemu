@@ -8,6 +8,7 @@
 #include "test_harness.h"
 #include "core/simd/simd.h"
 #include <stdint.h>
+#include <string.h>
 
 TEST(simd_clip_i32_saturates)
 {
@@ -48,10 +49,36 @@ TEST(simd_ring_pull_scaled_clip)
     ASSERT_EQ((int)dst[1], (int)(int32_t)(-2000 * 0.5f));
 }
 
+TEST(simd_fill_rgb888_triplet)
+{
+    bitemu_simd_init();
+    uint8_t a[192];
+    uint8_t b[192];
+    bitemu_fill_rgb888(a, sizeof a, 9, 40, 255);
+    for (size_t i = 0; i < sizeof a; i += 3)
+    {
+        b[i] = 9;
+        b[i + 1] = 40;
+        b[i + 2] = 255;
+    }
+    ASSERT_EQ(memcmp(a, b, sizeof a), 0);
+}
+
+TEST(simd_fill_rgb888_gray)
+{
+    bitemu_simd_init();
+    uint8_t buf[100];
+    bitemu_fill_rgb888(buf, sizeof buf, 42, 42, 42);
+    for (size_t i = 0; i < sizeof buf; i++)
+        ASSERT_EQ((unsigned)buf[i], 42u);
+}
+
 void run_simd_tests(void)
 {
     SUITE("SIMD");
     RUN(simd_clip_i32_saturates);
     RUN(simd_ring_pull_unity_volume_wraps_rd);
     RUN(simd_ring_pull_scaled_clip);
+    RUN(simd_fill_rgb888_triplet);
+    RUN(simd_fill_rgb888_gray);
 }

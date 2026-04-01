@@ -27,7 +27,8 @@ struct gen_vdp {
     uint16_t vsram[GEN_VDP_VSRAM_SIZE];
     uint16_t addr_reg;       /* address latch (14 bits) */
     uint8_t code_reg;       /* CD0-CD3: access mode */
-    uint8_t pending_hi;     /* high word of 32-bit command */
+    uint8_t _pad_cmd;        /* alinear pending_hi (16-bit palabra alta del comando) */
+    uint16_t pending_hi;     /* primera palabra del comando VDP 32-bit */
     int addr_inc;           /* auto-increment (reg 0x0F) */
 
     /* Timing: ciclos acumulados en frame actual */
@@ -55,6 +56,13 @@ struct gen_vdp {
     /* IRQ al 68k: pendientes internos (el bit F del status refleja “algo pendiente”). */
     uint8_t irq_vint_pending;
     uint8_t irq_hint_pending;
+
+    /* Lectura puerto datos: palabra VRAM + reparto byte alto/bajo (68k big-endian). */
+    uint16_t data_read_latch;
+    uint8_t data_read_latch_valid;
+    /* FIFO puerto datos (MVP): palabras escritas acumuladas hasta drenarse en gen_vdp_step. */
+    uint8_t fifo_word_backlog;
+    uint32_t fifo_drain_acc;
 };
 
 void gen_vdp_init(gen_vdp_t *vdp);
@@ -87,6 +95,10 @@ void gen_vdp_step(gen_vdp_t *vdp, int cycles);
 uint16_t gen_vdp_read_status(gen_vdp_t *vdp);
 uint8_t gen_vdp_read_status_byte(gen_vdp_t *vdp, int fetch);
 uint16_t gen_vdp_read_hv(gen_vdp_t *vdp);
+
+int gen_vdp_is_vram_read_mode(const gen_vdp_t *vdp);
+uint16_t gen_vdp_read_data_word(gen_vdp_t *vdp);
+uint8_t gen_vdp_read_data_byte(gen_vdp_t *vdp, unsigned addr_odd);
 
 /* Interrupciones: nivel pendiente (4=HBlank, 6=VBlank) o 0 si ninguna */
 int gen_vdp_pending_irq_level(gen_vdp_t *vdp);
