@@ -1,13 +1,14 @@
-# CI: compila y testea en cada push/PR para prevenir regresiones.
-# El release (release.yml) se ejecuta solo al hacer push de un tag v*.
+# CI: compila y testea en cada push/PR para prevenir regresiones (sin empaquetado ni deploy).
+# Misma lógica en todas las ramas listadas; deploy y artefactos van solo en release.yml (tags v*).
+# dev: push (y PR hacia dev) actúan como primera barrera de calidad antes de integrar a main/master.
 
 name: CI
 
 on:
   push:
-    branches: [main, master, testing]
+    branches: [main, master, testing, dev]
   pull_request:
-    branches: [main, master, testing]
+    branches: [main, master, testing, dev]
 
 jobs:
   build-and-test:
