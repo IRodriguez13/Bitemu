@@ -9,6 +9,7 @@
 
 #include "cpu.h"
 #include "cpu_internal.h"
+#include "cycle_sym.h"
 #include "../genesis_constants.h"
 #include "../vdp/vdp.h"
 #include <string.h>
@@ -78,6 +79,25 @@ int gen_op_abcd(gen_cpu_t *, genesis_mem_t *, uint16_t);
 int gen_op_sbcd(gen_cpu_t *, genesis_mem_t *, uint16_t);
 int gen_op_nbcd(gen_cpu_t *, genesis_mem_t *, uint16_t);
 int gen_op_illegal(gen_cpu_t *, genesis_mem_t *);
+int gen_op_line_a(gen_cpu_t *, genesis_mem_t *);
+int gen_op_line_f(gen_cpu_t *, genesis_mem_t *);
+
+static void gen_cpu_refill_prefetch(gen_cpu_t *cpu, genesis_mem_t *mem)
+{
+    if (!mem || (cpu->pc & 1u))
+    {
+        cpu->prefetch_valid = 0;
+        return;
+    }
+    cpu->ir_prefetch = genesis_mem_read16(mem, cpu->pc);
+    cpu->prefetch_addr = cpu->pc;
+    cpu->prefetch_valid = 1;
+}
+
+void gen_cpu_sync_prefetch(gen_cpu_t *cpu, genesis_mem_t *mem)
+{
+    gen_cpu_refill_prefetch(cpu, mem);
+}
 
 void gen_cpu_init(gen_cpu_t *cpu)
 {
@@ -100,11 +120,20 @@ void gen_cpu_reset(gen_cpu_t *cpu, genesis_mem_t *mem)
     cpu->last_opcode = 0x4E71u; /* NOP (prefetch/sync neutro) */
     cpu->cycles = 0;
     cpu->stopped = 0;
+    cpu->prefetch_valid = 0;
+    gen_cpu_refill_prefetch(cpu, mem);
 }
 
 int gen_cpu_stopped(const gen_cpu_t *cpu)
 {
     return cpu ? cpu->stopped : 0;
+}
+
+int gen_cpu_last_opcode_cycles_ref(const gen_cpu_t *cpu)
+{
+    if (!cpu)
+        return 0;
+    return gen_cpu_cycles_ref_line_nibble(cpu->last_opcode);
 }
 
 /* Toma interrupción: retorna ciclos consumidos (0 si no hubo) */
@@ -157,6 +186,7 @@ int gen_cpu_step(gen_cpu_t *cpu, genesis_mem_t *mem, int max_cycles)
     if (irq_cycles > 0)
     {
         cpu->cycles = irq_cycles;
+        gen_cpu_refill_prefetch(cpu, mem);
         return irq_cycles;
     }
 
@@ -169,7 +199,11 @@ int gen_cpu_step(gen_cpu_t *cpu, genesis_mem_t *mem, int max_cycles)
     }
 
     uint32_t ipc = cpu->pc;
-    uint16_t op = genesis_mem_read16(mem, cpu->pc);
+    uint16_t op;
+    if (cpu->prefetch_valid && cpu->prefetch_addr == cpu->pc)
+        op = cpu->ir_prefetch;
+    else
+        op = genesis_mem_read16(mem, cpu->pc);
     cpu->last_opcode = op;
     cpu->pc += 2;
     cpu->inst_pc = ipc;
@@ -372,11 +406,11 @@ int gen_cpu_step(gen_cpu_t *cpu, genesis_mem_t *mem, int max_cycles)
                 cycles = gen_op_illegal(cpu, mem);
         }
         break;
-    case 10:  /* LINE A (0xAxxx): no instrucción válida en 68000 base → excepción */
-        cycles = gen_op_illegal(cpu, mem);
+    case 10:  /* LINE A (0xAxxx): vector 10 en 68000 sin coprocesador */
+        cycles = gen_op_line_a(cpu, mem);
         break;
-    case 15:  /* LINE F (0xFxxx): reservado / coprocesador → ilegal en 68000 */
-        cycles = gen_op_illegal(cpu, mem);
+    case 15:  /* LINE F (0xFxxx): vector 11 */
+        cycles = gen_op_line_f(cpu, mem);
         break;
     default:
         cycles = gen_op_illegal(cpu, mem);
@@ -388,6 +422,7 @@ int gen_cpu_step(gen_cpu_t *cpu, genesis_mem_t *mem, int max_cycles)
         cycles = cpu->cycle_override;
         cpu->cycle_override = 0;
     }
+    gen_cpu_refill_prefetch(cpu, mem);
     cpu->cycles = cycles;
     return cycles;
 }

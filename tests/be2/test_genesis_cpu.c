@@ -457,6 +457,21 @@ TEST(gen_cpu_cycles_ref_line_nibble_moveq)
     ASSERT_EQ(gen_cpu_cycles_ref_line_nibble(op), gen_cpu_line_cycles_ref(7u));
 }
 
+TEST(gen_cpu_last_opcode_cycles_ref_after_nop)
+{
+    setup();
+    uint8_t rom[16];
+    memset(rom, 0, sizeof(rom));
+    rom[0] = 0x4E;
+    rom[1] = 0x71;
+    impl.mem.rom = rom;
+    impl.mem.rom_size = sizeof(rom);
+    gen_cpu_init(&impl.cpu);
+    impl.cpu.pc = 0;
+    gen_cpu_step(&impl.cpu, &impl.mem, 100);
+    ASSERT_EQ(gen_cpu_last_opcode_cycles_ref(&impl.cpu), gen_cpu_line_cycles_ref(4u));
+}
+
 /* PC impar al opcode → vector 3 (Address Error) */
 TEST(gen_cpu_odd_pc_address_error)
 {
@@ -502,19 +517,18 @@ TEST(gen_cpu_move_w_odd_ea_address_error)
     ASSERT_EQ(impl.cpu.a[0], 1u);
 }
 
-/* LINE F (0xF000): ilegal en 68000 base → vector 4 */
-TEST(gen_cpu_line_f_illegal)
+/* LINE F (0xF000): 68000 sin FPU → vector 11 @ 0x2C */
+TEST(gen_cpu_line_f_vector11)
 {
     setup();
     uint8_t rom[0x400];
     memset(rom, 0, sizeof(rom));
     rom[0] = 0xF0;
     rom[1] = 0x00;
-    /* Vector 4 @ 0x10 */
-    rom[0x10] = 0x00;
-    rom[0x11] = 0x00;
-    rom[0x12] = 0x02;
-    rom[0x13] = 0x00;
+    rom[0x2C] = 0x00;
+    rom[0x2D] = 0x00;
+    rom[0x2E] = 0x02;
+    rom[0x2F] = 0x00;
     impl.mem.rom = rom;
     impl.mem.rom_size = sizeof(rom);
 
@@ -526,11 +540,75 @@ TEST(gen_cpu_line_f_illegal)
     ASSERT_EQ(impl.cpu.pc, 0x200);
 }
 
+/* LINE A (0xA000): 68000 sin línea A definida → vector 10 @ 0x28 */
+TEST(gen_cpu_line_a_vector10)
+{
+    setup();
+    uint8_t rom[0x400];
+    memset(rom, 0, sizeof(rom));
+    rom[0] = 0xA0;
+    rom[1] = 0x00;
+    rom[0x28] = 0x00;
+    rom[0x29] = 0x00;
+    rom[0x2A] = 0x03;
+    rom[0x2B] = 0x00;
+    impl.mem.rom = rom;
+    impl.mem.rom_size = sizeof(rom);
+
+    impl.cpu.pc = 0;
+    impl.cpu.a[7] = 0x00FF0000;
+
+    int c = gen_cpu_step(&impl.cpu, &impl.mem, 100);
+    ASSERT_TRUE(c > 0);
+    ASSERT_EQ(impl.cpu.pc, 0x300);
+}
+
+/* ADDQ.B #1,D0: 0x5200; 0xFF + 1 → 0, Z y C */
+TEST(gen_cpu_addq_b_d0)
+{
+    setup();
+    uint8_t rom[0x200];
+    memset(rom, 0, sizeof(rom));
+    rom[0] = 0x52;
+    rom[1] = 0x00;
+    impl.mem.rom = rom;
+    impl.mem.rom_size = sizeof(rom);
+    impl.cpu.pc = 0;
+    impl.cpu.d[0] = 0xFFu;
+    int c = gen_cpu_step(&impl.cpu, &impl.mem, 100);
+    ASSERT_TRUE(c > 0);
+    ASSERT_EQ(impl.cpu.d[0] & 0xFFu, 0u);
+    ASSERT_TRUE((impl.cpu.sr & 0x0005u) != 0);
+}
+
+/* Tras un NOP, la cola de prefetch apunta a PC+2 con la palabra siguiente. */
+TEST(gen_cpu_prefetch_queue_pc_plus_2)
+{
+    setup();
+    uint8_t rom[0x200];
+    memset(rom, 0, sizeof(rom));
+    rom[0] = 0x4E;
+    rom[1] = 0x71;
+    rom[2] = 0x4E;
+    rom[3] = 0x71;
+    impl.mem.rom = rom;
+    impl.mem.rom_size = sizeof(rom);
+    gen_cpu_init(&impl.cpu);
+    impl.cpu.pc = 0;
+    impl.cpu.a[7] = 0x00FF0000;
+    gen_cpu_step(&impl.cpu, &impl.mem, 100);
+    ASSERT_EQ((unsigned)impl.cpu.pc, 2u);
+    ASSERT_TRUE(impl.cpu.prefetch_valid != 0);
+    ASSERT_EQ((unsigned)impl.cpu.prefetch_addr, 2u);
+    ASSERT_EQ((unsigned)impl.cpu.ir_prefetch, 0x4E71u);
+}
+
 void run_genesis_cpu_tests(void)
 {
     SUITE("Genesis CPU 68000");
     RUN(gen_cpu_line_cycles_ref_table_nonempty);
     RUN(gen_cpu_cycles_ref_line_nibble_moveq);
+    RUN(gen_cpu_last_opcode_cycles_ref_after_nop);
     RUN(gen_cpu_rtd);
     RUN(gen_cpu_trapv_no_trap);
     RUN(gen_cpu_lea_pc_rel);
@@ -552,5 +630,8 @@ void run_genesis_cpu_tests(void)
     RUN(gen_cpu_divu_zero_vector5);
     RUN(gen_cpu_odd_pc_address_error);
     RUN(gen_cpu_move_w_odd_ea_address_error);
-    RUN(gen_cpu_line_f_illegal);
+    RUN(gen_cpu_line_f_vector11);
+    RUN(gen_cpu_line_a_vector10);
+    RUN(gen_cpu_addq_b_d0);
+    RUN(gen_cpu_prefetch_queue_pc_plus_2);
 }

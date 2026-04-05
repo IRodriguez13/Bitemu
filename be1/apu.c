@@ -5,8 +5,7 @@
  * Temporizadores por canal cuentan hacia abajo; al llegar a 0 avanzan
  * la posición de duty/onda/LFSR y recargan el periodo.
  *
- * Frame sequencer (512 Hz): controla length counters (256 Hz) y
- * volume envelope (64 Hz).  Sweep (ch1, 128 Hz) queda como TODO.
+ * Frame sequencer (512 Hz): length (256 Hz), envelope (64 Hz), sweep ch1 (128 Hz en pasos 2/6).
  *
  * Copyright (c) 2026 Iván Ezequiel Rodriguez
  * SPDX-License-Identifier: LGPL-3.0-or-later

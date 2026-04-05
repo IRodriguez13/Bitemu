@@ -37,7 +37,7 @@
 
 TEST(abi_gen_cpu_layout)
 {
-    ASSERT_MIN_SIZE(gen_cpu_t, 88);
+    ASSERT_MIN_SIZE(gen_cpu_t, 96);
 
     ASSERT_OFFSET(gen_cpu_t, d,             0);
     ASSERT_OFFSET(gen_cpu_t, a,             32);
@@ -47,6 +47,9 @@ TEST(abi_gen_cpu_layout)
     ASSERT_OFFSET(gen_cpu_t, last_opcode,   74);
     ASSERT_OFFSET(gen_cpu_t, cycles,        76);
     ASSERT_OFFSET(gen_cpu_t, cycle_override, 80);
+    ASSERT_OFFSET(gen_cpu_t, prefetch_addr, 88);
+    ASSERT_OFFSET(gen_cpu_t, ir_prefetch,   92);
+    ASSERT_OFFSET(gen_cpu_t, prefetch_valid, 94);
 }
 
 /* ── VDP layout (frozen at BST v3) ── */
@@ -117,7 +120,7 @@ TEST(abi_gen_ym2612_layout)
 
 TEST(abi_gen_z80_layout)
 {
-    ASSERT_MIN_SIZE(gen_z80_t, 20);
+    ASSERT_MIN_SIZE(gen_z80_t, 25);
 
     ASSERT_OFFSET(gen_z80_t, pc,   0);
     ASSERT_OFFSET(gen_z80_t, sp,   2);
@@ -133,6 +136,8 @@ TEST(abi_gen_z80_layout)
     ASSERT_OFFSET(gen_z80_t, iff2, 19);
     ASSERT_OFFSET(gen_z80_t, halted, 20);
     ASSERT_OFFSET(gen_z80_t, bank, 21);
+    ASSERT_OFFSET(gen_z80_t, af_prime, 22);
+    ASSERT_OFFSET(gen_z80_t, ei_countdown, 24);
 }
 
 void run_genesis_abi_guard_tests(void)

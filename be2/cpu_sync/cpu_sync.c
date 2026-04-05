@@ -7,7 +7,8 @@
  * STOP con ciclos y fetch alineados; marco Address Error largo del 68000 no simulado (solo stack tipo trap).
  *
  * Profiling del **host** (gprof): conviene cuando el core ya es estable para la ROM medida; ver Documentation/07-gprof.md.
- * Ciclos de referencia por **línea** de opcode: `gen_cpu_line_cycles_ref` / `gen_cpu_cycles_ref_line_nibble` (sin EA).
+ * Ciclos de referencia por **línea** de opcode: `gen_cpu_line_cycles_ref`, `gen_cpu_cycles_ref_line_nibble`,
+ * `gen_cpu_last_opcode_cycles_ref` tras `gen_cpu_step` (sin EA).
  *
  * SPDX-License-Identifier: LGPL-3.0-or-later
  */
@@ -63,10 +64,9 @@ int gen_cpu_sync_m68k_bus_extra_cycles(int cycles_68k_slice, const struct gen_cp
             extra += 1;
     }
 
-    if (vdp && (vdp->status_reg & GEN_VDP_STATUS_DMA) && !vdp->dma_fill_pending)
+    if (vdp && gen_vdp_m68k_bus_slice_extra(vdp))
         extra += 1;
 
-    /* Reserva de bus VDP DMA 68k: el stall principal sigue en dma_stall_68k. */
     (void)cycles_68k_slice;
     if (extra > 3)
         extra = 3;

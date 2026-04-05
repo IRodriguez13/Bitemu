@@ -67,6 +67,8 @@ enum {
  */
 enum {
     GEN_YM2612_WRITE_BUSY_CYCLES_68K = 88,
+    /* Escritura de dirección (puerto par): ~2.5 µs aprox. en bus 68k */
+    GEN_YM2612_ADDR_BUSY_CYCLES_68K = 28,
 };
 enum {
     GEN_SAMPLE_RATE          = 44100,
@@ -251,6 +253,10 @@ enum {
     GEN_VECTOR_ZERO_DIV  = 5,        /* DIVU/DIVS por cero */
     GEN_VECTOR_CHK       = 6,        /* CHK out of bounds */
     GEN_VECTOR_PRIVILEGE_VIOLATION = 8,
+
+    /* A-line / F-line: coprocesador no implementado en 68000 base (Genesis). */
+    GEN_VECTOR_LINE_A            = 10,
+    GEN_VECTOR_LINE_F            = 11,
 };
 
 /* ===== CPU 68000: opcodes ===== */

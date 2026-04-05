@@ -1,8 +1,9 @@
 /**
  * BE2 — línea de instrucción 68000 → etiqueta y ciclos referencia (gperf).
  *
- * Límite actual: la tabla por *línea* no sustituye ciclos exactos por EA/modos de acceso;
- * ampliar cycles_gperf / cycle_line_names y acoplar al descodificador 68k queda pendiente (ver cpu_sync).
+ * La tabla por *línea* (nibble alto del opcode) no incluye ciclos por modo de direccionamiento.
+ * Acople al core: tras cada `gen_cpu_step`, `gen_cpu_last_opcode_cycles_ref(&cpu)` usa el mismo
+ * valor que `gen_cpu_cycles_ref_line_nibble(cpu.last_opcode)` para métricas o comparación con gentest.
  */
 
 #include "cycle_sym.h"

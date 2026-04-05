@@ -48,8 +48,8 @@ uint8_t gen_cpu_sync_z80_ram_contention_read(uint32_t addr);
 
 /**
  * Ciclos 68k extra por modelo burdo: burbuja tras BRA/BSR/Bcc (msb 0x60–0x6F),
- * +1 si VDP marca DMA activo sin fill pendiente. Tope 3 por slice (auditable).
- * cpu/vdp pueden ser NULL (trata como sin extra salvo step).
+ * +1 si `gen_vdp_m68k_bus_slice_extra` (stall DMA restante o DMA activo sin fill).
+ * Tope 3 por slice (auditable). cpu/vdp pueden ser NULL.
  */
 int gen_cpu_sync_m68k_bus_extra_cycles(int cycles_68k_slice, const struct gen_cpu *cpu,
                                        const struct gen_vdp *vdp);

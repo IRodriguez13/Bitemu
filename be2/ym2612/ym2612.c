@@ -168,6 +168,8 @@ void gen_ym2612_write_port(gen_ym2612_t *ym, int port, uint8_t val)
     if ((port & 1) == 0)
     {
         ym->addr[part] = val;
+        if (ym->busy_cycles < GEN_YM2612_ADDR_BUSY_CYCLES_68K)
+            ym->busy_cycles = GEN_YM2612_ADDR_BUSY_CYCLES_68K;
         return;
     }
 

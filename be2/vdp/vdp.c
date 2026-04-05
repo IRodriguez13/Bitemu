@@ -126,6 +126,17 @@ uint32_t gen_vdp_take_dma_stall(gen_vdp_t *vdp)
     return s;
 }
 
+int gen_vdp_m68k_bus_slice_extra(const gen_vdp_t *vdp)
+{
+    if (!vdp)
+        return 0;
+    if (vdp->dma_stall_68k > 0)
+        return 1;
+    if ((vdp->status_reg & GEN_VDP_STATUS_DMA) != 0 && !vdp->dma_fill_pending)
+        return 1;
+    return 0;
+}
+
 static void set_access_mode(gen_vdp_t *vdp, uint8_t code, uint16_t addr)
 {
     vdp->code_reg = code;
@@ -1000,13 +1011,30 @@ uint16_t gen_vdp_read_hv(gen_vdp_t *vdp)
     int cycles_line = vdp->is_pal ? GEN_CYCLES_PER_LINE_PAL : GEN_CYCLES_PER_LINE;
     int active = cycles_line - GEN_VDP_HBLANK_CYCLES;
     int cc = vdp->cycle_counter;
+    if (cc < 0)
+        cc = 0;
+    if (cc >= cycles_line && cycles_line > 0)
+        cc %= cycles_line;
+    int lines_vis = vdp->is_pal ? GEN_SCANLINES_VISIBLE_PAL : GEN_SCANLINES_VISIBLE;
+    int in_vert_blank = vdp->line_counter >= lines_vis;
     int h40 = ((vdp->regs[GEN_VDP_REG_MODE4] & GEN_VDP_H40_MASK) == GEN_VDP_H40_VAL) ? 1 : 0;
     int h_vis_n = h40 ? (int)GEN_VDP_H_VISIBLE_N
                       : (int)GEN_VDP_H_VISIBLE_N * GEN_DISPLAY_WIDTH_H32 / GEN_DISPLAY_WIDTH;
     int h_vis_end = h40 ? (int)GEN_VDP_H_VISIBLE_END
                         : (int)GEN_VDP_H_VISIBLE_END * GEN_DISPLAY_WIDTH_H32 / GEN_DISPLAY_WIDTH;
     int h;
-    if (cc < active)
+    if (in_vert_blank)
+    {
+        /* En líneas de borde vertical el contador H recorre sobre todo el rango blank (sin tramo activo). */
+        int hb_max = 0xFF - (int)GEN_VDP_H_BLANK_START;
+        int hb_den = cycles_line - 1;
+        if (hb_den < 1)
+            hb_den = 1;
+        h = (int)GEN_VDP_H_BLANK_START + (cc * hb_max) / hb_den;
+        if (h > 0xFF)
+            h = 0xFF;
+    }
+    else if (cc < active)
     {
         h = active > 0 ? (cc * h_vis_n) / active : 0;
         if (h > h_vis_end)

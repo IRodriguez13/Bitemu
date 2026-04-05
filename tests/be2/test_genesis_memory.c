@@ -177,8 +177,9 @@ TEST(gen_mem_vdp_write_data)
     genesis_mem_write16(&impl.mem, GEN_ADDR_VDP_CTRL, 0x4000);
     genesis_mem_write16(&impl.mem, GEN_ADDR_VDP_CTRL, 0x0000);
     genesis_mem_write16(&impl.mem, GEN_ADDR_VDP_DATA, 0x1234);
-    /* TODO: verificar vram[addr] cuando el flujo de comandos VDP esté depurado */
-    ASSERT_TRUE(1);
+    ASSERT_EQ(impl.vdp.vram[0], 0x1234u);
+    ASSERT_EQ(impl.vdp.code_reg, (unsigned)GEN_VDP_CODE_VRAM_WRITE);
+    ASSERT_EQ((unsigned)impl.vdp.addr_reg, 2u); /* auto-increment por defecto */
 }
 
 /* SOVR: más de 20 sprites en una línea tras gen_vdp_render */
@@ -286,6 +287,26 @@ TEST(gen_cpu_sync_m68k_bus_extra_vdp_dma)
     vdp.dma_fill_pending = 0;
     cpu.last_opcode = 0x60FF;
     ASSERT_EQ(gen_cpu_sync_m68k_bus_extra_cycles(4, &cpu, &vdp), 2);
+    /* Stall restante sin bit DMA en status (p. ej. tras transferencia ya modelada). */
+    vdp.status_reg &= (uint8_t)~GEN_VDP_STATUS_DMA;
+    vdp.dma_stall_68k = 4u;
+    cpu.last_opcode = 0x4E71;
+    ASSERT_EQ(gen_cpu_sync_m68k_bus_extra_cycles(4, &cpu, &vdp), 1);
+}
+
+TEST(gen_vdp_m68k_bus_slice_extra_matches_dma_stall)
+{
+    gen_vdp_t vdp;
+    gen_vdp_init(&vdp);
+    gen_vdp_reset(&vdp);
+    ASSERT_EQ(gen_vdp_m68k_bus_slice_extra(&vdp), 0);
+    vdp.dma_stall_68k = 1u;
+    ASSERT_EQ(gen_vdp_m68k_bus_slice_extra(&vdp), 1);
+    vdp.dma_stall_68k = 0;
+    vdp.status_reg |= GEN_VDP_STATUS_DMA;
+    ASSERT_EQ(gen_vdp_m68k_bus_slice_extra(&vdp), 1);
+    vdp.dma_fill_pending = 1;
+    ASSERT_EQ(gen_vdp_m68k_bus_slice_extra(&vdp), 0);
 }
 
 TEST(gen_z80_jp_hl_ex_de_ld_sp)
@@ -313,6 +334,344 @@ TEST(gen_z80_jp_hl_ex_de_ld_sp)
     ASSERT_EQ(z.pc, 0x0202);
     gen_z80_step(&z, &impl, 4);
     ASSERT_EQ(z.pc, 0x0203);
+}
+
+TEST(gen_z80_ex_sp_hl_ld_a_i)
+{
+    setup();
+    impl.z80_reset = 0xFF;
+    gen_z80_t z;
+    gen_z80_init(&z);
+    z.pc = 0x0100;
+    z.sp = 0x0200;
+    z.hl = 0x3344;
+    impl.z80_ram[0x200] = 0x99;
+    impl.z80_ram[0x201] = 0x10;
+    impl.z80_ram[0x100] = 0xE3;
+    gen_z80_step(&z, &impl, 19);
+    ASSERT_EQ(z.hl, 0x1099u);
+    ASSERT_EQ((unsigned)impl.z80_ram[0x200], 0x44u);
+    ASSERT_EQ((unsigned)impl.z80_ram[0x201], 0x33u);
+    ASSERT_EQ(z.pc, 0x0101u);
+
+    z.pc = 0x0300;
+    z.i = 0xAB;
+    z.iff2 = 1;
+    z.af = 0x0040; /* flags basura; LD A,I repone A y P/V ← IFF2 */
+    impl.z80_ram[0x300] = 0xED;
+    impl.z80_ram[0x301] = 0x57;
+    gen_z80_step(&z, &impl, 9);
+    ASSERT_EQ((unsigned)(z.af >> 8), 0xABu);
+    ASSERT_EQ(z.pc, 0x0302u);
+    ASSERT_TRUE((z.af & 0xFFu & 0x04u) != 0); /* P/V = IFF2 */
+}
+
+TEST(gen_z80_rlca_rrca_rla_rra)
+{
+    setup();
+    impl.z80_reset = 0xFF;
+    gen_z80_t z;
+    gen_z80_init(&z);
+    z.pc = 0x0100;
+    z.af = (uint16_t)(0x80u << 8); /* A alto, F bajo */
+    impl.z80_ram[0x100] = 0x07; /* RLCA */
+    gen_z80_step(&z, &impl, 4);
+    ASSERT_EQ((unsigned)(z.af >> 8), 0x01u);
+    ASSERT_EQ(z.af & 0xFFu, 0x01u); /* C */
+
+    z.pc = 0x0200;
+    z.af = (uint16_t)(0x01u << 8);
+    impl.z80_ram[0x200] = 0x0F; /* RRCA */
+    gen_z80_step(&z, &impl, 4);
+    ASSERT_EQ((unsigned)(z.af >> 8), 0x80u);
+    ASSERT_EQ(z.af & 0xFFu, 0x01u);
+
+    z.pc = 0x0300;
+    z.af = (uint16_t)(0x80u << 8);
+    impl.z80_ram[0x300] = 0x17; /* RLA */
+    gen_z80_step(&z, &impl, 4);
+    ASSERT_EQ((unsigned)(z.af >> 8), 0u);
+    ASSERT_EQ(z.af & 0xFFu, 0x01u);
+
+    z.pc = 0x0400;
+    z.af = (uint16_t)((0x01u << 8) | 1u); /* A=0x01, C */
+    impl.z80_ram[0x400] = 0x1F; /* RRA */
+    gen_z80_step(&z, &impl, 4);
+    ASSERT_EQ((unsigned)(z.af >> 8), 0x80u);
+    ASSERT_EQ(z.af & 0xFFu, 0x01u);
+}
+
+/* DAA tras suma BCD “99+1”, PUSH/POP IX, JP (IX), NEG */
+TEST(gen_z80_batch_daa_ix_neg)
+{
+    setup();
+    impl.z80_reset = 0xFF;
+    gen_z80_t z;
+    gen_z80_init(&z);
+    z.pc = 0x0100;
+    impl.z80_ram[0x100] = 0x3E;
+    impl.z80_ram[0x101] = 0x99;
+    impl.z80_ram[0x102] = 0xC6;
+    impl.z80_ram[0x103] = 0x01;
+    impl.z80_ram[0x104] = 0x27;
+    gen_z80_step(&z, &impl, 7 + 7 + 4);
+    ASSERT_EQ((unsigned)(z.af >> 8), 0u);
+    ASSERT_TRUE((z.af & 0xFFu & 0x01u) != 0);
+
+    z.pc = 0x0200;
+    z.sp = 0x01F0;
+    z.ix = 0xBEEF;
+    impl.z80_ram[0x200] = 0xDD;
+    impl.z80_ram[0x201] = 0xE5;
+    gen_z80_step(&z, &impl, 15);
+    ASSERT_EQ(z.sp, 0x01EEu);
+    ASSERT_EQ((unsigned)impl.z80_ram[0x1EE], 0xEFu);
+    ASSERT_EQ((unsigned)impl.z80_ram[0x1EF], 0xBEu);
+    impl.z80_ram[0x202] = 0xDD;
+    impl.z80_ram[0x203] = 0xE9;
+    z.ix = 0x0304;
+    gen_z80_step(&z, &impl, 8);
+    ASSERT_EQ(z.pc, 0x0304u);
+
+    z.pc = 0x0400;
+    z.sp = 0x01EE;
+    impl.z80_ram[0x400] = 0xDD;
+    impl.z80_ram[0x401] = 0xE1;
+    gen_z80_step(&z, &impl, 14);
+    ASSERT_EQ(z.ix, 0xBEEFu);
+
+    z.pc = 0x0500;
+    z.af = (uint16_t)((0x05u << 8) | 0x00);
+    impl.z80_ram[0x500] = 0xED;
+    impl.z80_ram[0x501] = 0x44;
+    gen_z80_step(&z, &impl, 8);
+    ASSERT_EQ((unsigned)(z.af >> 8), 0xFBu);
+    ASSERT_TRUE((z.af & 0xFFu & (1u << 1)) != 0); /* N */
+}
+
+/* LD B,(HL) / LD (HL),D / LD C,L vía bloque 0x40–0x7F (default path) */
+TEST(gen_z80_ld_r_r_block)
+{
+    setup();
+    impl.z80_reset = 0xFF;
+    gen_z80_t z;
+    gen_z80_init(&z);
+    z.pc = 0x0100;
+    z.hl = 0x00AA;
+    impl.z80_ram[0xAA] = 0x37;
+    impl.z80_ram[0x100] = 0x46; /* LD B,(HL) */
+    gen_z80_step(&z, &impl, 7);
+    ASSERT_EQ((unsigned)(z.bc >> 8), 0x37u);
+    ASSERT_EQ(z.pc, 0x0101u);
+
+    z.pc = 0x0200;
+    z.hl = 0x00BB;
+    z.de = 0x5500; /* D=0x55 */
+    impl.z80_ram[0x200] = 0x72; /* LD (HL),D */
+    gen_z80_step(&z, &impl, 7);
+    ASSERT_EQ((unsigned)impl.z80_ram[0xBB], 0x55u);
+
+    z.pc = 0x0300;
+    z.bc = 0x1200; /* B=0x12 */
+    z.hl = 0x5600; /* H=0x56 */
+    impl.z80_ram[0x300] = 0x44; /* LD B,H */
+    gen_z80_step(&z, &impl, 4);
+    ASSERT_EQ((unsigned)(z.bc >> 8), 0x56u);
+
+    z.pc = 0x0400;
+    z.bc = 0x00EE; /* C=0xEE */
+    z.hl = 0x0033; /* L=0x33 */
+    impl.z80_ram[0x400] = 0x4D; /* LD C,L */
+    gen_z80_step(&z, &impl, 4);
+    ASSERT_EQ(z.bc & 0xFFu, 0x33u);
+}
+
+/* EX AF,AF'; ADD/LD IX,IY; EX (SP),IX; INC/DEC (IX+d); DD CB / FD CB */
+TEST(gen_z80_batch_ixiy_exaf_cb)
+{
+    setup();
+    impl.z80_reset = 0xFF;
+    gen_z80_t z;
+    gen_z80_init(&z);
+    z.af = 0x1234;
+    z.af_prime = 0xABCD;
+    z.pc = 0x0100;
+    impl.z80_ram[0x100] = 0x08;
+    gen_z80_step(&z, &impl, 4);
+    ASSERT_EQ(z.af, 0xABCDu);
+    ASSERT_EQ(z.af_prime, 0x1234u);
+
+    z.pc = 0x0200;
+    z.ix = 0x1000u;
+    z.bc = 0x0200u;
+    impl.z80_ram[0x200] = 0xDD;
+    impl.z80_ram[0x201] = 0x09;
+    gen_z80_step(&z, &impl, 15);
+    ASSERT_EQ(z.ix, 0x1200u);
+
+    z.pc = 0x0300;
+    impl.z80_ram[0x050] = 0x78;
+    impl.z80_ram[0x051] = 0x56;
+    impl.z80_ram[0x300] = 0xDD;
+    impl.z80_ram[0x301] = 0x2A;
+    impl.z80_ram[0x302] = 0x50;
+    impl.z80_ram[0x303] = 0x00;
+    gen_z80_step(&z, &impl, 20);
+    ASSERT_EQ(z.ix, 0x5678u);
+
+    z.pc = 0x0400;
+    z.ix = 0xBEEFu;
+    impl.z80_ram[0x400] = 0xDD;
+    impl.z80_ram[0x401] = 0x22;
+    impl.z80_ram[0x402] = 0x60;
+    impl.z80_ram[0x403] = 0x01;
+    gen_z80_step(&z, &impl, 20);
+    ASSERT_EQ((unsigned)impl.z80_ram[0x160], 0xEFu);
+    ASSERT_EQ((unsigned)impl.z80_ram[0x161], 0xBEu);
+
+    z.pc = 0x0500;
+    z.ix = 0x2000u;
+    z.sp = 0x01F8u;
+    impl.z80_ram[0x1F8] = 0x11;
+    impl.z80_ram[0x1F9] = 0x22;
+    impl.z80_ram[0x500] = 0xDD;
+    impl.z80_ram[0x501] = 0xE3;
+    gen_z80_step(&z, &impl, 23);
+    ASSERT_EQ(z.ix, 0x2211u);
+    ASSERT_EQ((unsigned)impl.z80_ram[0x1F8], 0x00u);
+    ASSERT_EQ((unsigned)impl.z80_ram[0x1F9], 0x20u);
+
+    z.pc = 0x0600;
+    z.ix = 0x0105u;
+    impl.z80_ram[0x10A] = 0x3Fu;
+    impl.z80_ram[0x600] = 0xDD;
+    impl.z80_ram[0x601] = 0x34;
+    impl.z80_ram[0x602] = 0x05;
+    gen_z80_step(&z, &impl, 23);
+    ASSERT_EQ((unsigned)impl.z80_ram[0x10A], 0x40u);
+
+    z.pc = 0x0700;
+    z.ix = 0x0200u;
+    impl.z80_ram[0x203] = 0x80;
+    impl.z80_ram[0x700]      = 0xDD;
+    impl.z80_ram[0x701]      = 0xCB;
+    impl.z80_ram[0x702]      = 0x03;
+    impl.z80_ram[0x703]      = 0x06; /* RLC (IX+3) */
+    gen_z80_step(&z, &impl, 23);
+    ASSERT_EQ((unsigned)impl.z80_ram[0x203], 0x01u);
+    ASSERT_TRUE((z.af & 0xFFu & 0x01u) != 0);
+
+    z.pc = 0x0800;
+    z.iy = 0x0300u;
+    impl.z80_ram[0x302] = 0x04;
+    impl.z80_ram[0x800] = 0xFD;
+    impl.z80_ram[0x801] = 0xCB;
+    impl.z80_ram[0x802] = 0x02;
+    impl.z80_ram[0x803] = 0x46; /* BIT 0,(IY+2) */
+    gen_z80_step(&z, &impl, 20);
+    ASSERT_TRUE((z.af & 0xFFu & 0x40u) != 0);
+
+    z.pc = 0x0900;
+    z.iy = 0x1000u;
+    impl.z80_ram[0x900] = 0xFD;
+    impl.z80_ram[0x901] = 0xF9;
+    gen_z80_step(&z, &impl, 10);
+    ASSERT_EQ(z.sp, 0x1000u);
+}
+
+/* ALU A,(IX+d)/(IY+d); EI habilita IFF tras la siguiente instrucción */
+TEST(gen_z80_ixiy_alu_ei)
+{
+    setup();
+    impl.z80_reset = 0xFF;
+    gen_z80_t z;
+    gen_z80_init(&z);
+    z.pc = 0x0100;
+    z.ix = 0x0200u;
+    z.af = (uint16_t)(0x10u << 8);
+    impl.z80_ram[0x202] = 0x03;
+    impl.z80_ram[0x100] = 0xDD;
+    impl.z80_ram[0x101] = 0x96;
+    impl.z80_ram[0x102] = 0x02;
+    gen_z80_step(&z, &impl, 19);
+    ASSERT_EQ((unsigned)(z.af >> 8), 0x0Du);
+
+    z.pc = 0x0200;
+    z.iy = 0x0400u;
+    z.af = (uint16_t)(0x03u << 8) | 0x01u; /* A=3, C */
+    impl.z80_ram[0x401] = 0x05;
+    impl.z80_ram[0x200] = 0xFD;
+    impl.z80_ram[0x201] = 0x8E;
+    impl.z80_ram[0x202] = 0x01;
+    gen_z80_step(&z, &impl, 19);
+    ASSERT_EQ((unsigned)(z.af >> 8), 0x09u); /* 3+5+1 */
+
+    z.pc = 0x0300;
+    z.iff1 = z.iff2 = 0;
+    z.ei_countdown = 0;
+    impl.z80_ram[0x300] = 0xFB;
+    impl.z80_ram[0x301] = 0x00;
+    gen_z80_step(&z, &impl, 4);
+    ASSERT_EQ(z.iff1, 0u);
+    gen_z80_step(&z, &impl, 4);
+    ASSERT_EQ(z.iff1, 1u);
+    ASSERT_EQ(z.iff2, 1u);
+
+    z.pc = 0x0400;
+    z.iff1 = 0;
+    z.ei_countdown = 0;
+    impl.z80_ram[0x400] = 0xFB;
+    impl.z80_ram[0x401] = 0xF3;
+    gen_z80_step(&z, &impl, 8);
+    ASSERT_EQ(z.iff1, 0u);
+    ASSERT_EQ(z.ei_countdown, 0u);
+}
+
+/* LD B,(IX+d); LD (IY+d),E; ED RLD / RRD */
+TEST(gen_z80_ld_indexed_rld_rrd)
+{
+    setup();
+    impl.z80_reset = 0xFF;
+    gen_z80_t z;
+    gen_z80_init(&z);
+    z.pc = 0x0100;
+    z.ix = 0x0200u;
+    impl.z80_ram[0x203] = 0xAB;
+    impl.z80_ram[0x100] = 0xDD;
+    impl.z80_ram[0x101] = 0x46;
+    impl.z80_ram[0x102] = 0x03;
+    gen_z80_step(&z, &impl, 19);
+    ASSERT_EQ((unsigned)(z.bc >> 8), 0xABu);
+
+    z.pc = 0x0200;
+    z.iy = 0x0300u;
+    z.de = 0x004Eu;
+    impl.z80_ram[0x302] = 0x00;
+    impl.z80_ram[0x200] = 0xFD;
+    impl.z80_ram[0x201] = 0x73;
+    impl.z80_ram[0x202] = 0x02;
+    gen_z80_step(&z, &impl, 19);
+    ASSERT_EQ((unsigned)impl.z80_ram[0x302], 0x4Eu);
+
+    z.pc = 0x0300;
+    z.hl = 0x00AAu;
+    z.af = (uint16_t)(0x12u << 8);
+    impl.z80_ram[0xAA] = 0x34u;
+    impl.z80_ram[0x300] = 0xED;
+    impl.z80_ram[0x301] = 0x6F;
+    gen_z80_step(&z, &impl, 18);
+    ASSERT_EQ((unsigned)(z.af >> 8), 0x13u);
+    ASSERT_EQ((unsigned)impl.z80_ram[0xAA], 0x42u);
+
+    z.pc = 0x0400;
+    z.hl = 0x00BBu;
+    z.af = (uint16_t)(0x20u << 8);
+    impl.z80_ram[0xBB] = 0xC5u;
+    impl.z80_ram[0x400] = 0xED;
+    impl.z80_ram[0x401] = 0x67;
+    gen_z80_step(&z, &impl, 18);
+    ASSERT_EQ((unsigned)(z.af >> 8), 0x25u);
+    ASSERT_EQ((unsigned)impl.z80_ram[0xBB], 0x0Cu);
 }
 
 TEST(gen_z80_ed_ld_nn_pairs_adc_sbc_hl)
@@ -446,6 +805,40 @@ TEST(gen_z80_cpi_cpd_outi_outd)
     gen_z80_step(&z, &impl, 16);
     ASSERT_EQ(z.hl, 0x0501u);
     ASSERT_EQ((z.bc >> 8) & 0xFFu, 1u);
+}
+
+TEST(gen_z80_in_out_c_retn)
+{
+    setup();
+    impl.z80_reset = 0xFF;
+    gen_z80_t z;
+    gen_z80_init(&z);
+    z.pc = 0x0100;
+    z.bc = 0x0302;
+    z.af = 0x0000;
+    impl.z80_ram[0x100] = 0xED;
+    impl.z80_ram[0x101] = 0x40;
+    gen_z80_step(&z, &impl, 12);
+    ASSERT_EQ((z.bc >> 8) & 0xFFu, 0xFFu);
+    ASSERT_EQ(z.pc, 0x0102u);
+    z.bc = 0x117F;
+    impl.z80_ram[0x102] = 0xED;
+    impl.z80_ram[0x103] = 0x71;
+    gen_z80_step(&z, &impl, 12);
+    ASSERT_EQ(z.pc, 0x0104u);
+    z.pc = 0x0200;
+    z.sp = 0x01F0;
+    z.iff1 = 0;
+    z.iff2 = 1;
+    impl.z80_ram[0x1F0] = 0x34;
+    impl.z80_ram[0x1F1] = 0x12;
+    impl.z80_ram[0x200] = 0xED;
+    impl.z80_ram[0x201] = 0x45;
+    /* RETN = 14 T; no sobrar ciclos o se ejecuta RAM tras el return (p. ej. NOP en 0x1234). */
+    gen_z80_step(&z, &impl, 14);
+    ASSERT_EQ(z.pc, 0x1234u);
+    ASSERT_EQ((int)z.iff1, 1);
+    ASSERT_EQ(z.sp, 0x01F2u);
 }
 
 /* --- Z80 bus request / reset --- */
@@ -835,10 +1228,19 @@ void run_genesis_memory_tests(void)
     RUN(gen_cpu_sync_m68k_bus_extra_zero);
     RUN(gen_cpu_sync_m68k_bus_extra_branch_hint);
     RUN(gen_cpu_sync_m68k_bus_extra_vdp_dma);
+    RUN(gen_vdp_m68k_bus_slice_extra_matches_dma_stall);
     RUN(gen_z80_jp_hl_ex_de_ld_sp);
+    RUN(gen_z80_ex_sp_hl_ld_a_i);
+    RUN(gen_z80_rlca_rrca_rla_rra);
+    RUN(gen_z80_batch_daa_ix_neg);
+    RUN(gen_z80_ld_r_r_block);
+    RUN(gen_z80_batch_ixiy_exaf_cb);
+    RUN(gen_z80_ixiy_alu_ei);
+    RUN(gen_z80_ld_indexed_rld_rrd);
     RUN(gen_z80_ed_ld_nn_pairs_adc_sbc_hl);
     RUN(gen_z80_ldi_ldd);
     RUN(gen_z80_cpi_cpd_outi_outd);
+    RUN(gen_z80_in_out_c_retn);
     RUN(gen_mem_z80_bus_req);
     RUN(gen_mem_z80_reset);
     RUN(gen_mem_tmss_vdp_vram_read_gated);

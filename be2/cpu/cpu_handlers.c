@@ -787,14 +787,20 @@ int gen_op_tst(gen_cpu_t *cpu, genesis_mem_t *mem, uint16_t op)
     return GEN_CYCLES_TST;
 }
 
-/* ADDQ/SUBQ: imm 1-8 (0=8), size W/L. Dest An: no flags. */
+/* ADDQ/SUBQ: imm 1-8 (0=8). Size .B/.W/.L (bits 7-6); 11 → ilegal. An: siempre .L al registro. */
 int gen_op_addq_subq(gen_cpu_t *cpu, genesis_mem_t *mem, uint16_t op)
 {
     int imm = (op >> GEN_ADDQ_IMM_SHIFT) & GEN_ADDQ_IMM_MASK;
     if (imm == 0)
         imm = 8;
     int is_sub = (op & GEN_OP_ADDQ_SUBQ_MASK) == GEN_OP_SUBQ;
-    int size = ((op >> 6) & 1) ? GEN_TST_SIZE_L : GEN_TST_SIZE_W;
+    int sz = (op >> 6) & 3;
+    if (sz == 3)
+    {
+        gen_take_trap(cpu, mem, GEN_VECTOR_ILLEGAL, cpu->pc - 2);
+        return GEN_CYCLES_ILLEGAL;
+    }
+    int size = (sz == 0) ? 0 : (sz == 1) ? GEN_TST_SIZE_W : GEN_TST_SIZE_L;
     int ea = op & GEN_EA_MASK;
     int mode = (ea >> GEN_EA_MODE_SHIFT) & GEN_EA_REG_MASK;
     int reg = ea & GEN_EA_REG_MASK;
@@ -809,18 +815,21 @@ int gen_op_addq_subq(gen_cpu_t *cpu, genesis_mem_t *mem, uint16_t op)
 
     if (mode == 0)
     {
-        uint32_t val = (size == GEN_TST_SIZE_W) ? (cpu->d[reg] & 0xFFFF) : cpu->d[reg];
+        uint32_t val = (size == 0) ? (cpu->d[reg] & 0xFF)
+                     : (size == GEN_TST_SIZE_W) ? (cpu->d[reg] & 0xFFFF) : cpu->d[reg];
         uint32_t r = is_sub ? val - (uint32_t)imm : val + (uint32_t)imm;
-        if (size == GEN_TST_SIZE_W)
-        {
+        uint32_t msb = (size == 0) ? 0x80U : (size == GEN_TST_SIZE_W) ? 0x8000U : 0x80000000U;
+        uint32_t mask = (size == 0) ? 0xFFU : (size == GEN_TST_SIZE_W) ? 0xFFFFU : 0xFFFFFFFFU;
+        r &= mask;
+        if (size == 0)
+            cpu->d[reg] = (cpu->d[reg] & 0xFFFFFF00) | (r & 0xFF);
+        else if (size == GEN_TST_SIZE_W)
             cpu->d[reg] = (cpu->d[reg] & 0xFFFF0000) | (r & 0xFFFF);
-            r &= 0xFFFF;
-        }
         else
             cpu->d[reg] = r;
-        set_n(cpu, (r & (size == GEN_TST_SIZE_W ? 0x8000U : 0x80000000U)) != 0);
+        set_n(cpu, (r & msb) != 0);
         set_z(cpu, r == 0);
-        set_v(cpu, ((val ^ r) & ((is_sub ? (uint32_t)(-(int)imm) : (uint32_t)imm) ^ r)) & (size == GEN_TST_SIZE_W ? 0x8000U : 0x80000000U));
+        set_v(cpu, ((val ^ r) & ((is_sub ? (uint32_t)(-(int)imm) : (uint32_t)imm) ^ r)) & msb);
         set_c(cpu, is_sub ? (val < (uint32_t)imm) : (r < val));
         return GEN_CYCLES_ADDQ_SUBQ;
     }
@@ -828,13 +837,14 @@ int gen_op_addq_subq(gen_cpu_t *cpu, genesis_mem_t *mem, uint16_t op)
     uint32_t addr;
     uint32_t val = gen_ea_read(cpu, mem, ea, size, &addr);
     uint32_t r = is_sub ? val - imm : val + imm;
-    if (size == GEN_TST_SIZE_W)
-        r &= 0xFFFF;
+    uint32_t msb = (size == 0) ? 0x80U : (size == GEN_TST_SIZE_W) ? 0x8000U : 0x80000000U;
+    uint32_t mask = (size == 0) ? 0xFFU : (size == GEN_TST_SIZE_W) ? 0xFFFFU : 0xFFFFFFFFU;
+    r &= mask;
     if (addr)
         gen_ea_write(cpu, mem, addr, r, size);
-    set_n(cpu, (r & (size == GEN_TST_SIZE_W ? 0x8000U : 0x80000000U)) != 0);
+    set_n(cpu, (r & msb) != 0);
     set_z(cpu, r == 0);
-    set_v(cpu, ((val ^ r) & ((is_sub ? (uint32_t)imm : (uint32_t)(-(int)imm)) ^ r)) & (size == GEN_TST_SIZE_W ? 0x8000U : 0x80000000U));
+    set_v(cpu, ((val ^ r) & ((is_sub ? (uint32_t)imm : (uint32_t)(-(int)imm)) ^ r)) & msb);
     set_c(cpu, is_sub ? (val < (uint32_t)imm) : (r < val));
     return GEN_CYCLES_ADDQ_SUBQ;
 }
@@ -1461,7 +1471,7 @@ int gen_op_chk(gen_cpu_t *cpu, genesis_mem_t *mem, uint16_t op)
     int32_t dn = (int32_t)(int16_t)(cpu->d[reg] & 0xFFFF);
     int32_t bound = (int32_t)(int16_t)gen_ea_read(cpu, mem, op & GEN_EA_MASK, 1, NULL);
     if (dn < 0 || dn > bound)
-        gen_take_trap(cpu, mem, GEN_VECTOR_CHK, cpu->pc);
+        gen_take_trap(cpu, mem, GEN_VECTOR_CHK, cpu->inst_pc);
     return GEN_CYCLES_CHK;
 }
 
@@ -1530,6 +1540,18 @@ int gen_op_movep(gen_cpu_t *cpu, genesis_mem_t *mem, uint16_t op)
 int gen_op_illegal(gen_cpu_t *cpu, genesis_mem_t *mem)
 {
     gen_take_trap(cpu, mem, GEN_VECTOR_ILLEGAL, cpu->pc - 2);
+    return GEN_CYCLES_ILLEGAL;
+}
+
+int gen_op_line_a(gen_cpu_t *cpu, genesis_mem_t *mem)
+{
+    gen_take_trap(cpu, mem, GEN_VECTOR_LINE_A, cpu->pc - 2);
+    return GEN_CYCLES_ILLEGAL;
+}
+
+int gen_op_line_f(gen_cpu_t *cpu, genesis_mem_t *mem)
+{
+    gen_take_trap(cpu, mem, GEN_VECTOR_LINE_F, cpu->pc - 2);
     return GEN_CYCLES_ILLEGAL;
 }
 

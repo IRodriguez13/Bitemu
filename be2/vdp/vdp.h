@@ -106,4 +106,10 @@ int gen_vdp_pending_irq_level(gen_vdp_t *vdp);
 /* Devuelve y pone a 0 ciclos 68k pendientes por último DMA VDP (para stall en el core). */
 uint32_t gen_vdp_take_dma_stall(gen_vdp_t *vdp);
 
+/**
+ * 1 si en este slice conviene sumar burbuja 68k (+1 vía gen_cpu_sync_m68k_bus_extra_cycles):
+ * queda stall DMA por consumir, o bit DMA activo sin fill pendiente (copia/68k en curso).
+ */
+int gen_vdp_m68k_bus_slice_extra(const gen_vdp_t *vdp);
+
 #endif /* BITEMU_GENESIS_VDP_H */

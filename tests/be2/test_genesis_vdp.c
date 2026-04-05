@@ -269,6 +269,18 @@ TEST(gen_vdp_read_hv_active_and_hblank_ranges)
 }
 
 /* H32 (reg12 bits1-0=00): contador H activo escala ~256/320 respecto a H40. */
+TEST(gen_vdp_read_hv_vblank_h_blank_range)
+{
+    gen_vdp_t vdp;
+    gen_vdp_init(&vdp);
+    gen_vdp_reset(&vdp);
+    gen_vdp_set_pal(&vdp, 0);
+    vdp.line_counter = GEN_SCANLINES_VISIBLE;
+    vdp.cycle_counter = GEN_CYCLES_PER_LINE / 3;
+    uint16_t hv = gen_vdp_read_hv(&vdp);
+    ASSERT_TRUE(((hv >> 8) & 0xFF) >= (unsigned)GEN_VDP_H_BLANK_START);
+}
+
 TEST(gen_vdp_read_hv_h32_smaller_active_h)
 {
     gen_vdp_t vdp;
@@ -316,6 +328,7 @@ void run_genesis_vdp_tests(void)
     RUN(gen_vdp_dma_fill_cram);
     RUN(gen_vdp_shadow_highlight_bg15);
     RUN(gen_vdp_read_hv_active_and_hblank_ranges);
+    RUN(gen_vdp_read_hv_vblank_h_blank_range);
     RUN(gen_vdp_read_hv_h32_smaller_active_h);
     RUN(gen_vdp_hint_reloads_on_frame_wrap);
 }

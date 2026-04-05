@@ -639,6 +639,7 @@ static int gen_load_state(console_t *ctx, const char *path)
         log_error("Error reading Genesis save state: %s", path);
         return -1;
     }
+    gen_cpu_sync_prefetch(&impl->cpu, m);
     log_info("Genesis state loaded: %s", path);
     return 0;
 }

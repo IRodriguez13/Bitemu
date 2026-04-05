@@ -51,6 +51,13 @@ Tras escribir **BUSREQ** con bit0=1 en `0xA11100`, el contador `z80_bus_ack_cycl
 | YM / PSG desde 68k vs Z80 | Lockstep por ciclos 68k en `console.c`. |
 | DMA VDP | `vdp.c` + `dma_stall_68k`; stalls distintos por tipo (fill / copy / 68k). |
 | VDP render | Tope **20 sprites por línea** en dibujado (orden SAT); H-int solo en zona activa; `gen_vdp_pending_irq_level` alinea H-IRQ con líneas visibles. |
+| Prefetch 68k | Cola de instrucción en `gen_cpu_t` (`prefetch_addr` / `ir_prefetch`); no sustituye contienda fina en `cpu_sync`. |
+
+### 7. Burbuja de bus 68k (`gen_cpu_sync_m68k_bus_extra_cycles`)
+
+- **Ramas / bifurcaciones:** si `last_opcode` tiene byte alto en `0x60–0x6F`, +1 (modelo burdo de prefetch/destino).
+- **VDP:** +1 cuando `gen_vdp_m68k_bus_slice_extra` es verdadero: queda **`dma_stall_68k > 0`** (el 68k aún “paga” el coste del último DMA) **o** **`GEN_VDP_STATUS_DMA` sin `dma_fill_pending`** (copia/68k-DMA no-fill). Si **`dma_fill_pending`**, no se suma esta parte (el bloqueo principal es el fill vía puerto datos).
+- Tope **3** ciclos extra por slice para mantener el comportamiento acotado.
 
 ## VDP / audio / stats (roadmap cerrado en core)
 
