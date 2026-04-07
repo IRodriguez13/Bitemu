@@ -26,7 +26,12 @@ struct gen_ym2612 {
     uint8_t block[6];      /* Block latched (3-bit) */
     uint8_t env_state[6][4];   /* ADSR state por canal/operador */
     uint16_t env_level[6][4];   /* 0-1023, nivel de envolvente */
-    int busy_cycles;            /* >0: bit busy (aprox. tras escritura de datos) */
+    
+    /* Cycle-exact timing */
+    int busy_cycles;            /* >0: bit busy (preciso tras escritura de datos) */
+    uint8_t last_write_port;    /* último puerto escrito para timing diferenciado */
+    uint32_t write_timestamp;   /* timestamp de última escritura para debugging */
+    
     uint16_t timer_a_counter;
     uint16_t timer_b_counter;
     uint32_t timer_tick_acc;   /* acumulador ~ciclos 68k hasta tick de timer FM aproximado */
@@ -41,6 +46,13 @@ void gen_ym2612_write_port(gen_ym2612_t *ym, int port, uint8_t val);
 
 /* Lectura status: bit7 busy mientras busy_cycles > 0 tras escritura de datos. */
 uint8_t gen_ym2612_read_port(gen_ym2612_t *ym, int port);
+
+/* Cycle-exact busy status con timing preciso */
+int gen_ym2612_is_busy(const gen_ym2612_t *ym);
+int gen_ym2612_busy_cycles_remaining(const gen_ym2612_t *ym);
+
+/* Timing avanzado para diferentes tipos de escritura */
+void gen_ym2612_write_port_with_timing(gen_ym2612_t *ym, int port, uint8_t val, uint32_t current_cycle);
 
 /* Avanza ciclos; genera muestras si audio != NULL */
 void gen_ym2612_step(gen_ym2612_t *ym, int cycles, void *audio_output);

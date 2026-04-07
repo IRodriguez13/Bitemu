@@ -37,6 +37,14 @@ struct gen_vdp {
     uint8_t status_reg;     /* bits VBlank, HBlank, etc. */
     uint16_t status_cache;   /* cache para read byte-a-byte (evita doble clear) */
 
+    /* Cycle-exact VDP timing */
+    int hcounter;           /* H counter (0-PEAK_HCYCLES-1) */
+    int vcounter;           /* V counter (0-VMAX-1) */
+    int slot_counter;       /* DMA slot counter (0-3 per line) */
+    uint8_t dma_active;     /* DMA transfer in progress */
+    uint32_t dma_remaining; /* remaining words for current DMA */
+    uint32_t dma_source;    /* source address for current DMA */
+
     /* DMA: fill pendiente hasta próximo write a data port (GEN1 savestate lo persiste). */
     uint8_t dma_fill_pending;
 
@@ -90,6 +98,16 @@ void gen_vdp_render_test_pattern(gen_vdp_t *vdp);
 void gen_vdp_render(gen_vdp_t *vdp);
 
 void gen_vdp_step(gen_vdp_t *vdp, int cycles);
+
+/* Cycle-exact HV counter reading */
+uint16_t gen_vdp_read_hv_cycle_exact(gen_vdp_t *vdp);
+
+/* DMA slot management */
+void gen_vdp_dma_slot_step(gen_vdp_t *vdp, int cycles);
+int gen_vdp_dma_slot_available(const gen_vdp_t *vdp);
+
+/* Internal functions */
+static void vdp_update_hv_counters(gen_vdp_t *vdp, int cycles);
 
 /* Lectura: status (desde control port) y HV counter */
 uint16_t gen_vdp_read_status(gen_vdp_t *vdp);

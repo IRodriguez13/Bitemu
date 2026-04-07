@@ -22,6 +22,17 @@
 struct gen_cpu;
 struct gen_vdp;
 
+/* Enhanced CPU sync state for precise timing */
+typedef struct {
+    uint32_t z80_cycle_acc;        /* Accumulator for Z80 cycle timing */
+    uint32_t m68k_cycle_acc;       /* Accumulator for 68k cycle timing */
+    uint32_t last_sync_point;       /* Last cycle count where sync occurred */
+    uint8_t bus_req_state;         /* Current BUSREQ state */
+    uint8_t bus_ack_state;         /* Current BUSACK state */
+    uint8_t z80_halted;            /* Z80 halted flag */
+    uint32_t bus_request_cycles;    /* Cycles since last bus request */
+} gen_cpu_sync_state_t;
+
 /**
  * Ciclos Z80 a ejecutar en lockstep con `cycles_68k` ciclos de bus del 68000.
  * Reloj Z80 ≈ GEN_PSG_HZ (/ PAL); 68000 ≈ GEN_68000_HZ (/ PAL).
@@ -53,5 +64,31 @@ uint8_t gen_cpu_sync_z80_ram_contention_read(uint32_t addr);
  */
 int gen_cpu_sync_m68k_bus_extra_cycles(int cycles_68k_slice, const struct gen_cpu *cpu,
                                        const struct gen_vdp *vdp);
+
+/* ===== Enhanced CPU sync functions ===== */
+
+/* Initialize CPU sync state */
+void gen_cpu_sync_init(gen_cpu_sync_state_t *sync);
+
+/* Reset CPU sync state */
+void gen_cpu_sync_reset(gen_cpu_sync_state_t *sync);
+
+/* Update sync state for precise timing */
+void gen_cpu_sync_update(gen_cpu_sync_state_t *sync, uint32_t m68k_cycles, uint32_t z80_cycles, 
+                        uint8_t bus_req, uint8_t bus_ack);
+
+/* Check if bus request is pending */
+int gen_cpu_sync_is_bus_request_pending(const gen_cpu_sync_state_t *sync);
+
+/* Get precise bus request timing */
+uint32_t gen_cpu_sync_get_bus_request_cycles(const gen_cpu_sync_state_t *sync);
+
+/* Validate bus timing for test ROMs */
+int gen_cpu_sync_validate_bus_timing(const gen_cpu_sync_state_t *sync, uint32_t current_cycle, 
+                                  uint32_t expected_min_cycles);
+
+/* Calculate optimal sync point for both CPUs */
+uint32_t gen_cpu_sync_calculate_sync_point(const gen_cpu_sync_state_t *sync, 
+                                         uint32_t m68k_cycles, uint32_t z80_cycles);
 
 #endif /* BITEMU_GEN_CPU_SYNC_H */

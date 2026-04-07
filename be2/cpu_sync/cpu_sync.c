@@ -17,6 +17,85 @@
 #include "../cpu/cpu.h"
 #include "../genesis_constants.h"
 #include "../vdp/vdp.h"
+#include <string.h>
+
+/* ===== Enhanced CPU sync implementation ===== */
+
+void gen_cpu_sync_init(gen_cpu_sync_state_t *sync)
+{
+    if (!sync) return;
+    memset(sync, 0, sizeof(*sync));
+}
+
+void gen_cpu_sync_reset(gen_cpu_sync_state_t *sync)
+{
+    if (!sync) return;
+    sync->z80_cycle_acc = 0;
+    sync->m68k_cycle_acc = 0;
+    sync->last_sync_point = 0;
+    sync->bus_req_state = 0;
+    sync->bus_ack_state = 0;
+    sync->z80_halted = 0;
+    sync->bus_request_cycles = 0;
+}
+
+void gen_cpu_sync_update(gen_cpu_sync_state_t *sync, uint32_t m68k_cycles, uint32_t z80_cycles, 
+                        uint8_t bus_req, uint8_t bus_ack)
+{
+    if (!sync) return;
+    
+    sync->m68k_cycle_acc += m68k_cycles;
+    sync->z80_cycle_acc += z80_cycles;
+    
+    /* Track bus request state changes */
+    if (bus_req != sync->bus_req_state) {
+        sync->bus_req_state = bus_req;
+        sync->bus_request_cycles = 0;
+    }
+    
+    sync->bus_ack_state = bus_ack;
+    sync->bus_request_cycles += m68k_cycles;
+}
+
+int gen_cpu_sync_is_bus_request_pending(const gen_cpu_sync_state_t *sync)
+{
+    return sync ? (sync->bus_req_state != 0) : 0;
+}
+
+uint32_t gen_cpu_sync_get_bus_request_cycles(const gen_cpu_sync_state_t *sync)
+{
+    return sync ? sync->bus_request_cycles : 0;
+}
+
+int gen_cpu_sync_validate_bus_timing(const gen_cpu_sync_state_t *sync, uint32_t current_cycle, 
+                                  uint32_t expected_min_cycles)
+{
+    if (!sync) return 0;
+    
+    uint32_t elapsed = current_cycle - sync->last_sync_point;
+    return (elapsed >= expected_min_cycles) ? 1 : 0;
+}
+
+uint32_t gen_cpu_sync_calculate_sync_point(const gen_cpu_sync_state_t *sync, 
+                                         uint32_t m68k_cycles, uint32_t z80_cycles)
+{
+    if (!sync) return 0;
+    
+    /* Calculate when both CPUs will be at a natural sync point */
+    uint32_t m68k_target = sync->m68k_cycle_acc + m68k_cycles;
+    uint32_t z80_target = sync->z80_cycle_acc + z80_cycles;
+    
+    /* Find the least common multiple for optimal sync */
+    uint32_t gcd = m68k_target;
+    uint32_t temp = z80_target;
+    while (temp != 0) {
+        uint32_t remainder = gcd % temp;
+        gcd = temp;
+        temp = remainder;
+    }
+    
+    return (m68k_target / gcd) * z80_target;
+}
 
 int gen_cpu_sync_z80_cycles_from_68k(int cycles_68k, int is_pal)
 {

@@ -94,6 +94,8 @@ static uint8_t ym_key_code(uint16_t fnum, uint8_t block)
 void gen_ym2612_init(gen_ym2612_t *ym)
 {
     memset(ym, 0, sizeof(*ym));
+    ym->last_write_port = 0xFF; /* Invalid initial value */
+    ym->write_timestamp = 0;
     init_sin_table();
 }
 
@@ -107,6 +109,8 @@ void gen_ym2612_reset(gen_ym2612_t *ym)
     ym->addr[0] = ym->addr[1] = 0;
     ym->cycle_counter = 0;
     ym->busy_cycles = 0;
+    ym->last_write_port = 0xFF;
+    ym->write_timestamp = 0;
     ym->timer_a_counter = ym->timer_b_counter = 0;
     ym->timer_tick_acc = 0;
     ym->timer_overflow = 0;
@@ -163,7 +167,16 @@ uint8_t gen_ym2612_read_port(gen_ym2612_t *ym, int port)
 
 void gen_ym2612_write_port(gen_ym2612_t *ym, int port, uint8_t val)
 {
+    gen_ym2612_write_port_with_timing(ym, port, val, ym->cycle_counter);
+}
+
+void gen_ym2612_write_port_with_timing(gen_ym2612_t *ym, int port, uint8_t val, uint32_t current_cycle)
+{
     int part = (port >> 1) & 1;
+    
+    /* Update timing tracking */
+    ym->last_write_port = (uint8_t)port;
+    ym->write_timestamp = current_cycle;
 
     if ((port & 1) == 0)
     {
@@ -462,4 +475,58 @@ void gen_ym2612_run_cycles(gen_ym2612_t *ym, int cycles, int16_t *left, int16_t 
         *left = bitemu_sat_i16_i32(sum_l);
     if (right)
         *right = bitemu_sat_i16_i32(sum_r);
+}
+
+/* ===== Cycle-exact YM2612 functions ===== */
+
+int gen_ym2612_is_busy(const gen_ym2612_t *ym)
+{
+    return ym->busy_cycles > 0;
+}
+
+int gen_ym2612_busy_cycles_remaining(const gen_ym2612_t *ym)
+{
+    return ym->busy_cycles > 0 ? ym->busy_cycles : 0;
+}
+
+/* Enhanced status read with precise busy timing */
+uint8_t gen_ym2612_read_status_enhanced(gen_ym2612_t *ym, int port)
+{
+    (void)port;
+    uint8_t status = 0;
+    
+    /* Bit 7: Busy flag */
+    if (ym->busy_cycles > 0)
+        status |= 0x80;
+    
+    /* Bits 0-1: Timer overflow flags */
+    status |= (ym->timer_overflow & 0x03);
+    
+    /* Clear timer overflow flags after reading (hardware behavior) */
+    ym->timer_overflow = 0;
+    
+    return status;
+}
+
+/* Timing validation for test ROMs */
+int gen_ym2612_validate_write_timing(const gen_ym2612_t *ym, uint32_t current_cycle, int expected_busy_cycles)
+{
+    if (ym->write_timestamp == 0)
+        return 0; /* No previous write */
+    
+    uint32_t elapsed = current_cycle - ym->write_timestamp;
+    
+    /* Check if enough cycles have passed for the expected busy period */
+    return (elapsed >= (uint32_t)expected_busy_cycles) ? 1 : 0;
+}
+
+/* Debug function to get timing information */
+void gen_ym2612_get_timing_info(const gen_ym2612_t *ym, int *busy_cycles, uint8_t *last_port, uint32_t *last_timestamp)
+{
+    if (busy_cycles)
+        *busy_cycles = ym->busy_cycles;
+    if (last_port)
+        *last_port = ym->last_write_port;
+    if (last_timestamp)
+        *last_timestamp = ym->write_timestamp;
 }

@@ -3,9 +3,23 @@
 *.a
 *.so
 *.dylib
+*.dll
+*.lib
+*.exp        # MSVC import lib sidecar
+*.ilk        # MSVC incremental linker
+*.pdb        # MSVC debug symbols
 bitemu
 bitemu-cli
 build/
+
+# Ad-hoc tools en la raíz (gcc foo.c -o foo); los *.c siguen versionados
+/debug_*
+!/debug_*.c
+/test_genesis_*
+!/test_genesis_*.c
+/check_offsets
+/verify_open_bus
+/test_palette_load
 
 # Rust (legacy)
 rust/target/
@@ -16,9 +30,17 @@ roms/
 tools/gentest_game.bin
 tools/gentest_game.bin.xz
 
-# gprof (local profiling)
+# gprof / perf / cobertura (local)
 gmon.out
 gprof.out
+perf.data
+perf.data.*
+*.gcno
+*.gcda
+*.gcov
+*.profraw
+*.profdata
+coverage.info
 *.sav
 *.bst
 
@@ -26,13 +48,19 @@ gprof.out
 .idea/
 .vscode/
 .cursor/
+.cache/
+compile_commands.json
 *.swp
 *~
 *.swo
+*.swn
 
 # OS
 .DS_Store
+.DS_Store?
+._*
 Thumbs.db
+Desktop.ini
 
 # Debug / core dumps
 *.core
@@ -47,6 +75,15 @@ Thumbs.db
 # Dependencies / generated
 .deps/
 *.d
+*.su          # gcc -fstack-usage
+*.i
+*.ii
+
+# ctags / cscope (generados localmente)
+tags
+TAGS
+cscope.out
+cscope.po.out
 
 # Python
 venv/
@@ -83,3 +120,5 @@ installer/Output/
 Documentation/genesis-progress.md
 a.out
 gmon.sum
+test_roms/proper_genesis_test.bin
+.gitignore

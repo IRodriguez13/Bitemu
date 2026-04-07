@@ -115,6 +115,7 @@ enum {
 
 enum {
     GEN_DISPLAY_WIDTH       = 320,
+    GEN_DISPLAY_WIDTH_H32   = 256,  /* H32 mode width */
     GEN_DISPLAY_HEIGHT      = 224,
     GEN_DISPLAY_PIXELS      = GEN_DISPLAY_WIDTH * GEN_DISPLAY_HEIGHT,
     /* Framebuffer Host RGB888 (3 bytes/píxel); la API `bitemu_get_framebuffer` devuelve este layout en Genesis. */
@@ -597,7 +598,35 @@ enum {
     GEN_VDP_H40_MASK      = 3,    /* bits 1-0: 11=40 tiles, 00=32 tiles */
     GEN_VDP_H40_VAL       = 3,    /* 40 tiles = 320 px */
     GEN_VDP_MODE4_SH_BIT  = 8,    /* bit 3 reg 12: shadow/highlight (modo 5 aprox.) */
-    GEN_DISPLAY_WIDTH_H32 = 256,
+};
+
+/* VDP cycle-exact timing constants */
+enum {
+    /* H counter ranges (Genesis VDP manual) */
+    GEN_VDP_HCOUNT_H32_MIN = 0x000,
+    GEN_VDP_HCOUNT_H32_MAX = 0x3EF,
+    GEN_VDP_HCOUNT_H40_MIN = 0x000,
+    GEN_VDP_HCOUNT_H40_MAX = 0x1F1,
+    
+    /* V counter ranges */
+    GEN_VDP_VCOUNT_NTSC_MIN = 0x000,
+    GEN_VDP_VCOUNT_NTSC_MAX = 0x1FF,
+    GEN_VDP_VCOUNT_PAL_MIN  = 0x000,
+    GEN_VDP_VCOUNT_PAL_MAX  = 0x26F,
+    
+    /* DMA slots per line */
+    GEN_VDP_DMA_SLOTS_PER_LINE = 4,
+    GEN_VDP_DMA_SLOT_CYCLES   = 16,  /* cycles per DMA slot */
+    
+    /* H40 vs H32 timing */
+    GEN_VDP_CYCLES_H32_LINE = 342,
+    GEN_VDP_CYCLES_H40_LINE = 420,
+    GEN_VDP_HBLANK_H32_START = 274,
+    GEN_VDP_HBLANK_H40_START = 336,
+    
+    /* VDP register access timing */
+    GEN_VDP_WRITE_CYCLES = 4,
+    GEN_VDP_READ_CYCLES  = 4,
 };
 
 /* Genesis save core: tras vsram, bloque latch comando VDP etiquetado (migración desde pending 8-bit). */

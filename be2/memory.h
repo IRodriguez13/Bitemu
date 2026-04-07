@@ -116,4 +116,28 @@ static inline int genesis_addr_in_sram(uint32_t addr)
     return addr >= GEN_ADDR_SRAM_START && addr <= GEN_ADDR_SRAM_END;
 }
 
+/* ===== Open bus functions ===== */
+
+/* Read byte from unmapped address (open bus behavior) */
+uint8_t genesis_open_bus_read_u8_public(const genesis_mem_t *mem, uint32_t addr);
+
+/* Read word from unmapped address (open bus behavior) */
+uint16_t genesis_open_bus_read_u16_public(const genesis_mem_t *mem, uint32_t addr);
+
+/* Read long from unmapped address (open bus behavior) */
+uint32_t genesis_open_bus_read_u32_public(const genesis_mem_t *mem, uint32_t addr);
+
+/* Check if address is unmapped (would return open bus) */
+int genesis_addr_is_unmapped(uint32_t addr);
+
+/* Update bus read latch after successful read */
+void genesis_update_bus_latch(genesis_mem_t *mem, uint8_t value);
+
+/* Get current bus read latch value */
+uint8_t genesis_get_bus_latch(const genesis_mem_t *mem);
+
+/* Additional address checking functions */
+int genesis_addr_in_joypad(uint32_t addr);
+int genesis_addr_in_io_version(uint32_t addr);
+
 #endif /* BITEMU_GENESIS_MEMORY_H */

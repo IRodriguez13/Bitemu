@@ -68,12 +68,12 @@ TEST(abi_gen_vdp_layout)
     ASSERT_OFFSET(gen_vdp_t, _pad_cmd,     280811);
     ASSERT_OFFSET(gen_vdp_t, pending_hi,   280812);
     ASSERT_OFFSET(gen_vdp_t, addr_inc,     280816);
-    ASSERT_OFFSET(gen_vdp_t, irq_vint_pending, 280864);
-    ASSERT_OFFSET(gen_vdp_t, irq_hint_pending, 280865);
-    ASSERT_OFFSET(gen_vdp_t, data_read_latch, 280866);
-    ASSERT_OFFSET(gen_vdp_t, data_read_latch_valid, 280868);
-    ASSERT_OFFSET(gen_vdp_t, fifo_word_backlog, 280869);
-    ASSERT_OFFSET(gen_vdp_t, fifo_drain_acc, 280872);
+    ASSERT_OFFSET(gen_vdp_t, irq_vint_pending, 280888);
+    ASSERT_OFFSET(gen_vdp_t, irq_hint_pending, 280889);
+    ASSERT_OFFSET(gen_vdp_t, data_read_latch, 280890);
+    ASSERT_OFFSET(gen_vdp_t, data_read_latch_valid, 280892);
+    ASSERT_OFFSET(gen_vdp_t, fifo_word_backlog, 280893);
+    ASSERT_OFFSET(gen_vdp_t, fifo_drain_acc, 280896);
 }
 
 /* ── PSG layout (frozen at BST v3) ── */
@@ -110,10 +110,12 @@ TEST(abi_gen_ym2612_layout)
     ASSERT_OFFSET(gen_ym2612_t, env_state,  658);
     ASSERT_OFFSET(gen_ym2612_t, env_level,  682);
     ASSERT_OFFSET(gen_ym2612_t, busy_cycles, 732);
-    ASSERT_OFFSET(gen_ym2612_t, timer_a_counter, 736);
-    ASSERT_OFFSET(gen_ym2612_t, timer_b_counter, 738);
-    ASSERT_OFFSET(gen_ym2612_t, timer_tick_acc, 740);
-    ASSERT_OFFSET(gen_ym2612_t, timer_overflow, 744);
+    ASSERT_OFFSET(gen_ym2612_t, last_write_port, 736);
+    ASSERT_OFFSET(gen_ym2612_t, write_timestamp, 740);
+    ASSERT_OFFSET(gen_ym2612_t, timer_a_counter, 744);
+    ASSERT_OFFSET(gen_ym2612_t, timer_b_counter, 746);
+    ASSERT_OFFSET(gen_ym2612_t, timer_tick_acc, 748);
+    ASSERT_OFFSET(gen_ym2612_t, timer_overflow, 752);
 }
 
 /* ── Z80 layout (frozen at BST v3) ── */
