@@ -106,9 +106,6 @@ uint16_t gen_vdp_read_hv_cycle_exact(gen_vdp_t *vdp);
 void gen_vdp_dma_slot_step(gen_vdp_t *vdp, int cycles);
 int gen_vdp_dma_slot_available(const gen_vdp_t *vdp);
 
-/* Internal functions */
-static void vdp_update_hv_counters(gen_vdp_t *vdp, int cycles);
-
 /* Lectura: status (desde control port) y HV counter */
 uint16_t gen_vdp_read_status(gen_vdp_t *vdp);
 uint8_t gen_vdp_read_status_byte(gen_vdp_t *vdp, int fetch);

@@ -42,6 +42,10 @@ typedef enum { CONSOLE_GB, CONSOLE_GENESIS } console_type_t;
 
 static int is_genesis_rom(const uint8_t *data, size_t size)
 {
+    if (size < GEN_HEADER_MAGIC_LEN)
+        return 0;
+    if (memcmp(data, GEN_HEADER_MAGIC, GEN_HEADER_MAGIC_LEN) == 0)
+        return 1;
     if (size < GEN_HEADER_OFFSET + GEN_HEADER_MAGIC_LEN)
         return 0;
     return memcmp(data + GEN_HEADER_OFFSET, GEN_HEADER_MAGIC, GEN_HEADER_MAGIC_LEN) == 0;

@@ -122,3 +122,5 @@ a.out
 gmon.sum
 test_roms/proper_genesis_test.bin
 .gitignore
+test_roms/simple_test.bin
+.gitignore

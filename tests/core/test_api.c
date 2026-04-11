@@ -347,6 +347,26 @@ static void write_fake_genesis_rom(const char *path, size_t size)
     write_fake_genesis_rom_ex(path, size, NULL);
 }
 
+/* ROM casera: "SEGA" en 0x000 (sin bloque estándar en 0x100) */
+static void write_fake_genesis_rom_magic_at_base(const char *path, size_t size)
+{
+    FILE *f = fopen(path, "wb");
+    if (!f)
+        return;
+    size_t min_n = (size_t)GEN_HEADER_MAGIC_LEN + 64u;
+    size_t n = size < min_n ? min_n : size;
+    uint8_t *buf = calloc(1, n);
+    if (!buf)
+    {
+        fclose(f);
+        return;
+    }
+    memcpy(buf, GEN_HEADER_MAGIC, (size_t)GEN_HEADER_MAGIC_LEN);
+    fwrite(buf, 1, n, f);
+    free(buf);
+    fclose(f);
+}
+
 static bitemu_t *create_with_rom(const char *rom_path)
 {
     bitemu_t *emu = bitemu_create();
@@ -495,6 +515,20 @@ TEST(api_load_genesis_rom)
     remove(FAKE_GENESIS_ROM_PATH);
 }
 
+TEST(api_genesis_magic_at_rom_base_detected)
+{
+    write_fake_genesis_rom_magic_at_base(FAKE_GENESIS_ROM_PATH, 0x400);
+    bitemu_t *emu = bitemu_create();
+    ASSERT_TRUE(bitemu_load_rom(emu, FAKE_GENESIS_ROM_PATH));
+    uint64_t cpu = 0, z80 = 0, dma = 0;
+    ASSERT_EQ(bitemu_genesis_get_core_stats(emu, &cpu, &z80, &dma), 0);
+    ASSERT_TRUE(bitemu_run_frame(emu));
+    ASSERT_EQ(bitemu_genesis_get_core_stats(emu, &cpu, &z80, &dma), 0);
+    ASSERT_TRUE(cpu > 0u);
+    bitemu_destroy(emu);
+    remove(FAKE_GENESIS_ROM_PATH);
+}
+
 /* --- Genesis save/load roundtrip --- */
 
 TEST(api_save_load_genesis_roundtrip)
@@ -558,6 +592,7 @@ void run_api_tests(void)
     RUN(api_load_state_v1_rejected);
     RUN(api_load_state_future_rejected);
     RUN(api_load_genesis_rom);
+    RUN(api_genesis_magic_at_rom_base_detected);
     RUN(api_genesis_frame_hz_regions);
     RUN(api_save_load_genesis_roundtrip);
 }

@@ -296,6 +296,22 @@ TEST(gen_vdp_read_hv_h32_smaller_active_h)
     ASSERT_TRUE(((hv32 >> 8) & 0xFF) < ((hv40 >> 8) & 0xFF));
 }
 
+/* VINT al inicio de vblank no se pierde cuando el 68k avanza muchos ciclos en un solo paso VDP */
+TEST(gen_vdp_vint_fires_on_vblank_large_step)
+{
+    gen_vdp_t vdp;
+    gen_vdp_init(&vdp);
+    gen_vdp_reset(&vdp);
+    gen_vdp_set_pal(&vdp, 0);
+    vdp.regs[1] = GEN_VDP_REG1_IE0;
+    vdp.line_counter = GEN_SCANLINES_VISIBLE - 1;
+    vdp.cycle_counter = GEN_CYCLES_PER_LINE / 2;
+    vdp.irq_vint_pending = 0;
+    gen_vdp_read_status(&vdp);
+    gen_vdp_step(&vdp, GEN_CYCLES_PER_LINE * 3);
+    ASSERT_EQ(gen_vdp_pending_irq_level(&vdp), GEN_IRQ_LEVEL_VBLANK);
+}
+
 TEST(gen_vdp_hint_reloads_on_frame_wrap)
 {
     gen_vdp_t vdp;
@@ -330,5 +346,6 @@ void run_genesis_vdp_tests(void)
     RUN(gen_vdp_read_hv_active_and_hblank_ranges);
     RUN(gen_vdp_read_hv_vblank_h_blank_range);
     RUN(gen_vdp_read_hv_h32_smaller_active_h);
+    RUN(gen_vdp_vint_fires_on_vblank_large_step);
     RUN(gen_vdp_hint_reloads_on_frame_wrap);
 }

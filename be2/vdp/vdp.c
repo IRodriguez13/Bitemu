@@ -81,14 +81,6 @@ static void vdp_hint_fire_at_hblank(gen_vdp_t *vdp)
     }
 }
 
-static void vdp_sync_hblank_bit(gen_vdp_t *vdp, int active_end)
-{
-    if (vdp->cycle_counter < active_end)
-        vdp->status_reg &= ~GEN_VDP_STATUS_HB;
-    else
-        vdp->status_reg |= GEN_VDP_STATUS_HB;
-}
-
 void gen_vdp_set_pal(gen_vdp_t *vdp, int is_pal)
 {
     vdp->is_pal = is_pal ? 1u : 0;
@@ -905,13 +897,63 @@ void gen_vdp_render(gen_vdp_t *vdp)
     vdp_detect_sprite_overflow(vdp);
 }
 
+static int vdp_is_h40_mode(const gen_vdp_t *vdp)
+{
+    return (vdp->regs[GEN_VDP_REG_MODE4] & GEN_VDP_H40_MASK) == GEN_VDP_H40_VAL;
+}
+
+static void vdp_update_hv_counters(gen_vdp_t *vdp, int cycles)
+{
+    int h40_mode = vdp_is_h40_mode(vdp);
+    int cycles_per_line = vdp->is_pal ? GEN_CYCLES_PER_LINE_PAL : GEN_CYCLES_PER_LINE;
+    int lines_total = vdp->is_pal ? GEN_SCANLINES_TOTAL_PAL : GEN_SCANLINES_TOTAL;
+    int lines_vis = vdp->is_pal ? GEN_SCANLINES_VISIBLE_PAL : GEN_SCANLINES_VISIBLE;
+
+    for (int i = 0; i < cycles; i++) {
+        vdp->hcounter++;
+        vdp->cycle_counter++;
+
+        /* Handle H counter wrap */
+        if (h40_mode) {
+            if (vdp->hcounter > GEN_VDP_HCOUNT_H40_MAX)
+                vdp->hcounter = GEN_VDP_HCOUNT_H40_MIN;
+        } else {
+            if (vdp->hcounter > GEN_VDP_HCOUNT_H32_MAX)
+                vdp->hcounter = GEN_VDP_HCOUNT_H32_MIN;
+        }
+
+        /* Fin de línea */
+        if (vdp->cycle_counter >= cycles_per_line) {
+            vdp->cycle_counter = 0;
+            vdp->line_counter++;
+            vdp->vcounter = vdp->line_counter;
+
+            /* Primer ciclo de la primera línea en vblank → VINT (no se pierde con pasos largos de CPU) */
+            if (vdp->line_counter == lines_vis) {
+                if (vdp->regs[1] & GEN_VDP_REG1_IE0) {
+                    vdp->irq_vint_pending = 1;
+                    vdp->status_reg |= GEN_VDP_STATUS_F;
+                }
+            }
+
+            if (vdp->hint_counter > 0)
+                vdp->hint_counter--;
+
+            if (vdp->line_counter >= lines_total) {
+                vdp->line_counter = 0;
+                vdp->hint_counter = vdp_hint_reload(vdp);
+                vdp->vcounter = vdp->line_counter;
+            }
+        }
+    }
+}
+
 void gen_vdp_step(gen_vdp_t *vdp, int cycles)
 {
     /* Use cycle-exact processing */
     vdp_update_hv_counters(vdp, cycles);
     
     /* Update status bits based on current position */
-    int lines_total = vdp->is_pal ? GEN_SCANLINES_TOTAL_PAL : GEN_SCANLINES_TOTAL;
     int lines_vis = vdp->is_pal ? GEN_SCANLINES_VISIBLE_PAL : GEN_SCANLINES_VISIBLE;
     int cycles_line = vdp->is_pal ? GEN_CYCLES_PER_LINE_PAL : GEN_CYCLES_PER_LINE;
     int active_end = cycles_line - GEN_VDP_HBLANK_CYCLES;
@@ -936,26 +978,15 @@ void gen_vdp_step(gen_vdp_t *vdp, int cycles)
     } else {
         vdp->status_reg &= ~GEN_VDP_STATUS_ODD;
     }
-    
-    /* Handle VBlank interrupt */
-    if (vdp->line_counter == lines_vis && vdp->cycle_counter == 0) {
-        if (vdp->regs[1] & GEN_VDP_REG1_IE0) {
-            vdp->irq_vint_pending = 1;
-            vdp->status_reg |= GEN_VDP_STATUS_F;
-        }
-    }
-    
-    /* Handle HINT interrupt */
+
     if (vdp->regs[0] & GEN_VDP_REG0_IE1 && vdp->hint_counter == 0) {
         vdp->irq_hint_pending = 1;
         vdp->status_reg |= GEN_VDP_STATUS_F;
     }
-    
-    /* Handle HBlank interrupt */
-    if (vdp->cycle_counter == active_end) {
+
+    if (vdp->cycle_counter == active_end)
         vdp_hint_fire_at_hblank(vdp);
-    }
-    
+
     /* Handle FIFO drain */
     vdp->fifo_drain_acc += (uint32_t)cycles;
     while (vdp->fifo_drain_acc >= 4u && vdp->fifo_word_backlog > 0) {
@@ -1031,56 +1062,6 @@ int gen_vdp_pending_irq_level(gen_vdp_t *vdp)
 }
 
 /* ===== Cycle-exact VDP functions ===== */
-
-static int vdp_is_h40_mode(const gen_vdp_t *vdp)
-{
-    return (vdp->regs[GEN_VDP_REG_MODE4] & GEN_VDP_H40_MASK) == GEN_VDP_H40_VAL;
-}
-
-static void vdp_update_hv_counters(gen_vdp_t *vdp, int cycles)
-{
-    int h40_mode = vdp_is_h40_mode(vdp);
-    int cycles_per_line = vdp->is_pal ? GEN_CYCLES_PER_LINE_PAL : GEN_CYCLES_PER_LINE;
-    
-    for (int i = 0; i < cycles; i++) {
-        vdp->hcounter++;
-        vdp->cycle_counter++;
-        
-        /* Handle H counter wrap */
-        if (h40_mode) {
-            if (vdp->hcounter > GEN_VDP_HCOUNT_H40_MAX) {
-                vdp->hcounter = GEN_VDP_HCOUNT_H40_MIN;
-            }
-        } else {
-            if (vdp->hcounter > GEN_VDP_HCOUNT_H32_MAX) {
-                vdp->hcounter = GEN_VDP_HCOUNT_H32_MIN;
-            }
-        }
-        
-        /* Handle line transition */
-        if (vdp->cycle_counter >= cycles_per_line) {
-            vdp->cycle_counter = 0;
-            vdp->line_counter++;
-            
-            /* Update V counter and sync with line_counter */
-            vdp->vcounter = vdp->line_counter;
-            
-            /* Decrement HINT counter */
-            if (vdp->hint_counter > 0) {
-                vdp->hint_counter--;
-            }
-            
-            /* Handle frame transition */
-            int lines_total = vdp->is_pal ? GEN_SCANLINES_TOTAL_PAL : GEN_SCANLINES_TOTAL;
-            if (vdp->line_counter >= lines_total) {
-                vdp->line_counter = 0;
-                vdp->hint_counter = vdp_hint_reload(vdp);
-                /* Sync vcounter with line_counter for compatibility */
-                vdp->vcounter = vdp->line_counter;
-            }
-        }
-    }
-}
 
 uint16_t gen_vdp_read_hv_cycle_exact(gen_vdp_t *vdp)
 {
