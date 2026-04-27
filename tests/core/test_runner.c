@@ -25,6 +25,10 @@ extern void run_genesis_full_tests(void);
 extern void run_genesis_cpu_tests(void);
 extern void run_genesis_vdp_tests(void);
 extern void run_genesis_ym2612_tests(void);
+extern void run_genesis_open_bus_tests(void);
+extern void run_genesis_cpu_sync_tests(void);
+extern void run_genesis_vdp_cycle_exact_tests(void);
+extern void run_genesis_ym2612_timing_tests(void);
 
 int main(void)
 {
@@ -44,6 +48,10 @@ int main(void)
     run_genesis_cpu_tests();
     run_genesis_vdp_tests();
     run_genesis_ym2612_tests();
+    run_genesis_open_bus_tests();
+    run_genesis_cpu_sync_tests();
+    run_genesis_vdp_cycle_exact_tests();
+    run_genesis_ym2612_timing_tests();
 
     REPORT();
 }

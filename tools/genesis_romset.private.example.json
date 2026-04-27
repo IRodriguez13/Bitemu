@@ -1,0 +1,19 @@
+{
+  "entries": [
+    {
+      "id": "gameA_dma",
+      "path": "/absolute/path/to/private/roms/gameA.bin",
+      "milestones": [120, 900]
+    },
+    {
+      "id": "gameB_raster",
+      "path": "/absolute/path/to/private/roms/gameB.bin",
+      "milestones": [120, 1800]
+    },
+    {
+      "id": "gameC_audio_z80",
+      "path": "/absolute/path/to/private/roms/gameC.bin",
+      "milestones": [240, 2400]
+    }
+  ]
+}

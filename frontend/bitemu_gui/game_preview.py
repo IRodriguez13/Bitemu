@@ -3,9 +3,9 @@ Preview de juego: cover/cartucho + metadata (desarrollador, año, etc.).
 """
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QPixmap
-from PySide6.QtWidgets import QWidget, QVBoxLayout, QLabel, QFrame, QScrollArea
+from PySide6.QtWidgets import QWidget, QVBoxLayout, QLabel, QFrame
 
-from .profile import ConsoleProfile, PROFILE_GENESIS
+from .profile import ConsoleProfile
 from .cartridge_preview import CartridgePreview
 from .metadata_service import MetadataResult
 from .i18n import t
@@ -30,22 +30,12 @@ class GamePreviewWithMetadata(QWidget):
         self._metadata: MetadataResult | None = None
         self._placeholder_title = ""
 
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(12)
+        self._layout = QVBoxLayout(self)
+        self._layout.setContentsMargins(0, 0, 0, 0)
+        self._layout.setSpacing(12)
 
-        if profile.name == PROFILE_GENESIS.name:
-            self._cover = CartridgePreview(profile, size=size)
-        else:
-            self._cover = QLabel()
-            self._cover.setFixedSize(size, size)
-            self._cover.setAlignment(Qt.AlignmentFlag.AlignCenter)
-            self._cover.setStyleSheet(
-                f"background: rgb({profile.splash_bg[0]},{profile.splash_bg[1]},{profile.splash_bg[2]});"
-                " border-radius: 8px;"
-            )
-            self._cover.setScaledContents(False)
-        layout.addWidget(self._cover, alignment=Qt.AlignmentFlag.AlignHCenter)
+        self._cover = self._make_cover_widget(profile, size)
+        self._layout.addWidget(self._cover, alignment=Qt.AlignmentFlag.AlignHCenter)
 
         self._meta_frame = QFrame()
         r, g, b = profile.splash_bg
@@ -73,9 +63,46 @@ class GamePreviewWithMetadata(QWidget):
         )
         meta_layout.addWidget(self._source_badge)
 
-        layout.addWidget(self._meta_frame)
+        self._layout.addWidget(self._meta_frame)
         self._meta_frame.setMaximumHeight(140)
         self._meta_frame.hide()  # Oculto por defecto; se muestra solo si hay metadata
+
+    @staticmethod
+    def _make_cover_widget(profile: ConsoleProfile, size: int) -> QWidget:
+        if profile.rom_subdir == "sega":
+            return CartridgePreview(profile, size=size)
+        lbl = QLabel()
+        lbl.setFixedSize(size, size)
+        lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        lbl.setStyleSheet(
+            f"background: rgb({profile.splash_bg[0]},{profile.splash_bg[1]},{profile.splash_bg[2]});"
+            " border-radius: 8px;"
+        )
+        lbl.setScaledContents(False)
+        return lbl
+
+    def set_profile(self, profile: ConsoleProfile):
+        """Al cambiar consola (lobby): recrear cartucho vs caja para que el preview coincida."""
+        if profile.rom_subdir == self._profile.rom_subdir:
+            self._profile = profile
+            self._apply_profile_to_meta_frame()
+            return
+        self._profile = profile
+        self._layout.removeWidget(self._cover)
+        self._cover.deleteLater()
+        self._cover = self._make_cover_widget(profile, self._size)
+        self._layout.insertWidget(0, self._cover, alignment=Qt.AlignmentFlag.AlignHCenter)
+        self._apply_profile_to_meta_frame()
+        self._refresh_meta_display()
+
+    def _apply_profile_to_meta_frame(self):
+        r, g, b = self._profile.splash_bg
+        self._meta_frame.setStyleSheet(
+            f"QFrame {{ background: rgb({max(0,r-20)},{max(0,g-20)},{max(0,b-20)}); "
+            f"border-radius: 6px; border: 1px solid rgb({self._profile.splash_accent[0]},"
+            f"{self._profile.splash_accent[1]},{self._profile.splash_accent[2]}); "
+            "padding: 8px; }"
+        )
 
     def set_cover(self, pixmap: QPixmap | None):
         if isinstance(self._cover, CartridgePreview):
@@ -107,8 +134,10 @@ class GamePreviewWithMetadata(QWidget):
 
     def _has_metadata(self, m: MetadataResult) -> bool:
         """True si hay al menos un campo de metadata útil (API o local)."""
+        title_ok = (m.title or "").strip() and m.title.strip() != (m.raw_name or "").strip()
         return bool(
-            (m.developer or "").strip()
+            title_ok
+            or (m.developer or "").strip()
             or (m.year or "").strip()
             or (m.genre or "").strip()
             or (m.players or "").strip()
@@ -125,6 +154,8 @@ class GamePreviewWithMetadata(QWidget):
 
         m = self._metadata
         rows = []
+        if (m.title or "").strip():
+            rows.append(_meta_row(t("metadata.title"), m.title, acc))
         if (m.developer or "").strip():
             rows.append(_meta_row(t("metadata.developer"), m.developer, acc))
         if (m.year or "").strip():

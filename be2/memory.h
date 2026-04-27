@@ -47,6 +47,16 @@ struct genesis_mem {
     uint8_t ssf2_bank[GEN_SSF2_SLOT_COUNT]; /* páginas 512KB por slot (mapper SSF2) */
     uint8_t mapper_ssf2;   /* 1 si ROM > 4MB: ventana 0–0x3FFFFF bancada */
     uint8_t bus_read_latch; /* último byte leído en bus útil (open bus aprox.) */
+    /* Acumulación move.b → word en puertos VDP (68000 UDS/LDS sobre word alineado) */
+    uint8_t vdp_ctrl_bw_hi;
+    uint8_t vdp_ctrl_bw_lo;
+    uint8_t vdp_ctrl_bw_mask; /* bit0=lo, bit1=hi; 3 → escribe ctrl */
+    uint8_t vdp_d0_bw_hi;
+    uint8_t vdp_d0_bw_lo;
+    uint8_t vdp_d0_bw_mask; /* puerto datos @ C00000/C00001 */
+    uint8_t vdp_d1_bw_hi;
+    uint8_t vdp_d1_bw_lo;
+    uint8_t vdp_d1_bw_mask;   /* espejo @ C00002/C00003 */
 };
 
 void genesis_joypad_write_ctrl(genesis_mem_t *mem, int port, uint8_t val);

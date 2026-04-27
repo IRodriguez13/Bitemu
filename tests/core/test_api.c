@@ -529,6 +529,19 @@ TEST(api_genesis_magic_at_rom_base_detected)
     remove(FAKE_GENESIS_ROM_PATH);
 }
 
+TEST(api_genesis_debug_state_exposed)
+{
+    write_fake_genesis_rom_ex(FAKE_GENESIS_ROM_PATH, 0x400, "JUE ");
+    bitemu_t *emu = bitemu_create();
+    ASSERT_TRUE(bitemu_load_rom(emu, FAKE_GENESIS_ROM_PATH));
+    bitemu_genesis_debug_state_t dbg;
+    ASSERT_EQ(bitemu_genesis_get_debug_state(emu, &dbg), 0);
+    ASSERT_EQ(dbg.cart_requires_tmss, 0);
+    ASSERT_TRUE(dbg.display_enabled == 0 || dbg.display_enabled == 1);
+    bitemu_destroy(emu);
+    remove(FAKE_GENESIS_ROM_PATH);
+}
+
 /* --- Genesis save/load roundtrip --- */
 
 TEST(api_save_load_genesis_roundtrip)
@@ -593,6 +606,7 @@ void run_api_tests(void)
     RUN(api_load_state_future_rejected);
     RUN(api_load_genesis_rom);
     RUN(api_genesis_magic_at_rom_base_detected);
+    RUN(api_genesis_debug_state_exposed);
     RUN(api_genesis_frame_hz_regions);
     RUN(api_save_load_genesis_roundtrip);
 }

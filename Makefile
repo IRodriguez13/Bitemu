@@ -65,14 +65,20 @@ CLI_TARGET = bitemu-cli
 
 TEST_DIR   = tests/core
 TEST_BE2   = tests/be2
-TEST_SRCS  = $(TEST_DIR)/test_runner.c $(TEST_DIR)/test_memory.c $(TEST_DIR)/test_apu.c $(TEST_DIR)/test_timer.c $(TEST_DIR)/test_api.c $(TEST_DIR)/test_simd.c $(TEST_DIR)/test_ppu.c $(TEST_DIR)/test_mbc2.c $(TEST_DIR)/test_abi_guard.c $(TEST_BE2)/test_abi_guard.c $(TEST_BE2)/test_genesis_memory.c $(TEST_BE2)/test_genesis_full.c $(TEST_BE2)/test_genesis_cpu.c $(TEST_BE2)/test_genesis_vdp.c $(TEST_BE2)/test_genesis_ym2612.c
+TEST_SRCS  = $(TEST_DIR)/test_runner.c $(TEST_DIR)/test_memory.c $(TEST_DIR)/test_apu.c $(TEST_DIR)/test_timer.c $(TEST_DIR)/test_api.c $(TEST_DIR)/test_simd.c $(TEST_DIR)/test_ppu.c $(TEST_DIR)/test_mbc2.c $(TEST_DIR)/test_abi_guard.c $(TEST_BE2)/test_abi_guard.c $(TEST_BE2)/test_genesis_memory.c $(TEST_BE2)/test_genesis_full.c $(TEST_BE2)/test_genesis_cpu.c $(TEST_BE2)/test_genesis_vdp.c $(TEST_BE2)/test_genesis_ym2612.c $(TEST_BE2)/test_genesis_open_bus.c $(TEST_BE2)/test_genesis_cpu_sync.c $(TEST_BE2)/test_genesis_vdp_cycle_exact.c $(TEST_BE2)/test_genesis_ym2612_timing.c
 TEST_BIN   = build/test_runner
 VENV       = frontend/venv/bin
+GENESIS_PROBE_SRC = tools/genesis_rom_probe.c
+GENESIS_PROBE_BIN = build/genesis_rom_probe
+
+GENESIS_ROMSET ?= tools/genesis_romset.private.json
+GENESIS_BASELINE ?= tools/genesis_baseline.private.json
+GENESIS_REPORT ?= build/genesis_regression_report.json
 
 ROM ?=
 
 .PHONY: all clean clean-gperf clean-profile-data cli lib run help test test-core test-frontend \
-	genesis-smoke-rom \
+	genesis-smoke-rom genesis-rom-probe genesis-baseline genesis-regression genesis-gate-quick genesis-gate-nightly \
 	gen-cycles-gperf \
 	gperf-help gperf-be1 gperf-be1-check gperf-be2 gperf-be2-check gperf-be3 gperf-all \
 	profile-help profile-cli profile-lib profile-test-core profile-report \
@@ -166,6 +172,30 @@ endif
 
 test-frontend: lib frontend/venv/.done
 	$(VENV)/python -m pytest tests/frontend/ -v
+
+genesis-rom-probe: lib
+	@mkdir -p build
+	$(CC) $(CFLAGS) -Iinclude $(GENESIS_PROBE_SRC) -L. -lbitemu -o $(GENESIS_PROBE_BIN) $(LDFLAGS) $(LIB_LIBS)
+
+genesis-baseline: genesis-rom-probe
+	python3 scripts/genesis_rom_regression.py \
+		--probe "$(GENESIS_PROBE_BIN)" \
+		--romset "$(GENESIS_ROMSET)" \
+		--write-baseline "$(GENESIS_BASELINE)" \
+		--output "$(GENESIS_REPORT)"
+
+genesis-regression: genesis-rom-probe
+	python3 scripts/genesis_rom_regression.py \
+		--probe "$(GENESIS_PROBE_BIN)" \
+		--romset "$(GENESIS_ROMSET)" \
+		--baseline "$(GENESIS_BASELINE)" \
+		--output "$(GENESIS_REPORT)"
+
+genesis-gate-quick:
+	scripts/genesis_gate_quick.sh
+
+genesis-gate-nightly:
+	scripts/genesis_gate_nightly.sh
 
 clean: clean-profile-data
 	rm -f $(CLI_OBJS) $(CLI_TARGET) libbitemu.so libbitemu.dylib libbitemu.dll bitemu.dll

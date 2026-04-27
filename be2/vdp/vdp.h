@@ -91,8 +91,11 @@ void gen_vdp_write_ctrl(gen_vdp_t *vdp, uint16_t val);
 /* Puerto datos: escribe según modo actual (VRAM/CRAM/VSRAM) */
 void gen_vdp_write_data(gen_vdp_t *vdp, uint16_t val);
 
-/* Patrón de barras cuando el display está apagado o para diagnóstico. */
+/* Patrón de barras solo para diagnóstico manual (no usar en el camino normal). */
 void gen_vdp_render_test_pattern(gen_vdp_t *vdp);
+
+/* Un frame del color de fondo (reg. 7 + CRAM), sin planos ni sprites — equiv. HW con display off. */
+void gen_vdp_render_backdrop_only(gen_vdp_t *vdp);
 
 /* Render desde VRAM/CRAM (tiles plano A) */
 void gen_vdp_render(gen_vdp_t *vdp);

@@ -29,6 +29,9 @@ def _safe_system(system: str) -> str:
 
 # Patrones comunes en nombres No-Intro/Redump para extraer región
 _REGION_PATTERNS = [
+    (r"\(USA,\s*Europe\)", "USA/Europe"),
+    (r"\(Europe,\s*USA\)", "USA/Europe"),
+    (r"\(Japan,\s*USA\)", "Japan/USA"),
     (r"\(USA\)", "USA"),
     (r"\(Europe\)", "Europe"),
     (r"\(World\)", "World"),

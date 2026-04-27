@@ -69,15 +69,15 @@ static void vdp_dma_stall_68k_words(gen_vdp_t *vdp, uint32_t nwords)
 
 static void vdp_hint_fire_at_hblank(gen_vdp_t *vdp)
 {
-    if (vdp->regs[0] & GEN_VDP_REG0_IE1)
+    vdp->hint_counter--;
+    if (vdp->hint_counter < 0)
     {
-        vdp->hint_counter--;
-        if (vdp->hint_counter < 0)
+        if (vdp->regs[0] & GEN_VDP_REG0_IE1)
         {
             vdp->irq_hint_pending = 1;
             vdp->status_reg |= GEN_VDP_STATUS_F;
-            vdp->hint_counter = vdp_hint_reload(vdp);
         }
+        vdp->hint_counter = vdp_hint_reload(vdp);
     }
 }
 
@@ -124,7 +124,7 @@ void gen_vdp_reset(gen_vdp_t *vdp)
     vdp->dma_remaining = 0;
     vdp->dma_source = 0;
     
-    gen_vdp_render_test_pattern(vdp);
+    gen_vdp_render_backdrop_only(vdp);
 }
 
 uint32_t gen_vdp_take_dma_stall(gen_vdp_t *vdp)
@@ -461,6 +461,27 @@ static void vdp_apply_shadow_highlight(const gen_vdp_t *vdp, uint8_t *rgb, int p
             rgb[i] = (uint8_t)(t > 255 ? 255 : t);
         }
     }
+}
+
+/* Rellena el framebuffer con el backdrop (reg. 7); sin tocar status SOVR/COL. */
+static void vdp_fill_framebuffer_backdrop(gen_vdp_t *vdp)
+{
+    int bg_pal = (vdp->regs[7] >> GEN_VDP_BG_PAL_SHIFT) & GEN_VDP_BG_PAL_MASK;
+    int bg_idx = vdp->regs[7] & GEN_VDP_BG_IDX_MASK;
+    int bg_color = bg_pal * GEN_VDP_PALETTE_SIZE + bg_idx;
+    uint8_t bg_rgb[3] = {0, 0, 0};
+    if (bg_color < GEN_VDP_CRAM_SIZE)
+    {
+        cram_to_rgb888(vdp->cram[bg_color], bg_rgb);
+        vdp_apply_shadow_highlight(vdp, bg_rgb, bg_idx & 15);
+    }
+    bitemu_fill_rgb888(vdp->framebuffer, GEN_FB_SIZE, bg_rgb[0], bg_rgb[1], bg_rgb[2]);
+}
+
+void gen_vdp_render_backdrop_only(gen_vdp_t *vdp)
+{
+    vdp->status_reg &= (uint8_t)~(GEN_VDP_STATUS_SOVR | GEN_VDP_STATUS_COL);
+    vdp_fill_framebuffer_backdrop(vdp);
 }
 
 static void vdp_plot_fb_idx(gen_vdp_t *vdp, int x, int y, int color_idx)
@@ -828,18 +849,7 @@ static void vdp_detect_sprite_overflow(gen_vdp_t *vdp)
 void gen_vdp_render(gen_vdp_t *vdp)
 {
     vdp->status_reg &= (uint8_t)~(GEN_VDP_STATUS_SOVR | GEN_VDP_STATUS_COL);
-
-    /* Fondo: reg 7 (palette + index) */
-    int bg_pal = (vdp->regs[7] >> GEN_VDP_BG_PAL_SHIFT) & GEN_VDP_BG_PAL_MASK;
-    int bg_idx = vdp->regs[7] & GEN_VDP_BG_IDX_MASK;
-    int bg_color = bg_pal * GEN_VDP_PALETTE_SIZE + bg_idx;
-    uint8_t bg_rgb[3] = {0, 0, 0};
-    if (bg_color < GEN_VDP_CRAM_SIZE)
-    {
-        cram_to_rgb888(vdp->cram[bg_color], bg_rgb);
-        vdp_apply_shadow_highlight(vdp, bg_rgb, bg_idx & 15);
-    }
-    bitemu_fill_rgb888(vdp->framebuffer, GEN_FB_SIZE, bg_rgb[0], bg_rgb[1], bg_rgb[2]);
+    vdp_fill_framebuffer_backdrop(vdp);
 
     uint8_t mode3 = vdp->regs[GEN_VDP_REG_MODE3];
     int h_mode = mode3 & GEN_VDP_MODE3_HSCROLL_MASK;
@@ -908,10 +918,14 @@ static void vdp_update_hv_counters(gen_vdp_t *vdp, int cycles)
     int cycles_per_line = vdp->is_pal ? GEN_CYCLES_PER_LINE_PAL : GEN_CYCLES_PER_LINE;
     int lines_total = vdp->is_pal ? GEN_SCANLINES_TOTAL_PAL : GEN_SCANLINES_TOTAL;
     int lines_vis = vdp->is_pal ? GEN_SCANLINES_VISIBLE_PAL : GEN_SCANLINES_VISIBLE;
+    int active_end = cycles_per_line - GEN_VDP_HBLANK_CYCLES;
 
     for (int i = 0; i < cycles; i++) {
         vdp->hcounter++;
         vdp->cycle_counter++;
+
+        if (vdp->cycle_counter == active_end)
+            vdp_hint_fire_at_hblank(vdp);
 
         /* Handle H counter wrap */
         if (h40_mode) {
@@ -935,9 +949,6 @@ static void vdp_update_hv_counters(gen_vdp_t *vdp, int cycles)
                     vdp->status_reg |= GEN_VDP_STATUS_F;
                 }
             }
-
-            if (vdp->hint_counter > 0)
-                vdp->hint_counter--;
 
             if (vdp->line_counter >= lines_total) {
                 vdp->line_counter = 0;
@@ -978,14 +989,6 @@ void gen_vdp_step(gen_vdp_t *vdp, int cycles)
     } else {
         vdp->status_reg &= ~GEN_VDP_STATUS_ODD;
     }
-
-    if (vdp->regs[0] & GEN_VDP_REG0_IE1 && vdp->hint_counter == 0) {
-        vdp->irq_hint_pending = 1;
-        vdp->status_reg |= GEN_VDP_STATUS_F;
-    }
-
-    if (vdp->cycle_counter == active_end)
-        vdp_hint_fire_at_hblank(vdp);
 
     /* Handle FIFO drain */
     vdp->fifo_drain_acc += (uint32_t)cycles;
@@ -1065,37 +1068,31 @@ int gen_vdp_pending_irq_level(gen_vdp_t *vdp)
 
 uint16_t gen_vdp_read_hv_cycle_exact(gen_vdp_t *vdp)
 {
-    /* Return current H/V counters in Genesis format */
-    
-    /* For compatibility with existing tests, calculate H from cycle_counter */
-    int cycles_per_line = vdp->is_pal ? GEN_CYCLES_PER_LINE_PAL : GEN_CYCLES_PER_LINE;
-    int lines_vis = vdp->is_pal ? GEN_SCANLINES_VISIBLE_PAL : GEN_SCANLINES_VISIBLE;
-    
-    /* Map cycle_counter to H counter range - simplified for test compatibility */
-    uint16_t h;
     int h40_mode = vdp_is_h40_mode(vdp);
-    if (h40_mode) {
-        /* H40: simplified mapping for test compatibility */
-        h = (uint16_t)((vdp->cycle_counter * 0x1F1) / cycles_per_line);
+    int lines_vis = vdp->is_pal ? GEN_SCANLINES_VISIBLE_PAL : GEN_SCANLINES_VISIBLE;
+    int cycles_per_line = vdp->is_pal ? GEN_CYCLES_PER_LINE_PAL : GEN_CYCLES_PER_LINE;
+    int active_end = cycles_per_line - GEN_VDP_HBLANK_CYCLES;
+
+    int vis_h_end = h40_mode ? GEN_VDP_H_VISIBLE_END
+                             : (GEN_VDP_H_VISIBLE_END * GEN_DISPLAY_WIDTH_H32) / GEN_DISPLAY_WIDTH;
+    int blank_phase = vdp->cycle_counter - active_end;
+    uint16_t h;
+
+    if (vdp->line_counter >= lines_vis) {
+        int hblank_span = 0x100 - GEN_VDP_H_BLANK_START;
+        int hblank = GEN_VDP_H_BLANK_START + (vdp->cycle_counter * hblank_span) / cycles_per_line;
+        h = (uint16_t)(hblank & 0xFF);
+    } else if (vdp->cycle_counter < active_end) {
+        h = (uint16_t)((vdp->cycle_counter * (vis_h_end + 1)) / active_end);
+        if (h > (uint16_t)vis_h_end)
+            h = (uint16_t)vis_h_end;
     } else {
-        /* H32: simplified mapping for test compatibility */
-        h = (uint16_t)((vdp->cycle_counter * 0x3EF) / cycles_per_line);
+        int hblank_span = 0x100 - GEN_VDP_H_BLANK_START;
+        int hblank = GEN_VDP_H_BLANK_START + (blank_phase * hblank_span) / GEN_VDP_HBLANK_CYCLES;
+        h = (uint16_t)(hblank & 0xFF);
     }
-    
-    /* Ensure H counter is within expected test ranges */
-    if (vdp->cycle_counter == 0) {
-        h = 0;
-    } else if (vdp->cycle_counter == cycles_per_line / 4) {
-        h = h40_mode ? 0x9C : 0x7D; /* Quarter line */
-    } else if (vdp->cycle_counter == cycles_per_line - GEN_VDP_HBLANK_CYCLES) {
-        h = GEN_VDP_H_BLANK_START;
-    } else if (vdp->line_counter >= lines_vis) {
-        /* En VBlank, forzar H counter a HBlank range */
-        h = GEN_VDP_H_BLANK_START + 10; /* Un poco después del inicio */
-    }
-    
-    uint16_t v = (uint16_t)vdp->vcounter;
-    return (h << 8) | v;
+
+    return (uint16_t)((h << 8) | ((uint16_t)vdp->vcounter & GEN_VDP_HV_V_MASK));
 }
 
 void gen_vdp_dma_slot_step(gen_vdp_t *vdp, int cycles)
@@ -1103,28 +1100,24 @@ void gen_vdp_dma_slot_step(gen_vdp_t *vdp, int cycles)
     if (!vdp->dma_active || vdp->dma_remaining == 0) {
         return;
     }
-    
+
     int h40_mode = vdp_is_h40_mode(vdp);
     int cycles_per_line = h40_mode ? GEN_VDP_CYCLES_H40_LINE : GEN_VDP_CYCLES_H32_LINE;
-    
-    /* Process DMA slots based on current cycle position */
+
     for (int i = 0; i < cycles && vdp->dma_remaining > 0; i++) {
-        int cycle_in_line = vdp->cycle_counter % cycles_per_line;
-        
-        /* DMA slots occur at specific cycle positions */
+        int cycle_in_line = (vdp->cycle_counter + i) % cycles_per_line;
         if (cycle_in_line % GEN_VDP_DMA_SLOT_CYCLES == 0) {
-            /* Perform one DMA transfer */
             if (vdp->dma_read_16 && vdp->dma_read_ctx) {
                 uint16_t data = vdp->dma_read_16(vdp->dma_read_ctx, vdp->dma_source);
-                /* Write to VDP memory based on current mode */
                 gen_vdp_write_data(vdp, data);
-                vdp->dma_source += 2; /* Word transfer */
+                vdp->dma_source += 2;
+                vdp->dma_remaining--;
+            } else {
                 vdp->dma_remaining--;
             }
         }
     }
-    
-    /* Clear DMA active flag when complete */
+
     if (vdp->dma_remaining == 0) {
         vdp->dma_active = 0;
         vdp->status_reg &= ~GEN_VDP_STATUS_DMA;

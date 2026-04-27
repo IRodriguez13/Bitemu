@@ -139,6 +139,8 @@ TEST(gen_mem_version_register)
     setup();
     uint8_t v = genesis_mem_read8(&impl.mem, GEN_IO_VERSION);
     ASSERT_EQ(v, 0x00);
+    ASSERT_EQ(genesis_mem_read8(&impl.mem, 0xA10008), 0x00);
+    ASSERT_EQ(genesis_mem_read8(&impl.mem, 0xA1000C), 0x00);
 }
 
 /* --- VDP: status y HV counter (no crash) --- */

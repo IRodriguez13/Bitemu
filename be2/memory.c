@@ -50,6 +50,9 @@ void genesis_mem_reset(genesis_mem_t *mem)
     mem->joypad_cycle[0] = mem->joypad_cycle[1] = 0;
     memset(mem->tmss, 0, sizeof(mem->tmss));
     mem->tmss_unlocked = 0;
+    mem->vdp_ctrl_bw_mask = 0;
+    mem->vdp_d0_bw_mask = 0;
+    mem->vdp_d1_bw_mask = 0;
     if (mem->mapper_ssf2)
     {
         for (int i = 0; i < GEN_SSF2_SLOT_COUNT; i++)
@@ -234,6 +237,54 @@ static uint32_t genesis_open_bus_read_u32(const genesis_mem_t *mem, uint32_t add
     return ((uint32_t)high << 16) | (uint32_t)low;
 }
 
+/* move.b al VDP: dos bytes forman un word (orden libre) antes de llamar al VDP. */
+static void genesis_mem_vdp_write8(genesis_mem_t *mem, uint32_t addr, uint8_t val)
+{
+    if (addr >= GEN_ADDR_VDP_CTRL && addr <= GEN_ADDR_VDP_CTRL + 1)
+    {
+        if ((addr & 1u) == 0)
+        {
+            mem->vdp_ctrl_bw_hi = val;
+            mem->vdp_ctrl_bw_mask |= 2u;
+        }
+        else
+        {
+            mem->vdp_ctrl_bw_lo = val;
+            mem->vdp_ctrl_bw_mask |= 1u;
+        }
+        if (mem->vdp_ctrl_bw_mask == 3u)
+        {
+            uint16_t w = (uint16_t)(((uint16_t)mem->vdp_ctrl_bw_hi << 8) | mem->vdp_ctrl_bw_lo);
+            gen_vdp_write_ctrl(mem->vdp, w);
+            mem->vdp_ctrl_bw_mask = 0;
+        }
+        return;
+    }
+    if (addr >= GEN_ADDR_VDP_DATA && addr <= GEN_ADDR_VDP_DATA + 3)
+    {
+        int slot = (int)(addr - GEN_ADDR_VDP_DATA) >> 1;
+        uint8_t *hi = slot ? &mem->vdp_d1_bw_hi : &mem->vdp_d0_bw_hi;
+        uint8_t *lo = slot ? &mem->vdp_d1_bw_lo : &mem->vdp_d0_bw_lo;
+        uint8_t *mask = slot ? &mem->vdp_d1_bw_mask : &mem->vdp_d0_bw_mask;
+        if ((addr & 1u) == 0)
+        {
+            *hi = val;
+            *mask |= 2u;
+        }
+        else
+        {
+            *lo = val;
+            *mask |= 1u;
+        }
+        if (*mask == 3u)
+        {
+            uint16_t w = (uint16_t)(((uint16_t)*hi << 8) | *lo);
+            gen_vdp_write_data(mem->vdp, w);
+            *mask = 0;
+        }
+    }
+}
+
 static uint8_t genesis_mem_read8_impl(genesis_mem_t *mem, uint32_t addr)
 {
     /* SRAM: 0x200000-0x20FFFF. Con lock-on Sonic 2 & K, A130F1=1 mapea patch en 0x300000, no SRAM. */
@@ -276,7 +327,8 @@ static uint8_t genesis_mem_read8_impl(genesis_mem_t *mem, uint32_t addr)
         }
         if (addr == GEN_IO_VERSION)
             return GEN_IO_VERSION_VAL;
-        return GEN_IO_UNMAPPED_READ;
+        /* Puertos I/O no implementados suelen leerse como 0 en bootstraps comerciales. */
+        return 0x00;
     }
     if (genesis_addr_in_ym(addr) && mem->ym2612)
         return gen_ym2612_read_port(mem->ym2612, (int)(addr - GEN_ADDR_YM_START));
@@ -428,6 +480,13 @@ void genesis_mem_write8(genesis_mem_t *mem, uint32_t addr, uint8_t val)
         genesis_joypad_write_ctrl(mem, 1, val);
         return;
     }
+    if (genesis_addr_in_vdp(addr) && mem->vdp
+        && ((addr >= GEN_ADDR_VDP_DATA && addr <= GEN_ADDR_VDP_DATA + 3)
+            || (addr >= GEN_ADDR_VDP_CTRL && addr <= GEN_ADDR_VDP_CTRL + 1)))
+    {
+        genesis_mem_vdp_write8(mem, addr, val);
+        return;
+    }
     if (genesis_addr_in_tmss(addr))
     {
         int ti = (int)(addr - GEN_ADDR_TMSS_START);
@@ -457,10 +516,21 @@ void genesis_mem_write16(genesis_mem_t *mem, uint32_t addr, uint16_t val)
     }
     if (genesis_addr_in_vdp(addr) && mem->vdp)
     {
-        if (addr == GEN_ADDR_VDP_DATA || addr == GEN_ADDR_VDP_DATA + 2)
+        if (addr == GEN_ADDR_VDP_DATA)
+        {
+            mem->vdp_d0_bw_mask = 0;
             gen_vdp_write_data(mem->vdp, val);
+        }
+        else if (addr == GEN_ADDR_VDP_DATA + 2)
+        {
+            mem->vdp_d1_bw_mask = 0;
+            gen_vdp_write_data(mem->vdp, val);
+        }
         else if (addr == GEN_ADDR_VDP_CTRL || addr == GEN_ADDR_VDP_CTRL + 2)
+        {
+            mem->vdp_ctrl_bw_mask = 0;
             gen_vdp_write_ctrl(mem->vdp, val);
+        }
         return;
     }
     if (genesis_addr_in_ym(addr) && mem->ym2612)

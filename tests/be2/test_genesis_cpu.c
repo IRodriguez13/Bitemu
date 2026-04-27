@@ -101,6 +101,47 @@ TEST(gen_cpu_lea_pc_rel)
     ASSERT_EQ(impl.cpu.a[0], 0x12);
 }
 
+/* LEA (d16,PC),A5: 0x4BFA xxxx */
+TEST(gen_cpu_lea_pc_rel_a5)
+{
+    setup();
+    uint8_t rom[0x200];
+    memset(rom, 0, sizeof(rom));
+    rom[0] = 0x4B;
+    rom[1] = 0xFA;
+    rom[2] = 0x00;
+    rom[3] = 0x10;
+    impl.mem.rom = rom;
+    impl.mem.rom_size = sizeof(rom);
+    impl.cpu.pc = 0;
+
+    int c = gen_cpu_step(&impl.cpu, &impl.mem, 100);
+    ASSERT_TRUE(c > 0);
+    ASSERT_EQ(impl.cpu.a[5], 0x12u);
+}
+
+/* MOVE An,USP / MOVE USP,An */
+TEST(gen_cpu_move_usp_roundtrip)
+{
+    setup();
+    uint8_t rom[0x200];
+    memset(rom, 0, sizeof(rom));
+    rom[0] = 0x4E; /* MOVE A6,USP */
+    rom[1] = 0x66;
+    rom[2] = 0x4E; /* MOVE USP,A6 */
+    rom[3] = 0x6E;
+    impl.mem.rom = rom;
+    impl.mem.rom_size = sizeof(rom);
+    impl.cpu.pc = 0;
+    impl.cpu.sr = 0x2000; /* supervisor */
+    impl.cpu.a[6] = 0x12345678u;
+
+    ASSERT_TRUE(gen_cpu_step(&impl.cpu, &impl.mem, 100) > 0);
+    impl.cpu.a[6] = 0;
+    ASSERT_TRUE(gen_cpu_step(&impl.cpu, &impl.mem, 100) > 0);
+    ASSERT_EQ(impl.cpu.a[6], 0x12345678u);
+}
+
 /* CHK.W D0,D1: 0x4181 — sin trap si 0 <= D0.word <= D1.word */
 TEST(gen_cpu_chk_ok)
 {
@@ -603,6 +644,46 @@ TEST(gen_cpu_prefetch_queue_pc_plus_2)
     ASSERT_EQ((unsigned)impl.cpu.ir_prefetch, 0x4E71u);
 }
 
+/* STOP debe consumir tiempo y despertar por IRQ (VINT). */
+TEST(gen_cpu_stop_waits_and_wakes_on_irq)
+{
+    setup();
+    uint8_t rom[0x400];
+    memset(rom, 0, sizeof(rom));
+    rom[0] = 0x4E; /* STOP */
+    rom[1] = 0x72;
+    rom[2] = 0x20; /* SR inmediato: supervisor, IMASK=0 (IRQ habilitada) */
+    rom[3] = 0x00;
+    impl.mem.rom = rom;
+    impl.mem.rom_size = sizeof(rom);
+
+    /* Autovector nivel 6 (0x78) -> 0x200. */
+    rom[0x1E0] = 0x00;
+    rom[0x1E1] = 0x00;
+    rom[0x1E2] = 0x02;
+    rom[0x1E3] = 0x00;
+    impl.cpu.a[7] = 0x00FF0000u;
+    impl.cpu.pc = 0;
+
+    int c0 = gen_cpu_step(&impl.cpu, &impl.mem, 100);
+    ASSERT_EQ(c0, GEN_CYCLES_STOP);
+    ASSERT_EQ(gen_cpu_stopped(&impl.cpu), 1);
+
+    int c1 = gen_cpu_step(&impl.cpu, &impl.mem, 100);
+    ASSERT_EQ(c1, GEN_CYCLES_STOP);
+    ASSERT_EQ(gen_cpu_stopped(&impl.cpu), 1);
+
+    impl.vdp.regs[1] |= GEN_VDP_REG1_IE0;
+    impl.vdp.status_reg |= GEN_VDP_STATUS_VB;
+    impl.vdp.irq_vint_pending = 1;
+    ASSERT_EQ(gen_vdp_pending_irq_level(&impl.vdp), GEN_IRQ_LEVEL_VBLANK);
+
+    int c2 = gen_cpu_step(&impl.cpu, &impl.mem, 100);
+    ASSERT_TRUE(c2 > 0);
+    ASSERT_EQ(gen_cpu_stopped(&impl.cpu), 0);
+    ASSERT_EQ(impl.cpu.pc, 0x00000200u);
+}
+
 void run_genesis_cpu_tests(void)
 {
     SUITE("Genesis CPU 68000");
@@ -612,6 +693,8 @@ void run_genesis_cpu_tests(void)
     RUN(gen_cpu_rtd);
     RUN(gen_cpu_trapv_no_trap);
     RUN(gen_cpu_lea_pc_rel);
+    RUN(gen_cpu_lea_pc_rel_a5);
+    RUN(gen_cpu_move_usp_roundtrip);
     RUN(gen_cpu_chk_ok);
     RUN(gen_cpu_chk_trap_high);
     RUN(gen_cpu_chk_trap_negative);
@@ -634,4 +717,5 @@ void run_genesis_cpu_tests(void)
     RUN(gen_cpu_line_a_vector10);
     RUN(gen_cpu_addq_b_d0);
     RUN(gen_cpu_prefetch_queue_pc_plus_2);
+    RUN(gen_cpu_stop_waits_and_wakes_on_irq);
 }

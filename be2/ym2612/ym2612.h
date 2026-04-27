@@ -53,6 +53,10 @@ int gen_ym2612_busy_cycles_remaining(const gen_ym2612_t *ym);
 
 /* Timing avanzado para diferentes tipos de escritura */
 void gen_ym2612_write_port_with_timing(gen_ym2612_t *ym, int port, uint8_t val, uint32_t current_cycle);
+uint8_t gen_ym2612_read_status_enhanced(gen_ym2612_t *ym, int port);
+int gen_ym2612_validate_write_timing(const gen_ym2612_t *ym, uint32_t current_cycle, int expected_busy_cycles);
+void gen_ym2612_get_timing_info(const gen_ym2612_t *ym, int *busy_cycles, uint8_t *last_port,
+                                uint32_t *last_timestamp);
 
 /* Avanza ciclos; genera muestras si audio != NULL */
 void gen_ym2612_step(gen_ym2612_t *ym, int cycles, void *audio_output);

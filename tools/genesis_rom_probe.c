@@ -37,6 +37,8 @@ int main(int argc, char **argv)
         bitemu_destroy(emu);
         return 1;
     }
+    bitemu_genesis_debug_state_t dbg;
+    int has_dbg = (bitemu_genesis_get_debug_state(emu, &dbg) == 0);
 
     int w = 0, h = 0;
     bitemu_get_video_size(emu, &w, &h);
@@ -51,6 +53,16 @@ int main(int argc, char **argv)
     printf("frames=%d  video=%dx%d  hz=%.4f\n", frames, w, h, bitemu_get_frame_hz(emu));
     printf("stats: cpu_68k_cyc=%" PRIu64 " z80_cyc=%" PRIu64 " dma_stall_68k=%" PRIu64 "\n",
            cpu, z80, dma);
+    if (has_dbg) {
+        printf("debug: display=%u tmss_unlocked=%u cart_tmss=%u pal=%u sram_en=%u reg1=0x%02X reg7=0x%02X line=%u hint=%u hv=%u/%u pc=0x%08X sr=0x%04X op=0x%04X tmss=%02X%02X%02X%02X\n",
+               (unsigned)dbg.display_enabled, (unsigned)dbg.tmss_unlocked, (unsigned)dbg.cart_requires_tmss,
+               (unsigned)dbg.is_pal, (unsigned)dbg.sram_enabled, (unsigned)dbg.vdp_reg1, (unsigned)dbg.vdp_reg7,
+               (unsigned)dbg.line_counter, (unsigned)dbg.hint_counter,
+               (unsigned)dbg.hcounter, (unsigned)dbg.vcounter,
+               (unsigned)dbg.cpu_pc, (unsigned)dbg.cpu_sr, (unsigned)dbg.cpu_last_opcode,
+               (unsigned)dbg.tmss_bytes[0], (unsigned)dbg.tmss_bytes[1],
+               (unsigned)dbg.tmss_bytes[2], (unsigned)dbg.tmss_bytes[3]);
+    }
     printf("fb_rgb888: sum_bytes=%" PRIu64 " weighted=%" PRIu64 "\n", s0, s1);
 
     bitemu_destroy(emu);

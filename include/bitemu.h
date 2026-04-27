@@ -23,6 +23,24 @@ extern "C" {
 
 typedef struct bitemu bitemu_t;
 
+typedef struct {
+    uint8_t display_enabled;
+    uint8_t tmss_unlocked;
+    uint8_t cart_requires_tmss;
+    uint8_t is_pal;
+    uint16_t vdp_reg1;
+    uint16_t vdp_reg7;
+    uint16_t line_counter;
+    uint16_t hint_counter;
+    uint16_t hcounter;
+    uint16_t vcounter;
+    uint32_t cpu_pc;
+    uint16_t cpu_sr;
+    uint16_t cpu_last_opcode;
+    uint8_t sram_enabled;
+    uint8_t tmss_bytes[4];
+} bitemu_genesis_debug_state_t;
+
 typedef enum
 {
     BITEMU_AUDIO_BACKEND_SDL2,
@@ -85,6 +103,7 @@ double bitemu_get_frame_hz(const bitemu_t *emu);
  */
 int bitemu_genesis_get_core_stats(const bitemu_t *emu, uint64_t *out_cpu_cyc, uint64_t *out_z80_cyc,
                                   uint64_t *out_dma_stall_cyc);
+int bitemu_genesis_get_debug_state(const bitemu_t *emu, bitemu_genesis_debug_state_t *out_state);
 
 /* Joypad: bits 0-3=D-pad(R,L,U,D), 4-7=botones(A,B,C,Start); 1=presionado */
 void bitemu_set_input(bitemu_t *emu, uint8_t state);

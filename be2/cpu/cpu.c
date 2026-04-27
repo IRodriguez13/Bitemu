@@ -74,6 +74,7 @@ int gen_op_move_sr_ccr(gen_cpu_t *, genesis_mem_t *, uint16_t);
 int gen_op_chk(gen_cpu_t *, genesis_mem_t *, uint16_t);
 int gen_op_reset(gen_cpu_t *, genesis_mem_t *);
 int gen_op_stop(gen_cpu_t *, genesis_mem_t *, uint16_t);
+int gen_op_move_usp(gen_cpu_t *, genesis_mem_t *, uint16_t);
 int gen_op_movep(gen_cpu_t *, genesis_mem_t *, uint16_t);
 int gen_op_abcd(gen_cpu_t *, genesis_mem_t *, uint16_t);
 int gen_op_sbcd(gen_cpu_t *, genesis_mem_t *, uint16_t);
@@ -179,8 +180,6 @@ int gen_cpu_step(gen_cpu_t *cpu, genesis_mem_t *mem, int max_cycles)
 {
     if (!mem || max_cycles <= 0)
         return 0;
-    if (cpu->stopped)
-        return 0;
 
     int irq_cycles = gen_cpu_take_interrupt(cpu, mem);
     if (irq_cycles > 0)
@@ -188,6 +187,13 @@ int gen_cpu_step(gen_cpu_t *cpu, genesis_mem_t *mem, int max_cycles)
         cpu->cycles = irq_cycles;
         gen_cpu_refill_prefetch(cpu, mem);
         return irq_cycles;
+    }
+
+    if (cpu->stopped)
+    {
+        /* STOP: consume tiempo para que VDP/IRQ sigan avanzando hasta despertar por IRQ. */
+        cpu->cycles = (max_cycles < GEN_CYCLES_STOP) ? max_cycles : GEN_CYCLES_STOP;
+        return cpu->cycles;
     }
 
     if (cpu->pc & 1u)
@@ -247,7 +253,7 @@ int gen_cpu_step(gen_cpu_t *cpu, genesis_mem_t *mem, int max_cycles)
             cycles = gen_op_neg(cpu, mem, op);
         else if ((op & GEN_OP_NOT_MASK) == GEN_OP_NOT)
             cycles = gen_op_not(cpu, mem, op);
-        else if ((op & GEN_OP_MOVEA_MASK) == GEN_OP_LEA)
+        else if ((op & 0xF1C0u) == GEN_OP_LEA)
             cycles = gen_op_lea(cpu, mem, op);
         else if ((op & GEN_OP_MOVEA_MASK) == GEN_OP_JMP)
             cycles = gen_op_jmp(cpu, mem, op);
@@ -263,6 +269,8 @@ int gen_cpu_step(gen_cpu_t *cpu, genesis_mem_t *mem, int max_cycles)
             cycles = gen_op_reset(cpu, mem);
         else if (op == GEN_OP_STOP)
             cycles = gen_op_stop(cpu, mem, op);
+        else if ((op & 0xFFF0u) == 0x4E60u)
+            cycles = gen_op_move_usp(cpu, mem, op);
         else if (op == GEN_OP_RTS)
             cycles = gen_op_rts(cpu, mem);
         else if (op == GEN_OP_RTE)

@@ -200,12 +200,17 @@ bool bitemu_load_rom(bitemu_t *emu, const char *path)
     }
     else if (is_md_file(path))
     {
-        converted = genesis_md_to_bin(data, (size_t)size, &rom_size);
-        if (converted)
+        /* Muchos .md son ROM lineal (.gen con otro nombre). Desintercalar solo si el
+         * contenido crudo no tiene ya cabecera SEGA @ 0x100 / 0x000. */
+        if (!is_genesis_rom(data, (size_t)size))
         {
-            rom_data = converted;
-            free(data);
-            data = NULL;
+            converted = genesis_md_to_bin(data, (size_t)size, &rom_size);
+            if (converted)
+            {
+                rom_data = converted;
+                free(data);
+                data = NULL;
+            }
         }
     }
 
@@ -298,6 +303,28 @@ int bitemu_genesis_get_core_stats(const bitemu_t *emu, uint64_t *out_cpu_cyc, ui
     *out_cpu_cyc = emu->impl.genesis.stat_cpu_cyc;
     *out_z80_cyc = emu->impl.genesis.stat_z80_cyc;
     *out_dma_stall_cyc = emu->impl.genesis.stat_dma_stall_consumed;
+    return 0;
+}
+
+int bitemu_genesis_get_debug_state(const bitemu_t *emu, bitemu_genesis_debug_state_t *out_state)
+{
+    if (!emu || emu->console_type != CONSOLE_GENESIS || !out_state)
+        return -1;
+    out_state->display_enabled = (emu->impl.genesis.vdp.regs[1] & 0x40u) ? 1u : 0u;
+    out_state->tmss_unlocked = emu->impl.genesis.mem.tmss_unlocked ? 1u : 0u;
+    out_state->cart_requires_tmss = emu->impl.genesis.mem.cart_requires_tmss ? 1u : 0u;
+    out_state->is_pal = emu->impl.genesis.is_pal ? 1u : 0u;
+    out_state->vdp_reg1 = emu->impl.genesis.vdp.regs[1];
+    out_state->vdp_reg7 = emu->impl.genesis.vdp.regs[7];
+    out_state->line_counter = (uint16_t)emu->impl.genesis.vdp.line_counter;
+    out_state->hint_counter = (uint16_t)emu->impl.genesis.vdp.hint_counter;
+    out_state->hcounter = (uint16_t)emu->impl.genesis.vdp.hcounter;
+    out_state->vcounter = (uint16_t)emu->impl.genesis.vdp.vcounter;
+    out_state->cpu_pc = emu->impl.genesis.cpu.pc;
+    out_state->cpu_sr = emu->impl.genesis.cpu.sr;
+    out_state->cpu_last_opcode = emu->impl.genesis.cpu.last_opcode;
+    out_state->sram_enabled = emu->impl.genesis.mem.sram_enabled ? 1u : 0u;
+    memcpy(out_state->tmss_bytes, emu->impl.genesis.mem.tmss, sizeof(out_state->tmss_bytes));
     return 0;
 }
 

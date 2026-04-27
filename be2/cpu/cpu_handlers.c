@@ -376,9 +376,9 @@ int gen_op_move(gen_cpu_t *cpu, genesis_mem_t *mem, uint16_t op)
     uint32_t src = gen_ea_read(cpu, mem, op & 0x3F, size, NULL);
     if (cpu->cycle_override)
         return 4;
-    uint16_t dst_ea = (op >> 6) & 0x3F;
-    int dst_mode = (dst_ea >> 3) & 7;
-    int dst_reg = dst_ea & 7;
+    int dst_reg = (op >> 9) & 7;
+    int dst_mode = (op >> 6) & 7;
+    uint16_t dst_ea = (uint16_t)((dst_mode << 3) | dst_reg);
 
     if (dst_mode == 0)
         cpu->d[dst_reg] = (size == 0) ? (cpu->d[dst_reg] & 0xFFFFFF00) | (src & 0xFF) : (size == 1) ? (cpu->d[dst_reg] & 0xFFFF0000) | (src & 0xFFFF) : src;
@@ -389,10 +389,12 @@ int gen_op_move(gen_cpu_t *cpu, genesis_mem_t *mem, uint16_t op)
         uint32_t addr = gen_ea_addr(cpu, mem, dst_ea, size);
         gen_ea_write(cpu, mem, addr, src, size);
     }
-    set_n(cpu, (size == 0 && (src & 0x80)) || (size == 1 && (src & 0x8000)) || (size == 2 && (src & 0x80000000)));
-    set_z(cpu, (size == 0 && !(src & 0xFF)) || (size == 1 && !(src & 0xFFFF)) || (size == 2 && src == 0));
-    set_v(cpu, 0);
-    set_c(cpu, 0);
+    if (dst_mode != 1) {
+        set_n(cpu, (size == 0 && (src & 0x80)) || (size == 1 && (src & 0x8000)) || (size == 2 && (src & 0x80000000)));
+        set_z(cpu, (size == 0 && !(src & 0xFF)) || (size == 1 && !(src & 0xFFFF)) || (size == 2 && src == 0));
+        set_v(cpu, 0);
+        set_c(cpu, 0);
+    }
     return 4;
 }
 
@@ -1487,10 +1489,27 @@ int gen_op_reset(gen_cpu_t *cpu, genesis_mem_t *mem)
 int gen_op_stop(gen_cpu_t *cpu, genesis_mem_t *mem, uint16_t op)
 {
     uint16_t imm = fetch16(cpu, mem);
-    cpu->sr = (cpu->sr & 0xFF00) | (imm & 0xA71F);
+    cpu->sr = (cpu->sr & (uint16_t)~0xA71Fu) | (imm & 0xA71Fu);
     cpu->stopped = 1;
     (void)op;
     return GEN_CYCLES_STOP;
+}
+
+/* MOVE USP,An / MOVE An,USP (privilegiada). */
+int gen_op_move_usp(gen_cpu_t *cpu, genesis_mem_t *mem, uint16_t op)
+{
+    if ((cpu->sr & 0x2000u) == 0)
+    {
+        gen_take_trap(cpu, mem, GEN_VECTOR_PRIVILEGE_VIOLATION, cpu->pc - 2);
+        return GEN_CYCLES_ILLEGAL;
+    }
+    int reg = op & 7;
+    /* Modelo mínimo sin banco USP separado: usa A7 actual. */
+    if (op & 0x0008u)  /* MOVE USP,An */
+        cpu->a[reg] = cpu->a[7];
+    else               /* MOVE An,USP */
+        cpu->a[7] = cpu->a[reg];
+    return 4;
 }
 
 /* MOVEP: solo (d16,An); bytes en direcciones pares espaciadas (+2). */

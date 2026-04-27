@@ -99,7 +99,7 @@ TEST(gen_full_many_frames)
     remove(rom_path);
 }
 
-/* --- Framebuffer non-zero after run --- */
+/* --- Framebuffer rellenado tras run (backdrop si display off; puede ser todo negro) --- */
 
 TEST(gen_full_framebuffer_updated)
 {
@@ -113,10 +113,14 @@ TEST(gen_full_framebuffer_updated)
         bitemu_run_frame(emu);
 
     const uint8_t *fb = bitemu_get_framebuffer(emu);
-    int nonzero = 0;
-    for (int i = 0; i < GEN_FB_SIZE && nonzero < 10; i++)
-        if (fb[i] != 0) nonzero++;
-    ASSERT_TRUE(nonzero > 0);
+    ASSERT_TRUE(fb != NULL);
+    /* VDP rellena el frame con color de fondo uniforme (reg. 7 + CRAM). */
+    for (int i = 3; i < GEN_FB_SIZE; i += 3)
+    {
+        ASSERT_EQ(fb[0], fb[i]);
+        ASSERT_EQ(fb[1], fb[i + 1]);
+        ASSERT_EQ(fb[2], fb[i + 2]);
+    }
 
     bitemu_destroy(emu);
     remove(rom_path);
@@ -194,6 +198,47 @@ TEST(gen_full_input_mapping)
     remove(rom_path);
 }
 
+/* --- Core stats should move forward with frames --- */
+TEST(gen_full_core_stats_monotonic)
+{
+    const char *rom_path = tmp_path("bitemu_gen_stats_test.bin");
+    write_fake_genesis_rom(rom_path, 0x200);
+
+    bitemu_t *emu = bitemu_create();
+    ASSERT_TRUE(bitemu_load_rom(emu, rom_path));
+
+    uint64_t cpu0 = 0, z800 = 0, dma0 = 0;
+    ASSERT_EQ(bitemu_genesis_get_core_stats(emu, &cpu0, &z800, &dma0), 0);
+
+    for (int i = 0; i < 5; i++)
+        ASSERT_TRUE(bitemu_run_frame(emu));
+
+    uint64_t cpu1 = 0, z801 = 0, dma1 = 0;
+    ASSERT_EQ(bitemu_genesis_get_core_stats(emu, &cpu1, &z801, &dma1), 0);
+    ASSERT_TRUE(cpu1 > cpu0);
+    ASSERT_TRUE(z801 >= z800);
+    ASSERT_TRUE(dma1 >= dma0);
+
+    bitemu_destroy(emu);
+    remove(rom_path);
+}
+
+/* --- Genesis frame rate should be either NTSC or PAL bucket --- */
+TEST(gen_full_frame_hz_bucket)
+{
+    const char *rom_path = tmp_path("bitemu_gen_hz_test.bin");
+    write_fake_genesis_rom(rom_path, 0x200);
+
+    bitemu_t *emu = bitemu_create();
+    ASSERT_TRUE(bitemu_load_rom(emu, rom_path));
+
+    double hz = bitemu_get_frame_hz(emu);
+    ASSERT_TRUE((hz > 59.0 && hz < 61.0) || (hz > 49.0 && hz < 51.0));
+
+    bitemu_destroy(emu);
+    remove(rom_path);
+}
+
 void run_genesis_full_tests(void)
 {
     SUITE("Genesis Full (integration)");
@@ -203,4 +248,6 @@ void run_genesis_full_tests(void)
     RUN(gen_full_reset_preserves_rom);
     RUN(gen_full_save_load_roundtrip);
     RUN(gen_full_input_mapping);
+    RUN(gen_full_core_stats_monotonic);
+    RUN(gen_full_frame_hz_bucket);
 }

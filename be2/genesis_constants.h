@@ -222,6 +222,9 @@ enum {
     GEN_HEADER_SRAM_START_OFF = 0x1B4, /* inicio backup RAM en espacio cartucho */
     GEN_HEADER_SRAM_END_OFF   = 0x1B8, /* fin (inclusive) */
     GEN_HEADER_REGION_OFF = 0x1F0,      /* 4 chars región cartucho; PAL si solo 'E' (sin J/U) */
+    GEN_HEADER_NAME_JP_OFF  = 0x120,    /* nombre doméstico (48 B, espacios) */
+    GEN_HEADER_NAME_INT_OFF = 0x150,  /* nombre internacional (48 B) */
+    GEN_HEADER_NAME_FIELD_LEN = 48,
 };
 
 /* SMD format: 512-byte header, 16KB blocks (8KB even + 8KB odd) */

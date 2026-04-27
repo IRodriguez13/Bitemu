@@ -27,8 +27,43 @@
 #include <stdlib.h>
 #include <string.h>
 #include <stdio.h>
+#include <ctype.h>
 
 #define GEN_BST_EXT_V1_MAGIC 0x314E4547u  /* "GEN1" LE: extensión save state v1 */
+
+/* Lock-on (mapa S&K): solo cartucho Sonic & Knuckles a 4 MiB, no cualquier ROM de ese tamaño. */
+static int genesis_cart_is_sonic_knuckles_lock(const uint8_t *data, size_t size)
+{
+    if (size < GEN_HEADER_NAME_INT_OFF + (size_t)GEN_HEADER_NAME_FIELD_LEN)
+        return 0;
+    static const char *const subs[] = { "SONIC & KNUCKLES", "SONIC AND KNUCKLES" };
+    const size_t nsubs = sizeof(subs) / sizeof(subs[0]);
+    for (int pass = 0; pass < 2; pass++)
+    {
+        size_t off = (pass == 0) ? GEN_HEADER_NAME_INT_OFF : GEN_HEADER_NAME_JP_OFF;
+        const uint8_t *field = data + off;
+        for (size_t s = 0; s < nsubs; s++)
+        {
+            size_t L = strlen(subs[s]);
+            if (L > (size_t)GEN_HEADER_NAME_FIELD_LEN)
+                continue;
+            for (size_t i = 0; i + L <= (size_t)GEN_HEADER_NAME_FIELD_LEN; i++)
+            {
+                size_t j;
+                for (j = 0; j < L; j++)
+                {
+                    char a = (char)toupper((unsigned char)field[i + j]);
+                    char b = (char)toupper((unsigned char)subs[s][j]);
+                    if (a != b)
+                        break;
+                }
+                if (j == L)
+                    return 1;
+            }
+        }
+    }
+    return 0;
+}
 
 typedef struct {
     uint8_t z80_ram[8192];
@@ -229,6 +264,9 @@ static void gen_step(console_t *ctx, int cycles)
             break;
         int bus_extra = gen_cpu_sync_m68k_bus_extra_cycles(step, &impl->cpu, &impl->vdp);
         int slice = step + bus_extra;
+        int room = cycles - consumed;
+        if (slice > room)
+            slice = room;
         consumed += slice;
         if (impl->z80_bus_ack_cycles > (uint32_t)slice)
             impl->z80_bus_ack_cycles -= (uint32_t)slice;
@@ -296,7 +334,7 @@ static void gen_step(console_t *ctx, int cycles)
     if (impl->vdp.regs[1] & 0x40)  /* Display enable */
         gen_vdp_render(&impl->vdp);
     else
-        gen_vdp_render_test_pattern(&impl->vdp);
+        gen_vdp_render_backdrop_only(&impl->vdp);
 }
 
 static bool gen_load_rom(console_t *ctx, const char *path, const uint8_t *data, size_t size)
@@ -331,9 +369,9 @@ static bool gen_load_rom(console_t *ctx, const char *path, const uint8_t *data, 
         for (int i = 0; i < GEN_SSF2_SLOT_COUNT; i++)
             mem->ssf2_bank[i] = (uint8_t)i;
     }
-    /* Lock-on: S&K + locked (≥4MB y sin mapper bancario). */
-    mem->lockon = (size >= GEN_LOCKON_SIZE && !mem->mapper_ssf2) ? 1 : 0;
-    mem->lockon_has_patch = (size >= GEN_LOCKON_SIZE + GEN_LOCKON_PATCH && !mem->mapper_ssf2) ? 1 : 0;
+    /* Lock-on: solo cartucho Sonic & Knuckles (cabecera), no UMK3 u otros 4 MiB lineales. */
+    mem->lockon = (size >= GEN_LOCKON_SIZE && !mem->mapper_ssf2 && genesis_cart_is_sonic_knuckles_lock(data, size)) ? 1 : 0;
+    mem->lockon_has_patch = (mem->lockon && size >= GEN_LOCKON_SIZE + GEN_LOCKON_PATCH) ? 1 : 0;
 
     /* SRAM: "RA" en header. Lock-on: A130F1 controla mapeo, empezar con sram_enabled=0. */
     mem->sram_present = 0;
@@ -352,7 +390,7 @@ static bool gen_load_rom(console_t *ctx, const char *path, const uint8_t *data, 
         if (ra == GEN_HEADER_SRAM_MAGIC)
         {
             mem->sram_present = 1;
-            mem->sram_enabled = 1;  /* Juegos normales: SRAM habilitada por defecto */
+            mem->sram_enabled = 0;  /* A130F1 decide el mapeo, consistente con tests de memoria. */
         }
     }
 
@@ -367,11 +405,9 @@ static bool gen_load_rom(console_t *ctx, const char *path, const uint8_t *data, 
         genesis_mem_apply_sram_header_ie32(mem, NULL);
 
     gen_reset(ctx);
-    mem->cart_requires_tmss =
-        (size >= GEN_HEADER_OFFSET + GEN_HEADER_MAGIC_LEN
-         && memcmp(mem->rom + GEN_HEADER_OFFSET, GEN_HEADER_MAGIC, GEN_HEADER_MAGIC_LEN) == 0)
-            ? 1u
-            : 0u;
+    /* Compatibilidad: no exigir unlock TMSS en runtime por defecto.
+     * Muchos dumps comerciales arrancan sin tocar A14000 en rutas comunes. */
+    mem->cart_requires_tmss = 0;
     if (path && mem->sram_present)
         genesis_mem_load_sav(mem, path);
     log_info("Genesis ROM loaded: %zu bytes%s%s", size,
@@ -629,11 +665,7 @@ static int gen_load_state(console_t *ctx, const char *path)
     }
 
     fclose(f);
-    if (m->rom && m->rom_size >= GEN_HEADER_OFFSET + GEN_HEADER_MAGIC_LEN)
-        m->cart_requires_tmss =
-            (memcmp(m->rom + GEN_HEADER_OFFSET, GEN_HEADER_MAGIC, GEN_HEADER_MAGIC_LEN) == 0) ? 1u : 0u;
-    else
-        m->cart_requires_tmss = 0;
+    m->cart_requires_tmss = 0;
     if (err)
     {
         log_error("Error reading Genesis save state: %s", path);

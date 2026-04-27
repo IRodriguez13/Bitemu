@@ -252,6 +252,9 @@ class LibraryWidget(QWidget):
         self._profile = profile
         self._header.set_profile(profile)
         self._list_panel.set_profile(profile)
+        preview = self._list_panel.get_preview_widget()
+        if isinstance(preview, GamePreviewWithMetadata):
+            preview.set_profile(profile)
         self._footer.set_profile(profile)
         self._footer.set_actions([(5, t("footer.back")), (4, t("footer.load"))])
         self._apply_profile_styles()
